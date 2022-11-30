@@ -9,5 +9,6 @@ Let people know what your project can do specifically. Provide context and add a
 
 ## Installation
 conda create --name mu-sfc --file spec-environment.txt
+
 conda activate mu-sfc
 
