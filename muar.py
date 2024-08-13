@@ -270,6 +270,7 @@ substrate_network.shareable_band = shareable_band
 substrate_network.shareable_node = shareable
 
 resilient_algs = ['goku']
+backup_activated = True if alg_name in resilient_algs else False
 sbn_controller = ResilientSubstrateNetworkController(substrate_network) if alg_name in resilient_algs else SubstrateNetworkController(substrate_network)
 
 sbn_controller.number_of_nodes = number_of_nodes
@@ -295,7 +296,7 @@ sbn_controller.allow_temporary_high_latency =  allow_delay
 
 sbn_controller.latency_interval = latency_interval
 
-sbn_controller.output_writter = OutputWritter(quantity_of_nodes_arranged, edges, file_paths['cpu'], file_paths['cache'], file_paths['bandwidth'], file_paths['sf'],setup_sbn_controller_directory_and_file(n_sessions,n_players,alg_name, number_of_nodes, args, timestamp))
+sbn_controller.output_writter = OutputWritter(quantity_of_nodes_arranged, edges, file_paths['cpu'], file_paths['cache'], file_paths['bandwidth'], file_paths['sf'],setup_sbn_controller_directory_and_file(n_sessions,n_players,alg_name, number_of_nodes, args, timestamp),backup_activated=backup_activated)
 sbn_controller.shareable_band = shareable_band
 sbn_controller.costs_parameters = costs_parameters
 sbn_controller.flows = n_sessions

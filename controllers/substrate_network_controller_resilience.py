@@ -850,7 +850,11 @@ class ResilientSubstrateNetworkController():
                     #try:
                     if sfc_id not in self.substrate_network.sfc_dict:
                         continue
+                    sfc = self.substrate_network.get_sfc_by_id(sfc_id)
 
+                    #TODO:se tiver backup faz o undeploy e ativa a backup como principal, se não move pra fila.
+                    
+                    #self.undeploy_sfc()
                     self.send_back_to_qeue(self.substrate_network.get_sfc_by_id(sfc_id))
                     #except Exception as e :
 #                         print()
