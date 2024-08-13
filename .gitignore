@@ -10,6 +10,7 @@ algorithms/__pycache__/*
 .vs/PythonSettings.json
 .vs/slnx.sqlite
 .vs/sfc-system/v17/.suo
+results_*
 logs/*
 test.py
 results_flows_*
@@ -21,3 +22,5 @@ plots/figures/plot_cpu_utilization.pdf
 plots/figures/plot_latency.pdf
 core/__init__.py
 *.pyc
+csbc_simu.rar
+RESULTADOS_8_12.rar
