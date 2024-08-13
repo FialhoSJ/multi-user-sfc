@@ -1,5 +1,11 @@
 from platform import node
+import threading
 import networkx as nx
+import numpy as np 
+import re
+from shapely.geometry import Point
+from shapely.geometry.polygon import Polygon
+from scipy.spatial import KDTree
 
 """
 node data structure:
@@ -38,17 +44,63 @@ class Net(nx.Graph):
         nx.Graph.__init__(self)
         self.sfc_dict = {}
         self.sfc_route_info = {} # sfc_id, route_info
+        
         self.total_cpu_used = 0
         self.total_cpu_capacity = 0
-        self.max_cpu_overload = 1
+        
+        self.practical_cpu_used =  0 
+        self.practical_cpu_capacity =  0 
+        
         self.total_cache_used = 0
         self.total_cache_capacity = 0
-        self.max_cache_overload = 1
-        self.total_bandwidth_used = 0
+
+        self.practical_cache_used =  0 
+        self.practical_cache_capacity = 0 
+
+        self.practical_bw_used = 0
+        self.practical_bw_capacity = 0
+        self.max_cpu_overload = 1
+
+        self.total_bandwidth_used = 0  
         
+        self.max_cache_overload = 1
+        
+        self.cpu_saved = 0
+        self.cache_saved = 0
+        self.shared_vnfs_count = 0
+
         self.Graph = 0
         self.single_source_minimum_latency_path = None
-    
+        self.nodes_positions = 0
+        self.kd_positions = 0
+        self.map_area = 0
+        self.processing_delay_info = [] # stores processing delay information for each node in the topology
+        self.shareable_sf_sfc = {} # stores sfc information for a shareable sf for 
+                                    # later undeploy.
+        self.sf_route_info = {}
+        self.sfs_flux_info = {}
+        self.shared_sfs = {}
+        self.shareable_band = False
+        self.shareable_node = False
+        self.verbose = False
+        self.lock = threading.Lock()
+
+    def set_verbose(self,verbose):
+        self.verbose = verbose
+
+    def reset_sfs_flux_info(self):
+        for edge in self.edges():
+            self.sfs_flux_info[(edge[0], edge[1])] = []
+            self.sfs_flux_info[(edge[1], edge[0])] = []
+    def reset_shared_sfs(self):
+        for node in self.nodes():
+            self.shared_sfs[node] = []
+    def set_node_processing_delay(self):
+        pass
+    def get_node_processing_delay(self):
+        pass
+    def get_nodes_processing_delay(self):
+        pass
     def set_max_cpu_overload(self, ratio):
         self.max_cpu_overload = ratio
     def get_max_cpu_overload(self):
@@ -80,12 +132,51 @@ class Net(nx.Graph):
         self._set_node_attribute(node_id, position=position)
     def get_node_position(self, node_id):
         return self._get_node_attribute(node_id, "position")
+    
+    def get_all_node_positions(self):
+        if self.nodes_positions == 0 or self.kd_positions == 0:
+            node_positions = {}
+            for node_id in self.nodes:
+                if node_id != 0:
+                    node_positions[node_id] = self.get_node_position(node_id)
+            self.nodes_positions = node_positions
+            server_coords = np.array(list(node_positions.values()))
+            self.kd_positions = KDTree(server_coords)
+            return node_positions
+        else:
+            
+            return self.nodes_positions
+    def get_closer_server_by_position(self,x_user,y_user):
+        if self.kd_positions == 0:
+            self.get_all_node_positions
+        distances, closer_server_idx = self.kd_positions.query(np.array([x_user, y_user]))
+        closer_server = list(self.nodes_positions.keys())[closer_server_idx]   
+        return closer_server
+    
+    def get_map_area(self):
+        if self.map_area == 0:
+            x,y = [],[]
+            nodes_positions =self.get_all_node_positions()
+            for server,coord in nodes_positions.items():
+                x.append(coord[0])
+                y.append(coord[1])
+            min_x=min(x)
+            max_x=max(x)
+            min_y=min(y)
+            max_y=max(y)
+            vert =  [(min_x, min_y), (max_x, min_y), (max_x, max_y),(min_x,max_y) ]
+            self.map_area = vert
+            return vert
+        else:
+            return self.map_area
 
     def set_node_cpu_capacity(self, node_id, cpu_capacity):
         self._set_node_attribute(node_id, cpu_capacity=cpu_capacity)
         return cpu_capacity
+            
     def set_node_cpu_used(self, node_id, cpu_used):
-        return self._set_node_attribute(node_id, cpu_used = cpu_used)
+        self._set_node_attribute(node_id, cpu_used = cpu_used)
+
     def set_node_cpu_free(self, node_id, cpu_free):
         return self._set_node_attribute(node_id, cpu_free = cpu_free)
     def get_node_cpu_capacity(self, node_id):
@@ -94,10 +185,13 @@ class Net(nx.Graph):
         return self._get_node_attribute(node_id, "cpu_used")
     def get_node_cpu_free(self, node_id):
         return self._get_node_attribute(node_id, "cpu_free")
+    
     def allocate_cpu_resource(self, node_id, cpu_amount):
+        
         cpu_capacity = self.get_node_cpu_capacity(node_id)
         cpu_free = self.get_node_cpu_free(node_id)
         cpu_used = self.get_node_cpu_used(node_id)
+        
         if cpu_amount > cpu_free:
             return False
         else:
@@ -115,6 +209,7 @@ class Net(nx.Graph):
             self.set_node_cpu_used(node_id, cpu_used-cpu_amount)
             return True
 
+
     def change_node_cache_capacity(self, node_id):
         pass
     def reset_node_cache_capacity(self, node_id, cache_capacity):
@@ -129,10 +224,15 @@ class Net(nx.Graph):
     def set_node_cache_capacity(self, node_id, cache_capacity):
         self._set_node_attribute(node_id, cache_capacity=cache_capacity)
         return cache_capacity
+    def get_shareable_sfs(self):
+        return self.shared_sfs
+    def get_flux_info(self):
+        return self.sfs_flux_info
     def set_node_cache_used(self, node_id, cache_used):
         return self._set_node_attribute(node_id, cache_used = cache_used)
     def set_node_cache_free(self, node_id, cache_free):
         return self._set_node_attribute(node_id, cache_free = cache_free)
+    
     def get_node_cache_capacity(self, node_id):
         return self._get_node_attribute(node_id, "cache_capacity")
     def get_node_cache_used(self, node_id):
@@ -184,10 +284,10 @@ class Net(nx.Graph):
         return self.reset_bandwidth_capacity(u, v, bw_c)
     def reset_bandwidth(self, u, v):
         #reset used and free bandwidth by keep capacity not changed
-        capacity = self.get_link_bandwidth_capacity(u, v)
+        capacity = self.get_link_bandwidth_capacity(u,v)
+        #capacity = self.get_00_bandwidth_capacity(u, v)
         self.set_link_bandwidth_free(u, v, capacity)
         self.set_link_bandwidth_used(u, v, 0)
-
     def set_link_bandwidth_capacity(self, u, v, bw_c):
         self._set_link_attribute(u, v, bandwidth_capacity=bw_c)
         return bw_c
@@ -262,8 +362,8 @@ class Net(nx.Graph):
         return nx.shortest_path_length(self, source=source, target=target, weight='latency')
 
     def get_shortest_path(self, source, target):
-        return nx.shortest_path(self, source=source, target=target, weight='latency')
-        
+        return nx.shortest_path(self, source=source, target=target, weight='latency')   
+
     def get_single_source_minimum_latency_path(self, src):
         return nx.single_source_dijkstra(self, source=src, cutoff=None, weight='latency')
 
@@ -277,133 +377,261 @@ class Net(nx.Graph):
         return single_source_minimum_latency_path
 
     def deploy_sfc(self, sfc, route_info):
-        if not route_info:
-            print("route info is None")
-            return
-        if sfc.id not in self.sfc_dict:
-            self.sfc_dict[sfc.id] = sfc
-        if sfc.id not in self.sfc_route_info:
-            self.sfc_route_info[sfc.id] = route_info
-        for vnf_id, path in list(route_info.items()):
-            if vnf_id == 'dst':
-                #self.nodes[sfc.dst.substrate_node]['sfc_vnf_list'].append((sfc.id, sfc.dst))
-                tmp = self._get_node_attribute(sfc.dst.substrate_node,'sfc_vnf_list')
-                tmp.append( (sfc.id, sfc.dst) ) 
-                self._set_node_attribute(sfc.dst.substrate_node, sfc_vnf_list=tmp)
-                
-                continue
-            vnf = sfc.get_vnf_by_id(vnf_id)
-            # print path
-            #self.nodes[path[0]]['sfc_vnf_list'].append((sfc.id, vnf))
-            tmp = self._get_node_attribute(path[0],'sfc_vnf_list')
-            tmp.append((sfc.id, vnf))
-            self._set_node_attribute(path[0], sfc_vnf_list=tmp)
-        # sfc.start()
+        with self.lock:
+            if not route_info:
+                print("route info is None")
+                return
+            if sfc.id not in self.sfc_dict:
+                self.sfc_dict[sfc.id] = sfc
+            if sfc.id not in self.sfc_route_info:
+                self.sfc_route_info[sfc.id] = route_info
+            for vnf_id, path in list(route_info.items()):
+                if vnf_id == 'dst':
+                    #self.nodes[sfc.dst.substrate_node]['sfc_vnf_list'].append((sfc.id, sfc.dst))
+                    tmp = self._get_node_attribute(sfc.dst.substrate_node,'sfc_vnf_list')
+                    tmp.append( (sfc.id, sfc.dst) ) 
+                    self._set_node_attribute(sfc.dst.substrate_node, sfc_vnf_list=tmp)
+                    
+                    continue
+                vnf = sfc.get_vnf_by_id(vnf_id)
+                # print path
+                #self.nodes[path[0]]['sfc_vnf_list'].append((sfc.id, vnf))
+                tmp = self._get_node_attribute(path[0],'sfc_vnf_list')
+                tmp.append((sfc.id, vnf))
+                self._set_node_attribute(path[0], sfc_vnf_list=tmp)
+            # sfc.start()
 
     def undeploy_sfc(self, sfc_id):
-        # after undeployed sfc, sfc need to be deleted from following dicts
-        route_info = self.sfc_route_info[sfc_id]
-        sfc = self.sfc_dict[sfc_id]
-        # sfc.stop()
-
-        # recovery cpu resources
-        # no need to actually modify used and free cpu resource.
-        # the substrate network will be updated once the vnf removed from node
-        for vnf_id, path in list(route_info.items()):
-            if vnf_id == 'dst':
-                self.nodes[sfc.dst.substrate_node]['sfc_vnf_list'].remove((sfc_id, sfc.dst))
-                continue  
-            
-            for node in self.nodes():
-                for sfc_vnfs in self.get_node_sfc_vnf_list(node):
-                    for vnf in sfc_vnfs:
-                        if vnf == sfc.get_vnf_by_id(vnf_id):
-                            save_node = node
-                            continue
-
-            #print('#########  sfc net.py  ###########')
-            #self.nodes[sfc.get_substrate_node(sfc.get_vnf_by_id(vnf_id))]['sfc_vnf_list'].remove((sfc_id, sfc.get_vnf_by_id(vnf_id)))
-            self.nodes[save_node]['sfc_vnf_list'].remove((sfc_id, sfc.get_vnf_by_id(vnf_id)))
-        self.sfc_route_info.pop(sfc_id, None)
-        self.sfc_dict.pop(sfc_id, None)
-        print('sfc size', len(self.sfc_dict))
-        
-        #if(len(self.sfc_dict) == 0):
-           # print('quitting')
-           #return 
-            #quit()
-        # recovery bandwidth resources
+        with self.lock:
+            if sfc_id not in self.sfc_route_info or sfc_id not in self.sfc_dict:
+                print("Not in both")
+            else:
+                # after undeployed sfc, sfc need to be deleted from following dicts
+                route_info = self.sfc_route_info[sfc_id]
+                sfc = self.sfc_dict[sfc_id]
+                # sfc.stop()
+                # recovery cpu resources
+                # no need to actually modify used and free cpu resource.
+                # the substrate network will be updated once the vnf removed from node
+                for vnf_id, path in list(route_info.items()):
+                    if vnf_id == 'dst':
+                        self.nodes[sfc.dst.substrate_node]['sfc_vnf_list'].remove((sfc_id, sfc.dst))
+                        continue  
+                    for node in self.nodes():
+                        for sfc_vnfs in self.get_node_sfc_vnf_list(node):
+                            for vnf in sfc_vnfs:
+                                if vnf == sfc.get_vnf_by_id(vnf_id):
+                                    save_node = node
+                                    continue
+                    self.nodes[save_node]['sfc_vnf_list'].remove((sfc_id, sfc.get_vnf_by_id(vnf_id)))
+                    #print('#########  sfc net.py  ###########')
+                    #self.nodes[sfc.get_substrate_node(sfc.get_vnf_by_id(vnf_id))]['sfc_vnf_list'].remove((sfc_id, sfc.get_vnf_by_id(vnf_id)))
+                self.sfc_route_info.pop(sfc_id, None)
+                self.sfc_dict.pop(sfc_id, None)
+                
+                if self.verbose == True:
+                    print('sfc size', len(self.sfc_dict))
+                
+                #if(len(self.sfc_dict) == 0):
+                # print('quitting')
+                #return 
+                    #quit()
+                # recovery bandwidth resources
 
     def update_network_state(self):
         self.update_nodes_state()
         self.update_bandwidth_state()
 
     def update_nodes_state(self):
-        for node in self.nodes():
-            cpu_used = 0
-            cache_used = 0
-            for sfc_vnf in self.get_node_sfc_vnf_list(node):
-                cpu_used += sfc_vnf[1].get_cpu_request()
-                cache_used += sfc_vnf[1].get_cache_request()
-            self.set_node_cpu_used(node, cpu_used)
-            cpu_free = self.get_node_cpu_capacity(node) - cpu_used
-            self.set_node_cpu_free(node, cpu_free)
-            self.set_node_cache_used(node, cache_used)
-            cache_free = self.get_node_cache_capacity(node) - cache_used
-            self.set_node_cache_free(node, cache_free)
+        with self.lock:
 
-        total_cpu_capacity = 0
-        total_cpu_used = 0
-        total_cache_capacity = 0
-        total_cache_used = 0
-        for node in self.nodes():
-            total_cpu_used += self.get_node_cpu_used(node)
-            total_cpu_capacity += self.get_node_cpu_capacity(node)
-            total_cache_used += self.get_node_cache_used(node)
-            total_cache_capacity += self.get_node_cache_capacity(node)
+            pattern = re.compile(r'_p')
+            self.reset_shared_sfs()
+            # Estruturas adicionadas
+            cpu_saved = 0
+            cache_saved = 0
+            shared_vnfs_count = 0
+            shared_vnfs_details = {}
+            all_vnfs_on_nodes = {}
+
+            for node in self.nodes():
+                cpu_used = 0
+                cache_used = 0
+                cpu_capacity = self.get_node_cpu_capacity(node)
+                cache_capacity = self.get_node_cache_capacity(node)
+
+                for sfc_vnf in self.get_node_sfc_vnf_list(node):
+                    vnf_id = sfc_vnf[1].id
+                    if self.shareable_node:
+                        if vnf_id not in list(map(lambda sf: sf.id, self.shared_sfs[node])):
+                            cpu_used += sfc_vnf[1].get_cpu_request()
+                            cache_used += sfc_vnf[1].get_cache_request()
+                            if re.search(pattern, vnf_id) is None and vnf_id not in ('src', 'dst'):
+                                self.shared_sfs[node].append(sfc_vnf[1])
+                        else:
+                            # Lógica para contabilizar recursos poupados e detalhes das VNFs compartilhadas
+                            cpu_request = sfc_vnf[1].get_cpu_request()
+                            cache_request = sfc_vnf[1].get_cache_request()
+                            cpu_saved += cpu_request
+                            cache_saved += cache_request
+                            shared_vnfs_count += 1
+                            if vnf_id in shared_vnfs_details:
+                                shared_vnfs_details[vnf_id].add(sfc_vnf[0])  # Adiciona SFC se já existe
+                            else:
+                                shared_vnfs_details[vnf_id] = {sfc_vnf[0]}
+                    else:
+                        cpu_used += sfc_vnf[1].get_cpu_request()
+                        cache_used += sfc_vnf[1].get_cache_request()
+                    
+                    # Atualiza o dicionário de todas as VNFs nos nós
+                    if vnf_id not in all_vnfs_on_nodes:
+                        all_vnfs_on_nodes[vnf_id] = [node]
+                    elif node not in all_vnfs_on_nodes[vnf_id]:
+                        all_vnfs_on_nodes[vnf_id].append(node)
+
+                self.set_node_cpu_used(node, cpu_used)
+                cpu_free = cpu_capacity - cpu_used
+                self.set_node_cpu_free(node, cpu_free)
+                self.set_node_cache_used(node, cache_used)
+                cache_free = cache_capacity - cache_used
+                self.set_node_cache_free(node, cache_free)
+
+            self.cpu_saved = cpu_saved
+            self.cache_saved = cache_saved
+            self.shared_vnfs_count = shared_vnfs_count
+            # Após o loop, imprime os resultados adicionais
+            # print(f"CPU poupado: {}, Cache poupado: {cache_saved}")
+            # print(f"VNFs compartilhadas: {shared_vnfs_count}, Detalhes: {shared_vnfs_details}")
+            # print(f"IDs de todas as VNFs nos nós: {all_vnfs_on_nodes}")
             
-        self.total_cpu_used = total_cpu_used
-        self.total_cpu_capacity = total_cpu_capacity
-        self.total_cache_used = total_cache_used
-        self.total_cache_capacity = total_cache_capacity
-        # print self.print_out_nodes_information()
+            total_cpu_capacity = 0
+            total_cpu_used = 0
+            total_cache_capacity = 0
+            total_cache_used = 0
+            
+            practical_cpu_capacity = 0
+            practical_cpu_used = 0
+            practical_cache_capacity = 0
+            practical_cache_used = 0
+            
+            for node in self.nodes():
+                node_cpu_used = self.get_node_cpu_used(node)
+                node_cpu_capacity = self.get_node_cpu_capacity(node)
+                node_cache_used =  self.get_node_cache_used(node)
+                node_cache_capacity = self.get_node_cache_capacity(node)
+
+                total_cpu_used += node_cpu_used
+                total_cpu_capacity += node_cpu_capacity
+                total_cache_used += node_cache_used
+                total_cache_capacity += node_cache_capacity
+
+                if node_cpu_used != 0:
+                    practical_cpu_used += node_cpu_used
+                    practical_cpu_capacity += node_cpu_capacity
+                if node_cache_used != 0:
+                    practical_cache_used += node_cache_used
+                    practical_cache_capacity += node_cache_capacity
+
+            self.total_cpu_used = total_cpu_used
+            self.total_cpu_capacity = total_cpu_capacity
+            self.total_cache_used = total_cache_used
+            self.total_cache_capacity = total_cache_capacity
+
+            self.practical_cpu_used = practical_cpu_used
+            self.practical_cpu_capacity = practical_cpu_capacity
+            self.practical_cache_used = practical_cache_used
+            self.practical_cache_capacity = practical_cache_capacity
+
+
 
     def update_bandwidth_state(self):
+        pattern = re.compile(r'_p') 
+        #print(self.sfs_flux_info)
+        self.reset_sfs_flux_info()
         for edge in self.edges():
             self.reset_bandwidth(edge[0], edge[1])
-
         for node in self.nodes():
-           for sfc_vnf in self.get_node_sfc_vnf_list(node):
-               sfc_id = sfc_vnf[0]
-               sfc = self.get_sfc_by_id(sfc_id)
-               vnf = sfc_vnf[1]
-               if vnf.id == 'dst':
+            for sfc_vnf in self.get_node_sfc_vnf_list(node):
+                sfc_id = sfc_vnf[0]
+                # Here, we are assuming a sfc that is not in the 
+                # dict indicated a situation where a sfc is no longer present,
+                # but there's still information about it because one of its
+                # sfs is being shared by someone else.
+                if sfc_id not in self.sfc_dict.keys():
+                    continue
+                sfc = self.get_sfc_by_id(sfc_id)
+                vnf = sfc_vnf[1]
+                if vnf.id == 'dst':
                    continue
-               route_info = self.sfc_route_info[sfc_id]
-               path = route_info[vnf.id]
-               self.allocate_bandwidth_resource_path(path, sfc.get_link_bandwidth_request(vnf.id, vnf.next_vnf.id))
+                route_info = self.sfc_route_info[sfc_id]
+                path = route_info[vnf.id]
+                # if next sf is in the same node 
+                # then there's no bandwidth to be spent
+                if len(path) <= 1:
+                    continue
+                for i in range(len(path) - 1):
+                    if self.shareable_band:
+                        link_sfs_info = self.sfs_flux_info[(path[i], path[i + 1])]
+                        flux_ids = [flux_vnf.id for flux_vnf in link_sfs_info]
+                        # if link does not contain a shareable flux then we allocate bandwidth
+                        if vnf.id not in flux_ids:
+                            self.allocate_bandwidth_resource(path[i], path[i + 1], 
+                                                             sfc.get_link_bandwidth_request(vnf.id, vnf.next_vnf.id))
+                            if re.search(pattern, vnf.id) is None and vnf.id != 'src':
+                                self.sfs_flux_info[(path[i], path[i + 1])].append(vnf)
+                        else:
+                            pass
+                    else:
+                        self.allocate_bandwidth_resource(path[i], path[i + 1], 
+                                                         sfc.get_link_bandwidth_request(vnf.id, vnf.next_vnf.id))
         total_bandwidth_used = 0
         total_bandwidth_capacity = 0
+
+        practical_bw_used = 0
+        practical_bw_capacity = 0
+
         for edge in self.edges():
             total_bandwidth_used += self.get_link_bandwidth_used(edge[0], edge[1])
             total_bandwidth_capacity += self.get_link_bandwidth_capacity(edge[0], edge[1])
+            
+            if  self.get_link_bandwidth_used(edge[0], edge[1]) != 0:
+                practical_bw_used  += self.get_link_bandwidth_used(edge[0], edge[1])
+                practical_bw_capacity += self.get_link_bandwidth_capacity(edge[0], edge[1])
+
         self.total_bandwidth_capacity = total_bandwidth_capacity
         self.total_bandwidth_used = total_bandwidth_used
 
-    def print_out_nodes_information(self):
-        for node in self.nodes():
-            node_id = node
-            cpu_used = self.get_node_cpu_used(node)
-            cpu_free = self.get_node_cpu_free(node)
-            cpu_capacity = self.get_node_cpu_capacity(node)
-            sfc_vnf_list = self.get_node_sfc_vnf_list(node)
+        self.practical_bw_capacity = practical_bw_capacity
+        self.practical_bw_used = practical_bw_used
+
+    def print_out_nodes_information(self, failure_cpu=None, failure_cache=None):
+        # for node in self.nodes():
+        #     node_id = node  
+        #     cpu_used = self.get_node_cpu_used(node)
+        #     cpu_free = self.get_node_cpu_free(node)
+        #     cpu_capacity = self.get_node_cpu_capacity(node)
+        #     sfc_vnf_list = self.get_node_sfc_vnf_list(node)
             # print "node id:", node_id, ":", "CPU: used:", cpu_used, "free:", cpu_free, "capacity:", cpu_capacity, "vnf", sfc_vnf_list
         # print "total cpu used: ", self.total_cpu_used, "total cpu capacity: ", self.total_cpu_capacity
-        print("CPU       utilization: ", str(round(self.total_cpu_used*1.0/self.total_cpu_capacity*100,3)) +'%')
+        if failure_cpu is None:
+            print("CPU       utilization: ", str(round(self.total_cpu_used*1.0/self.total_cpu_capacity*100,3)) +'%')
+        else:
+            print("CPU       utilization: ", str(round(self.total_cpu_used*1.0/self.total_cpu_capacity*100,3)) +'%', end=" ")
+            #print(f"     Failure for CPU: {failure_cpu}%")
         #print(("CPU over utilization: ", str(self.get_cpu_overloaded_utilization_rate()*100) +'%'))
-        print("Cache     utilization: ", str(round(self.total_cache_used*1.0/self.total_cache_capacity*100,3)) +'%')
-
-    def print_out_edges_information(self):
+        if failure_cache is None:
+            print("Cache     utilization: ", str(round(self.total_cache_used*1.0/self.total_cache_capacity*100,3)) +'%')
+        else:
+            print("Cache     utilization: ", str(round(self.total_cache_used*1.0/self.total_cache_capacity*100,3)) +'%', end=" ")
+            #print(f"     Failure for Cache: {failure_cache}%")
+    
+    def print_out_acceptance_information(self,success_arr):
+        if len(success_arr) != 0: 
+            media = np.mean(success_arr)
+            media_porc = media*100 
+            print("Acceptance: ", str(round(media_porc,3))+'%', end=" ")
+    
+    def print_out_edges_information(self, failure_band=None):
         for edge in self.edges():
             cp = self.get_link_bandwidth_capacity(edge[0], edge[1])
             fr = self.get_link_bandwidth_free(edge[0], edge[1])
@@ -411,19 +639,58 @@ class Net(nx.Graph):
             lt = self.get_link_latency(edge[0], edge[1])
             # print "edge:", edge, ":", "BW: used:", ud, "free:", fr, "capacity:", cp, "latency:", lt
         # print "total bandwidth used: ", self.total_bandwidth_used, "total bandwidth capacity: ", self.total_bandwidth_capacity
-        print("Bandwidth utilization: ", str(round(self.total_bandwidth_used*1.0/self.total_bandwidth_capacity*100,3))+'%')
+        if failure_band is None:
+            print("Bandwidth utilization: ", str(round(self.total_bandwidth_used*1.0/self.total_bandwidth_capacity*100,3))+'%')
+        else:
+            print("Bandwidth utilization: ", str(round(self.total_bandwidth_used*1.0/self.total_bandwidth_capacity*100,3))+'%', end=" ")
+            print(f"     Failure for Band: {failure_band}%")
         #print(("Bandwidth utilization(used): ", str(self.get_network_utility()*100)+'%'))
-
+    
     def update(self):
         self.update_network_state()
 
     def get_cpu_utilization_rate(self):
-        self.update()
+        #self.update()
         return self.total_cpu_used*1.0/self.total_cpu_capacity
-    def get_cache_utilization_rate(self):
-        self.update()
-        return self.total_cache_used*1.0/self.total_cache_capacity
     
+    def get_cache_utilization_rate(self):
+        #self.update()
+        return self.total_cache_used*1.0/self.total_cache_capacity
+
+    def get_resilient_cpu_utilization(self):
+        #self.update()
+        return self.total_cpu_used*1.0/1200
+    
+    def get_resilient_cache_utilization(self):
+        #self.update()
+        return self.total_cache_used*1.0/1200
+
+    def get_resilient_bandwidth_utilization(self):
+        #self.update()
+        return self.total_bandwidth_used*1.0/35000
+    
+    def get_active_servers_cpu_rate(self):
+        if self.practical_cpu_capacity != 0:
+            return  self.practical_cpu_used * 1.0/self.practical_cpu_capacity
+        else:
+            return 0
+        
+    def get_active_servers_cache_rate(self):
+        if self.practical_cache_capacity != 0:
+            return self.practical_cache_used*1.0/self.practical_cache_capacity
+        else:
+            return 0
+
+    def get_active_links_bw_rate(self):
+        if self.practical_bw_capacity != 0:
+            return self.practical_bw_used*1.0/self.practical_bw_capacity
+        else:
+            return 0
+
+    def get_bandwidth_utilization_rate(self):
+        self.update()
+        return self.total_bandwidth_used*1.0/self.total_bandwidth_capacity
+
     def get_cpu_overloaded_utilization_rate(self):
         self.update()
         tmp_used = 0
@@ -445,10 +712,6 @@ class Net(nx.Graph):
         if tmp_capacity == 0: 
             return 0
         return tmp_used*1.0/tmp_capacity
-
-    def get_bandwidth_utilization_rate(self):
-        self.update()
-        return self.total_bandwidth_used*1.0/self.total_bandwidth_capacity
 
 
 if __name__ == '__main__':
@@ -491,6 +754,7 @@ if __name__ == '__main__':
 
     print((substrate_network.nodes()))
     print((substrate_network.edges()))
+
     print((substrate_network.get_link_latency(1, 2)))
     #print(substrate_network.get_link_latency(2, 1))
     print((substrate_network.get_link_bandwidth_free(1, 2)))
@@ -498,7 +762,7 @@ if __name__ == '__main__':
     print([n for n in substrate_network.get_neighbours(6)])
     # print substrate_network.all_shortest_paths()
     print("shortestpath")
-    print((substrate_network.get_shortest_paths(1,7,weight='latency')))
+    print((substrate_network.get_shortest_paths(1,5,weight='latency')))
     path = substrate_network.get_minimum_latency_path(1, 5)
     print(path)
     print((substrate_network.get_minimum_free_bandwidth(path)))
@@ -511,5 +775,7 @@ if __name__ == '__main__':
     print((substrate_network.get_link_bandwidth_capacity(3, 5)))
     print((substrate_network.get_link_bandwidth_capacity(5, 3)))
     print((substrate_network.get_node_cache_capacity(2)))
+    print("****************************************************")
+    print(substrate_network.get_shortest_path_length(1,6))
 
 

@@ -26,6 +26,12 @@ class VNF():
         self.substrate_node = None
         self._attach_interfaces()
         self.type = None
+        self.referenced_sf = None
+
+
+    def __hash__(self):
+        return hash(str(self))
+
 
     def _attach_interfaces(self):
         income_inf = Interface('income')

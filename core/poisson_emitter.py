@@ -1,9 +1,9 @@
 import numpy as np
-import sched, time
+import time
 from threading import Timer
 
 class PoissonEmitter():
-    def __init__(self, lam):
+    def __init__(self, lam, initial_delay=0):
         self.current_time = 0
         self.next_time = 0
         self.lam = lam
@@ -11,16 +11,20 @@ class PoissonEmitter():
         self.callback = None
         self.is_stop = True
         self.timer = None
+        self.initial_delay = initial_delay
 
     def start(self, func, *args):
         print("Generator is started")
         self.is_stop = False
         self.callback = func
         self.args = args[0]
-        self.reset_timer()
+        if self.initial_delay > 0:
+            self.timer = Timer(self.initial_delay, self.reset_timer)
+            self.timer.start()
+        else:
+            self.reset_timer()
 
     def reset_timer(self):
-        #print("PE reset")
         self.is_output = False
         interval = np.random.poisson(self.lam)
         print("interval is: ", interval)
@@ -28,7 +32,6 @@ class PoissonEmitter():
         self.timer.start()
 
     def run(self):
-        #print("PE run")
         self.is_output = True
         self.callback(self.args)
         if not self.is_stop:
@@ -38,18 +41,3 @@ class PoissonEmitter():
         self.is_stop = True
         self.timer.cancel()
         print("Generator is stopped")
-
-
-    
-
-    
-
-if __name__ == '__main__':
-
-    sg = PoissonEmitter(5)
-    def p(*args):
-        print("args", args)
-        print((args[0]))
-    sg.start(p, 1, 2)
-    time.sleep(20)
-    sg.stop()

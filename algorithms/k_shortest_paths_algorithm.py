@@ -33,8 +33,9 @@ ch.setFormatter(formatter)
 # add ch to logger
 logger.addHandler(ch)
 
+from algorithms.algorithm import Algorithm
 
-class KShortestPathsAlgorithm():
+class KShortestPathsAlgorithm(Algorithm):
     '''k-shortest paths algorithm.
     Find k shortest paths between src and dst.
     Use the longest path as the candidate path. (initial path, who has the most number of node along the path)

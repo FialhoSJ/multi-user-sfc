@@ -1,8 +1,3 @@
-# set python environment in Anaconda Ubuntu
+# set python environment in Anaconda
 conda create --name mu-sfc --file spec-environment.txt
 conda activate mu-sfc
-
-# set python environment in Anaconda Windows
-conda create --name mu-sfc
-conda install -c labscript-suite windows-curses
-conda install -c conda-forge numpy jupyterlab networkx

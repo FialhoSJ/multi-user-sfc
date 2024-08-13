@@ -34,8 +34,10 @@ ch.setFormatter(formatter)
 # add ch to logger
 logger.addHandler(ch)
 
+from algorithms.algorithm import Algorithm
 
-class DynamicProgrammingAlgorithm():
+
+class DynamicProgrammingAlgorithm(Algorithm):
     def __init__(self):
         self.name = "Dynamic Programming Algorithm"
         self.substrate_network = None
@@ -46,6 +48,14 @@ class DynamicProgrammingAlgorithm():
         self.route_info = {}
         self.single_source_minimum_latency_path = None
         self.latency = None
+        self.latency_minus_dst =  0
+        self.fail_for_band = 0
+        self.fail_for_cache = 0
+        self.fail_for_cpu = 0
+        self.fail_resources = 0
+        self.saved_band = 0
+        self.saved_cpu = 0
+        self.saved_cache = 0
 
     def clear_all(self):
         #logger.debug('clear all')
@@ -71,7 +81,6 @@ class DynamicProgrammingAlgorithm():
         src_substrate_node = self.sfc.get_substrate_node(src_vnf)
         dst_vnf = self.sfc.get_dst_vnf()
         dst_substrate_node = self.sfc.get_substrate_node(dst_vnf)
-        import re 
         for node in self.substrate_network.nodes():
             self.node_info[node] = {}
             for vnf_id, vnf in list(sfc.vnfs.items()):
@@ -112,17 +121,21 @@ class DynamicProgrammingAlgorithm():
     def get_route_info(self):
         return self.route_info
 
-    def start_algorithm(self):
+    def start_algorithm(self, shareable_sfs=None, **kwargs):
         substrate_network = self.substrate_network
         sfc = self.sfc
         #logger.info('Algorithm start')
-        if self.algorithm(substrate_network, sfc):
+        if self.algorithm(substrate_network, sfc, shareable_sfs):
             #logger.info('Algorithm end, success')
             return True
         #logger.info('Algorithm end, failed')
         return False
 
-    def algorithm(self,substrate_network, sfc):
+    def algorithm(self,substrate_network, sfc, shareable_sfs=None):
+        # faça alguma coisa
+        if shareable_sfs is not None:
+            pass
+
         nodes = substrate_network.nodes()
         # Get src and dst vnf
         src_vnf = sfc.get_src_vnf()
@@ -136,12 +149,12 @@ class DynamicProgrammingAlgorithm():
         self.dst_substrate_node = dst_substrate_node
 
         vnf1 = src_vnf.get_next_vnf()
-        self.dp(src_substrate_node, vnf1)
+        self._dp(src_substrate_node, vnf1)
 
         vnf = vnf1.get_next_vnf()
         while vnf.id != dst_vnf.id:
             for node in nodes:
-                self.dp(node, vnf)
+                self._dp(node, vnf)
             vnf = vnf.get_next_vnf()
 
         # For dst:
@@ -233,11 +246,12 @@ class DynamicProgrammingAlgorithm():
             return False
 
 
-    def dp(self, substrate_node, vnf):
+    def _dp(self, substrate_node, vnf):
         """
         Start from substrate node substrate_node, calculate all paths and latency from substrate_node to other nodes N.
         update information in nodes N for vnf, if latency is minimum. 
         """
+
         # Get precedent of the vnf
         sfc = self.sfc
         previous_vnf = sfc.get_previous_vnf(vnf)
@@ -258,18 +272,25 @@ class DynamicProgrammingAlgorithm():
 
         for node, latency in list(node_latency.items()):
             if node == self.src_substrate_node or node == self.dst_substrate_node:
-                # Ingress and egress cannot host this vnf
                 continue
+                # Ingress and egress cannot host this vnf
+            #if node in self.node_info[substrate_node][previous_vnf_id]['current_substrate_nodes']:
+            #    # If node has been used, cannot host this vnf
+            #    # Current_substrate_nodes contains the nodes that have been used
+            #    continue
+
             # Check CPU and cache resources
             cpu_available = self.substrate_network.get_node_cpu_free(node)
             cache_available = self.substrate_network.get_node_cache_free(node)
             if cpu_request > cpu_available:
                 # if node has not sufficient cpu, check next node.
                 #logger.warning("not sufficient CPU in Node " + str(node))
+                self.fail_for_cpu += 1
                 continue
             if cache_request > cache_available:
                 # if node has not sufficient cache, check next node. 
                 #logger.warning("not sufficient cache in Node " + str(node))
+                self.fail_for_cache += 1
                 continue
 
             # Check bandwidth resources
@@ -296,6 +317,7 @@ class DynamicProgrammingAlgorithm():
                 # condition to check latency
                 bandwidth_usage_info[edge_key] = residual_bandwidth
             if not is_bandwidth_sufficient:
+                self.fail_for_band += 1
                 continue
             self.node_info[node][vnf_id]['bandwidth_usage_info'] = bandwidth_usage_info
 

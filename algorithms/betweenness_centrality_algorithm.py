@@ -33,8 +33,9 @@ ch.setFormatter(formatter)
 # add ch to logger
 logger.addHandler(ch)
 
+from algorithms.algorithm import Algorithm
 
-class BetweennessCentralityAlgorithm():
+class BetweennessCentralityAlgorithm(Algorithm):
     def __init__(self):
         self.name = "Betweenness Centrality Algorithm"
         self.substrate_network = None
@@ -97,7 +98,7 @@ class BetweennessCentralityAlgorithm():
             current_vnf = sfc.get_next_vnf(current_vnf)
 
         # print vnf_list
-        def helper(substrate_network, sfc, vnf_list, head, tail, src, dst):
+        def _helper(substrate_network, sfc, vnf_list, head, tail, src, dst):
             # base condition
             # print "------------------------------------",head, tail, src, dst
             if head < tail:
@@ -130,10 +131,10 @@ class BetweennessCentralityAlgorithm():
                     # print candidate_node
                     map_res[middle_vnf.id] = candidate_node
                     used_nodes.append(candidate_node)
-                    helper(substrate_network, sfc, vnf_list, head, middle_index, map_res[vnf_list[head].id], map_res[vnf_list[middle_index].id])
-                    helper(substrate_network, sfc, vnf_list, middle_index, tail,  map_res[vnf_list[middle_index].id], map_res[vnf_list[tail].id])
+                    _helper(substrate_network, sfc, vnf_list, head, middle_index, map_res[vnf_list[head].id], map_res[vnf_list[middle_index].id])
+                    _helper(substrate_network, sfc, vnf_list, middle_index, tail,  map_res[vnf_list[middle_index].id], map_res[vnf_list[tail].id])
 
-        helper(substrate_network, sfc, vnf_list, 0, len(vnf_list)-1, map_res[vnf_list[0].id], map_res[vnf_list[len(vnf_list)-1].id])
+        _helper(substrate_network, sfc, vnf_list, 0, len(vnf_list)-1, map_res[vnf_list[0].id], map_res[vnf_list[len(vnf_list)-1].id])
 
         # TODO: find shortest path between vnfs
 

@@ -6,6 +6,7 @@ class SFC():
     def __init__(self, vnf_src, vnf_dst):
         self.number_of_vnfs = 0 # This is not include src and dst
         self.vnfs = {} #This is not include src and dst
+        
         self.vnfs_dict = None 
         self.src = vnf_src
         self.dst = vnf_dst
@@ -21,6 +22,11 @@ class SFC():
     def __str__(self):
         attrs = vars(self)
         return ', '.join("%s: %s" % item for item in list(attrs.items()))
+
+
+    def __hash__(self):
+        return hash(str(self))
+
 
     def add_vnf(self, vnf):
         self.vnfs[vnf.id] = vnf

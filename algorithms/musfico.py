@@ -133,8 +133,17 @@ class Musfico():
         sfc = self.sfc
         #logger.info('Algorithm start')
         if self.algorithm(substrate_network, sfc):
-            #logger.info('Algorithm end, success')
-            return True
+             if self.latency is not None:
+                if self.latency < 0:
+                    print("Latencia negativa")
+                    self.latency = None
+                    self.route_info = False
+                    return False
+            
+                if  self.latency > sfc.get_latency_request():
+                    self.latency = None
+                    self.route_info = False
+                    return False
         #logger.info('Algorithm end, failed')
         return False
 
@@ -152,12 +161,12 @@ class Musfico():
         self.dst_substrate_node = dst_substrate_node
 
         vnf1 = src_vnf.get_next_vnf()
-        self.dp(src_substrate_node, vnf1)
+        self._dp(src_substrate_node, vnf1)
 
         vnf = vnf1.get_next_vnf()
         while vnf.id != dst_vnf.id:
             for node in nodes:
-                self.dp(node, vnf)
+                self._dp(node, vnf)
             vnf = vnf.get_next_vnf()
 
         # For dst:
@@ -235,14 +244,15 @@ class Musfico():
                 edge_latency = self.substrate_network.get_link_latency(
                     path[i], path[i + 1])
                 self.latency = self.latency - edge_latency
-            if self.latency > sfc.get_latency_request():
+            if self.latency > sfc.get_latency_request() or self.latency < 0: #
                 self.route_info = {}
+                self.latency = None
                 return False
             return True
         else:
             return False
 
-    def dp(self, substrate_node, vnf):
+    def _dp(self, substrate_node, vnf):
         """
         Start from substrate node substrate_node, calculate all paths and latency from substrate_node to other nodes N.
         update information in nodes N for vnf, if latency is minimum. 

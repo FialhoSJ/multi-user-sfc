@@ -1,59 +1,107 @@
-from asyncio import base_subprocess
-from curses import beep
-from turtle import begin_poly
-from controllers.substrate_network_controller import SubstrateNetworkController
-from topology.simple_substrate_network import simple_six_node_topology
-from algorithms.random_algorithm import RandomAlgorithm
-from algorithms.greedy_algorithm import GreedyAlgorithm
-from algorithms.dynamic_programming_algorithm import DynamicProgrammingAlgorithm
-from algorithms.k_shortest_paths_algorithm import KShortestPathsAlgorithm
-from algorithms.betweenness_centrality_algorithm import BetweennessCentralityAlgorithm
-from algorithms.musfico import Musfico  
 import argparse
-from paloalto import generate_substrate_network
 import re
 import os
 import random
 import numpy as np
+import ast
+
+from controllers.substrate_network_controller import SubstrateNetworkController
+from controllers.crasher import Crasher
 from datetime import datetime as dt
 from core.poisson_emitter import PoissonEmitter
 from controllers.sfc_queue import SFCQueue
 from controllers.sfc_generator import SFCGenerator
-from controllers.sfc_controller import SFCController
+
+from algorithms.instantiator import AlgorithmInstantiator
+from sumo.models.user_manager import UserManager
+from sumo.tracer_instantiator import TracerInstantiator
+from topology.instantiator import TopologyInstantiator
+from utils.directory_manager import setup_directories_and_files, setup_sbn_controller_directory_and_file
+from utils.resource_output_utils import OutputWritter
+seed = 42
+random.seed(seed)
+np.random.seed(seed)
 
 # command line arguments
-parser = argparse.ArgumentParser(description='Select MUAR arguments')
+parser = argparse.ArgumentParser(description='Select MUAR arguments') 
 parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
-parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='dp')
-parser.add_argument('--n_players', type=int, help='(int) number of players', default=4)
+parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='goku')
+parser.add_argument('--n_players', type=int, help='(int) number of players', default=8)
 parser.add_argument('--sfc',   type=str, help='(str) on or off', default='on')
-parser.add_argument('--prob',  type=str, help='(str) probability', default=0)
+parser.add_argument('--topology', type=str, help='(str) wich topology ex: luxembourg,small luxembourg ,paloalto', default='luxembourg')
+
+#on: quebrar mais em funçoes
+#off: monolítico
+parser.add_argument('--share',  type=str, help='(str) whether to share sfs or not', default='y')
+parser.add_argument('--time',  type=int, help='(int) the total time for the simulation in seconds', default=120)
+parser.add_argument('--mobility',  type=str, help='(str) mobility', default='y')
+
+parser.add_argument('--shareband',  type=str, help='(str) whether to share sfs or not', default='y')
+parser.add_argument('--allow_delay', type=str, help='(str) whether to allow delay or not', default='n')
+
+parser.add_argument('--allow_crasher', type=str, help='(str) whether to allow delay or not', default='y')
+
+parser.add_argument('--reliability', type=str, help='(str) whether to allow delay or not', default=0.95) #0.95,0.975,0.99
+parser.add_argument('--servers_to_crash', type=str, help='(str) whether to allow delay or not', default=1) #0.95,0.975,0.99
+
+parser.add_argument('--costs_parameter',   type=str, help='cpu,cache,bandwidht,boot Ex: 1111', default='[1,1,1,1]')
+parser.add_argument('--verbose',   type=str, help='verbose log', default='n')
+
+#Coleta dos parâmetros da simulação
 args = parser.parse_args()
 
 alg_name = args.alg
-if alg_name == 'musfico':
-    SELECTED_ALG = Musfico()
-if alg_name == 'dp':
-    SELECTED_ALG = DynamicProgrammingAlgorithm()
-if alg_name == 'g':
-    SELECTED_ALG = GreedyAlgorithm()  
-if alg_name == 'k':
-    SELECTED_ALG = KShortestPathsAlgorithm(5)
-if alg_name == 'b':
-    SELECTED_ALG = BetweennessCentralityAlgorithm() 
-
-substrate_network = generate_substrate_network()
-AVERAGE_TIME_SESSION_ARRIVAL = 10
-sfc_poisson_emitter = PoissonEmitter(AVERAGE_TIME_SESSION_ARRIVAL)
+top_name = args.topology
 n_sessions = args.n_sessions
+n_players = int(args.n_players)
+mobility_activated = True if args.mobility == 'y' else False 
+verbose = True if args.verbose == 'y' else False 
+crasher_activated = 1 if args.allow_crasher == 'y' else 0
+allow_delay =  True if args.share == 'y' else False
+shareable = (args.share == 'y')
+shareable_band = (args.shareband == 'y')
+share_str = "sharing_y" if shareable else "sharing_n"
+costs_parameters = ast.literal_eval(args.costs_parameter)
+servers_to_crash = int(args.servers_to_crash)
+reliability = float(args.reliability)
+alg_instantiator = AlgorithmInstantiator()
+topology_instantiator = TopologyInstantiator()
+tracer_instantiator = TracerInstantiator()
+user_manager = UserManager(int(n_sessions), n_players)
+
+SELECTED_ALG = alg_instantiator.instantiate_algorithm(alg_name)
+topology = topology_instantiator.instantiate_topology(top_name)
+tracer = tracer_instantiator.instantiate_tracer(top_name,user_manager) if mobility_activated else 0
+
+substrate_network = topology.generate_substrate_network()
+number_of_nodes = substrate_network.number_of_nodes()
+edges = substrate_network.edges
+quantity_of_nodes_arranged = np.arange(1, number_of_nodes)
+edges_vnf = {key: [] for key in edges}
+
+# Crasher instantiator, must dismiss node close to the cloud(34)
+processing_nodes = list(topology.processing_nodes)
+processing_nodes.remove(34)
+
+servers_that_will_crash =  random.sample(processing_nodes, servers_to_crash)
+crasher_instance = Crasher(servers_to_crash=[28],operation_mode = 4, processing_nodes=processing_nodes)
+
+AVERAGE_TIME_SESSION_ARRIVAL = 20
+sfc_poisson_emitter = PoissonEmitter(AVERAGE_TIME_SESSION_ARRIVAL)
+
 player_counter = 0
+#sfc_queue = []
 sfc_queue = SFCQueue()
-number_of_nodes = 36
+
 SRC_NODE = 0
 max_duration = 120
-latency = 6
-fator = 0.25 # 1 players consumes fator*100 percentage of resources of an Edge Server
 
+latency_interval = [6,10]
+sfcs_latency = latency_interval[1] if args.allow_delay == 'y' else latency_interval[0]
+
+fator = 0.25 # 1 players consumes fator*100 percentage of resources of an Edge Server
+#fator = 0.1 # 1 players consumes fator*100 percentage of resources of an Edge Server
+edges = substrate_network.edges
 #https://ieeexplore.ieee.org/document/9417376
 #10 cycles per Mbit
 cpb = 10e6
@@ -82,8 +130,8 @@ RE_bw = MA_bw + UNI_bw
 RE = int(RE_bw * cpb)
 #https://ieeexplore.ieee.org/document/9316983
 # final out put 
-EC_TC_bw = int(IA_bw*0.9*0.9*0.8)
-EC_TC = EC_TC_bw * cpb
+EC_TC_bw = int(IA_bw*0.9*0.9*0.8) 
+EC_TC = EC_TC_bw * cpb 
 
 total = IA+DET+FT+MA+UNI+RE+EC_TC
 IA = int(IA/total*fator*100)
@@ -97,11 +145,8 @@ EC_TC = int(EC_TC/total*fator*100)
 MONO = int(DET+FT+MA+UNI+RE+EC_TC)
 CA_size = CA_size/CA_size*fator*100
 
-#n_players = np.random.choice([4, 8, 12, 16])
-n_players = 4
-
 session_counter = 0
-def generate_sfc_session(parameter):
+def generate_sfc_session(parameter) -> None:
     global n_players
     global session_counter
     session_counter = session_counter + 1
@@ -147,7 +192,7 @@ def generate_sfc_session(parameter):
         player_cache_dict["src_node"] = SRC_NODE
         player_cache_dict["dst_node"] = dst_node
         player_cache_dict["duration"] = duration
-        player_cache_dict["latency"] = latency
+        player_cache_dict["latency"] = sfcs_latency
         players_sfc_cache_dict_list.append(player_cache_dict)
         player_unique_dict = {}
         player_unique_dict['name'] = 'sfc_unique_p' + str(i) + '_' + counter
@@ -156,13 +201,14 @@ def generate_sfc_session(parameter):
         player_unique_dict["src_node"] = SRC_NODE
         player_unique_dict["dst_node"] = dst_node
         player_unique_dict["duration"] = duration
-        player_unique_dict["latency"] = latency
+        player_unique_dict["latency"] = sfcs_latency
         players_sfc_unique_dict_list.append(player_unique_dict)
     
     players_sfc_list = []
     for i in range(1,n_players+1):
         players_sfc_list.append([SFCGenerator(players_sfc_cache_dict_list[i-1]).generate(), SFCGenerator(players_sfc_unique_dict_list[i-1]).generate()])
         sfc_queue.put_sfc(players_sfc_list[i-1])
+        #heapq.heappush(sfc_queue, (1, counter, i, players_sfc_list[i-1]))
     if session_counter >= n_sessions:
         #print("SFC MUAR Session ## poisson stop  ##")
         sfc_poisson_emitter.stop()
@@ -196,11 +242,12 @@ def generate_mono_session(parameter):
         player_mono_dict["src_node"] = SRC_NODE
         player_mono_dict["dst_node"] = dst_node
         player_mono_dict["duration"] = duration
-        player_mono_dict["latency"] = latency
+        player_mono_dict["latency"] = sfcs_latency
         players_mono_dict_list.append(player_mono_dict)
     players_sfc_list = []
     for i in range(1,n_players+1):
         players_sfc_list.append([SFCGenerator(players_mono_dict_list[i-1]).generate()])
+        #heapq.heappush(sfc_queue, (1, players_sfc_list[i-1]))
         sfc_queue.put_sfc(players_sfc_list[i-1])
     if session_counter >= n_sessions:
         print("MONO MUAR Session ## poisson stop  ##")
@@ -213,60 +260,41 @@ if args.sfc == 'on':
     print('sfc on')
     sfc_poisson_emitter.start(generate_sfc_session, (None))
 
-processing_nodes = np.arange(1, 37)
+substrate_network.set_verbose(verbose=verbose)
 
-nodes_to_string = np.array2string(processing_nodes, suppress_small=True,
-            precision=3, separator=',')
+timestamp,file_paths = setup_directories_and_files(n_sessions,n_players, args, quantity_of_nodes_arranged, edges)
 
-nodes_to_string = re.sub(' ', '', nodes_to_string)
-
-nodes_to_string = re.sub('\n', '', nodes_to_string)
-
-timestamp = dt.now().strftime('%Y%m%d%H%M%S%f')
-
-cache_utilization_dir = os.path.dirname(f'./results_cache_utilization/sfc_{args.sfc}_alg_{args.alg}_prob_{round(float(args.prob), 2)}_{args.n_sessions}')
-cpu_utilization_dir = os.path.dirname(f'./results_cpu_utilization/sfc_{args.sfc}_alg_{args.alg}_prob_{round(float(args.prob), 2)}_{args.n_sessions}')
-
-path_to_save_cache = os.path.join(cache_utilization_dir,timestamp + '.csv')
-path_to_save_cpu = os.path.join(cpu_utilization_dir,timestamp + '.csv')
-
-if not os.path.exists('logs'):
-    os.mkdir('logs')
-if not os.path.exists('results_cpu_utilization'):
-    os.mkdir('results_cpu_utilization')
-if not os.path.exists('results_cache_utilization'):
-    os.mkdir('results_cache_utilization')
-
-with open(path_to_save_cache, "a") as file:
-    file.write(nodes_to_string[1:-1] + '\n')
-with open(path_to_save_cpu, "a") as file:
-    file.write(nodes_to_string[1:-1] + '\n')
+substrate_network.shareable_band = shareable_band
+substrate_network.shareable_node = shareable
 
 sbn_controller = SubstrateNetworkController(substrate_network)
+
 sbn_controller.number_of_nodes = number_of_nodes
 sbn_controller.sfc_queue = sfc_queue
 sbn_controller.sfc = args.sfc
+sbn_controller.shareable = shareable
 sbn_controller.alg = SELECTED_ALG
 sbn_controller.alg_name = args.alg
-sbn_controller.prob = args.prob
-sbn_controller.processing_nodes = processing_nodes
-sbn_controller.cpu_utilization_file = path_to_save_cpu
-sbn_controller.cache_utilization_file = path_to_save_cache
-sbn_controller.file_name = f'./results_flows_prob_{round(float(args.prob), 2)}_' + str(n_sessions) + '/' + alg_name + '_' + str(number_of_nodes) + '_sfc_'+ args.sfc + '_prob_' + str(round(float(args.prob),2)) + '/' + timestamp + '.csv'
+sbn_controller.user_manager = user_manager
+sbn_controller.crasher = crasher_instance
+sbn_controller.crasher_activate = crasher_activated
+sbn_controller.servers_to_crash = servers_to_crash
+
+sbn_controller.verbose = verbose
+
+
+sbn_controller.nodes = quantity_of_nodes_arranged
+sbn_controller.edges = edges
+sbn_controller.edges_vnf = edges_vnf
+sbn_controller.tracer = tracer
+sbn_controller.mobility_activated = mobility_activated
+sbn_controller.allow_temporary_high_latency =  allow_delay
+
+sbn_controller.latency_interval = latency_interval
+
+sbn_controller.output_writter = OutputWritter(quantity_of_nodes_arranged, edges, file_paths['cpu'], file_paths['cache'], file_paths['bandwidth'], file_paths['sf'],setup_sbn_controller_directory_and_file(n_sessions,n_players,alg_name, number_of_nodes, args, timestamp))
+sbn_controller.shareable_band = shareable_band
+sbn_controller.costs_parameters = costs_parameters
 sbn_controller.flows = n_sessions
-directory = os.path.dirname(f'./results_flows_prob_{round(float(args.prob),2)}_' + str(n_sessions) + '/' + alg_name + '_' + str(number_of_nodes) + '_sfc_'+ args.sfc + '_prob_' + str(round(float(args.prob),2)) + '/' )
-if not os.path.exists(directory):
-    os.makedirs(directory)
-#if not os.path.exists(os.path.dirname(f'./results_flows_prob_{round(float(args.prob),2)}_' + str(n_sessions))):
-#    os.makedirs(directory)
-#sbn_controller.prob_array = [0, 0.1, 0.2, 0.3, 0.4, 0.5]
-
-#for prob in sbn_controller.prob_array:
-#    sbn_controller.file_name_list.append(f'./results_flows_prob_{str(prob)}_' + str(n_sessions) + '/' + alg_name + '_' + str(number_of_nodes) + '_sfc_'+ args.sfc + '_prob_' + str(prob) + '/' + dt.now().strftime('%Y%m%d%H%M%S%f') + '.csv')
-#    directory = os.path.dirname(f'./results_flows_prob_{str(prob)}_' + str(n_sessions) + '/' + alg_name + '_' + str(number_of_nodes) + '_sfc_'+ args.sfc + '_prob_' + str(prob) + '/' )
-#    if not os.path.exists(directory):
-#        os.makedirs(directory)
-
-with open(sbn_controller.file_name, "a") as f:
-            f.write("No.,timestamp,number_of_sfc,cpu_utilization,bandwidth_utilization,cache_utilization,latency,duration,success,arrival_time,depart_time,sfc_id" + "\n")
+sbn_controller.players = n_players
 sbn_controller.start()
