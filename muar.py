@@ -8,6 +8,7 @@ import ast
 from controllers.substrate_network_controller import SubstrateNetworkController
 from controllers.crasher import Crasher
 from datetime import datetime as dt
+from controllers.substrate_network_controller_resilience import ResilientSubstrateNetworkController
 from core.poisson_emitter import PoissonEmitter
 from controllers.sfc_queue import SFCQueue
 from controllers.sfc_generator import SFCGenerator
@@ -26,7 +27,7 @@ np.random.seed(seed)
 parser = argparse.ArgumentParser(description='Select MUAR arguments') 
 parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
 parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='goku')
-parser.add_argument('--n_players', type=int, help='(int) number of players', default=8)
+parser.add_argument('--n_players', type=int, help='(int) number of players', default=4)
 parser.add_argument('--sfc',   type=str, help='(str) on or off', default='on')
 parser.add_argument('--topology', type=str, help='(str) wich topology ex: luxembourg,small luxembourg ,paloalto', default='luxembourg')
 
@@ -52,7 +53,7 @@ args = parser.parse_args()
 
 alg_name = args.alg
 top_name = args.topology
-n_sessions = args.n_sessions
+n_sessions = int(args.n_sessions) * 2 if alg_name == 'goku' else int(args.n_sessions)
 n_players = int(args.n_players)
 mobility_activated = True if args.mobility == 'y' else False 
 verbose = True if args.verbose == 'y' else False 
@@ -155,6 +156,7 @@ def generate_sfc_session(parameter) -> None:
     dst_node = random.randint(0, number_of_nodes -1 )
     while(dst_node == SRC_NODE):
         dst_node = random.randint(0, number_of_nodes - 1)
+        
     players_cache_sf_list = []
     players_unique_sf_list = []
     for i in range(1,n_players+1):
@@ -267,7 +269,8 @@ timestamp,file_paths = setup_directories_and_files(n_sessions,n_players, args, q
 substrate_network.shareable_band = shareable_band
 substrate_network.shareable_node = shareable
 
-sbn_controller = SubstrateNetworkController(substrate_network)
+resilient_algs = ['goku']
+sbn_controller = ResilientSubstrateNetworkController(substrate_network) if alg_name in resilient_algs else SubstrateNetworkController(substrate_network)
 
 sbn_controller.number_of_nodes = number_of_nodes
 sbn_controller.sfc_queue = sfc_queue
