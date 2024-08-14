@@ -3,9 +3,9 @@ from sumo.small_luxembourg.small_luxembourg_trace import Sumo_Small_Luxembourg
 
 
 class TracerInstantiator(object):
-    def instantiate_tracer(self, type,user_manager):
+    def instantiate_tracer(self, type,user_manager,initial_routes):
         if type == 'luxembourg':
-            tracer = Sumo_Luxembourg(user_manager=user_manager)
+            tracer = Sumo_Luxembourg(user_manager=user_manager,initial_routes=initial_routes)
         elif type == 'small luxembourg':
             tracer = Sumo_Small_Luxembourg()
         else:

@@ -16,9 +16,9 @@ from sumo.luxembourg.config_routes import topology,positions
 # Data: 17/09/2023
 
 class Sumo_Luxembourg:
-    def __init__(self, user_manager, config_file="sumo//luxembourg//luxembourg.sumocfg"):
+    def __init__(self, user_manager,initial_routes, config_file="sumo//luxembourg//luxembourg.sumocfg"):
         self.config_file = config_file
-
+        self.pre_defined_routes = initial_routes
         self.traci_connected = False
         self.counting = 0
         self.veiculos_a_excluir = []
@@ -135,24 +135,34 @@ class Sumo_Luxembourg:
             return False
 
     def create_vehicle(self, id_number, server_start, vehicle_type="car"):
-        try:
-            trip = self.add_trip_to_simulation(id_number, server_start)
-            vehicle_id = f"vehicle_{id_number}"
-            traci.vehicle.add(vehicle_id, trip.trip_id, typeID=vehicle_type)
-            #x, y = traci.vehicle.getPosition(vehicle_id)
-            x, y = self.topology[server_start] 
-            vehicle = Vehicle(vehicle_id=vehicle_id,coord=(x, y), trip=trip)
-            self.user_manager.set_vehicle_for_user(id_number, vehicle)
-            self.user_manager.users_running.append(id_number)
-            self.user_manager.vehicles_runnnig.append(vehicle_id)
-        except Exception as e:
-            print(f"Error in vehicle route creation: {str(e)}")
-            print(f"Simulation running status: {self.traci_connected}")
-            #  print(f"Vehicle created: {vehicle_id}", " total:", len(traci.vehicle.getIDList()))
+        # try:
+        session_key = int(str(id_number)[1:])
+        
+        if True:
+            routes = self.pre_defined_routes[session_key]['route'][0]
+            # del self.pre_defined_routes[session_key]['route'][0]
 
-    def add_trip_to_simulation(self,id_number,server_start):
+        trip = self.add_trip_to_simulation(id_number, server_start,routes)
+        vehicle_id = f"vehicle_{id_number}"
+        traci.vehicle.add(vehicle_id, trip.trip_id, typeID=vehicle_type)
+        #x, y = traci.vehicle.getPosition(vehicle_id)
+        x, y = self.topology[server_start] 
+        vehicle = Vehicle(vehicle_id=vehicle_id,coord=(x, y), trip=trip)
+        self.user_manager.set_vehicle_for_user(id_number, vehicle)
+        self.user_manager.users_running.append(id_number)
+        self.user_manager.vehicles_runnnig.append(vehicle_id)
+        # except Exception as e:
+        #     print(f"Error in vehicle route creation: {str(e)}")
+        #     print(f"Simulation running status: {self.traci_connected}")
+        #     #  print(f"Vehicle created: {vehicle_id}", " total:", len(traci.vehicle.getIDList()))
+
+    def add_trip_to_simulation(self,id_number,server_start,routes=-1):
         server_end = random.choice(list(self.positions.keys()))    
         server_start, server_end = self.validate_route(server_start, server_end)
+
+        if True:
+            server_start = routes[0]
+            server_end = routes[1]
 
         start_edge = random.choice(self.positions[server_start])
         end_edge = random.choice(self.positions[server_end])
@@ -183,7 +193,34 @@ class Sumo_Luxembourg:
             except:
                 print("Erro in delete")
                 print(f"Simulation running status: {self.traci_connected}")
-                    
+
+    def check_backup_sfc_location(self,user_id,backup_sfc_loc):
+        try:
+            x_coord_b, y_coord_b = topology[backup_sfc_loc]
+            x_coord_r, y_coord_r = self.user_manager.get_vehicle_coordinates(user_id)
+
+            distance = math.sqrt((x_coord_b - x_coord_r) ** 2 + (y_coord_b - y_coord_r) ** 2)
+            if distance < 200:
+                return True
+            else:
+                return False
+        except:
+            return -1
+        
+    def gets_next_backup_server(self,actual_backup_sfc_loc,player_id,session_key):
+        value_to_remove = actual_backup_sfc_loc
+        
+        #old_value = self.pre_defined_routes[session_key]['locations'][player_id]
+        next_server = self.pre_defined_routes[session_key]['route'][actual_backup_sfc_loc]
+        self.pre_defined_routes[session_key]['route'][player_id-1] = next_server
+
+        return next_server    
+        # index = self.pre_defined_routes[session_key]['route'].index(old_value)
+        
+        # new_server = self.pre_defined_routes[session_key]['route']
+
+        # return new_server
+
     def update_vehicles(self):
         try:
             if self.is_simulation_running():
@@ -202,12 +239,18 @@ class Sumo_Luxembourg:
         """
         Outra Alternativa seria deletar o veículo do usuário e criar outro. Porém, isso pode ser problemático também. 
         """
+        user_id = int(vehicle_id.split("_")[-1])
+        session_key = int(str(user_id)[1:])
+        routes = self.pre_defined_routes[session_key]['route'][0]
+        del self.pre_defined_routes[session_key]['route'][0]
+
         #try:
         user_id = int(vehicle_id.split("_")[-1])
 
-        
         # New destiny server
-        new_destiny_server = random.choice(list(self.positions.keys()))
+        # new_destiny_server = random.choice(list(self.positions.keys()))
+        # new_destiny_edge = random.choice(self.positions[new_destiny_server]) 
+        new_destiny_server = routes[0]
         new_destiny_edge = random.choice(self.positions[new_destiny_server]) 
 
         #New origin/closest server

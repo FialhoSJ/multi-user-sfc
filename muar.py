@@ -1,4 +1,5 @@
 import argparse
+import math
 import re
 import os
 import random
@@ -16,6 +17,7 @@ from controllers.sfc_generator import SFCGenerator
 from algorithms.instantiator import AlgorithmInstantiator
 from sumo.models.user_manager import UserManager
 from sumo.tracer_instantiator import TracerInstantiator
+from sumo.luxembourg.config_routes import topology_tracer_positions,positions
 from topology.instantiator import TopologyInstantiator
 from utils.directory_manager import setup_directories_and_files, setup_sbn_controller_directory_and_file
 from utils.resource_output_utils import OutputWritter
@@ -26,7 +28,7 @@ np.random.seed(seed)
 # command line arguments
 parser = argparse.ArgumentParser(description='Select MUAR arguments') 
 parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
-parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='goku')
+parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='msf')
 parser.add_argument('--n_players', type=int, help='(int) number of players', default=4)
 parser.add_argument('--sfc',   type=str, help='(str) on or off', default='on')
 parser.add_argument('--topology', type=str, help='(str) wich topology ex: luxembourg,small luxembourg ,paloalto', default='luxembourg')
@@ -46,7 +48,7 @@ parser.add_argument('--reliability', type=str, help='(str) whether to allow dela
 parser.add_argument('--servers_to_crash', type=str, help='(str) whether to allow delay or not', default=1) #0.95,0.975,0.99
 
 parser.add_argument('--costs_parameter',   type=str, help='cpu,cache,bandwidht,boot Ex: 1111', default='[1,1,1,1]')
-parser.add_argument('--verbose',   type=str, help='verbose log', default='n')
+parser.add_argument('--verbose',   type=str, help='verbose log', default='y')
 
 #Coleta dos parâmetros da simulação
 args = parser.parse_args()
@@ -72,7 +74,6 @@ user_manager = UserManager(int(n_sessions), n_players)
 
 SELECTED_ALG = alg_instantiator.instantiate_algorithm(alg_name)
 topology = topology_instantiator.instantiate_topology(top_name)
-tracer = tracer_instantiator.instantiate_tracer(top_name,user_manager) if mobility_activated else 0
 
 substrate_network = topology.generate_substrate_network()
 number_of_nodes = substrate_network.number_of_nodes()
@@ -146,6 +147,81 @@ EC_TC = int(EC_TC/total*fator*100)
 MONO = int(DET+FT+MA+UNI+RE+EC_TC)
 CA_size = CA_size/CA_size*fator*100
 
+def previous_sfc_setup (backup=False):
+    # Função para calcular a distância entre dois nós
+    def calculate_distance(node1, node2, topology_tracer_positions):
+        x1, y1 = topology_tracer_positions[node1]
+        x2, y2 = topology_tracer_positions[node2]
+        return math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+
+    # Função para encontrar um destino para a rota
+    def find_valid_route(node, topology_tracer_positions):
+        destination = random.choice(list(topology_tracer_positions.keys()))
+        while calculate_distance(node, destination, topology_tracer_positions) < 2000 or destination == node:
+            destination = random.choice(list(topology_tracer_positions.keys()))
+        return destination
+
+    # Definindo o número de nós, sessões e jogadores
+    number_of_nodes = len(topology_tracer_positions)
+    number_of_sessions = n_sessions
+    number_of_players = n_players
+
+    # Inicializando o dicionário para armazenar os destinos e rotas das SFCs
+    # Inicializando o dicionário para armazenar os destinos e rotas das SFCs
+    sfc_destinations_and_routes = {}
+
+    # Iterando sobre sessões e jogadores para definir destinos e rotas
+    for session in range(1, number_of_sessions + 1):
+        # Definindo o nó de origem base para a sessão
+        session_dst = random.randint(1, number_of_nodes)
+        current_node = session_dst
+        routes = []
+        for _ in range(3):  # Criando 3 rotas para cada SFC
+            next_node = find_valid_route(current_node,topology_tracer_positions)
+            routes.append((current_node, next_node))
+            current_node = next_node
+
+        # for player in range(1, number_of_players + 1):
+        #     # Definindo nomes das SFCs normais e de backup
+            key_session = f'{session}'
+
+        locations = {i: session_dst for i in range(1, n_players+1)}
+
+        if session % 2 == 1:  # Sessões ímpares (SFCs normais)
+            # Definindo o destino da rota para a SFC normal
+            route_dst = find_valid_route(session_dst, topology_tracer_positions)    
+            sfc_destinations_and_routes[session] = {
+                "current_dst": session_dst,
+                "route": routes,
+                "duration": np.random.poisson(max_duration),
+                "locations": locations}
+            
+        else:  # Sessões pares (SFCs de backup)
+            if backup:
+                last_normal_dst = sfc_destinations_and_routes[session-1]['route'][0][1]
+                routes = [x[1] for x in sfc_destinations_and_routes[session-1]['route']]
+                route_dict = {routes[i]: routes[i + 1] if i + 1 < len(routes) else routes[i] for i in range(len(routes))}
+                
+                sfc_destinations_and_routes[session] = {
+                    "current_dst": last_normal_dst,
+                    "route": route_dict,
+                    "duration": sfc_destinations_and_routes[session-1]['duration'],
+                    "locations": n_players*[last_normal_dst]}
+            else:
+                sfc_destinations_and_routes[session] = {
+                "current_dst": session_dst,
+                "route": routes,
+                "duration": np.random.poisson(max_duration),
+                "locations": locations}
+
+
+
+    return sfc_destinations_and_routes
+
+
+sfc_destinations_and_routes = previous_sfc_setup()
+tracer = tracer_instantiator.instantiate_tracer(top_name,user_manager,initial_routes=sfc_destinations_and_routes) if mobility_activated else 0
+
 session_counter = 0
 def generate_sfc_session(parameter) -> None:
     global n_players
@@ -153,9 +229,10 @@ def generate_sfc_session(parameter) -> None:
     session_counter = session_counter + 1
     counter = str(session_counter)
     print("Total Number of MUAR SFCs in session: ", counter)
-    dst_node = random.randint(0, number_of_nodes -1 )
-    while(dst_node == SRC_NODE):
-        dst_node = random.randint(0, number_of_nodes - 1)
+    #dst_node = random.randint(0, number_of_nodes -1 )
+    dst_node = sfc_destinations_and_routes[session_counter]['current_dst']
+    # while(dst_node == SRC_NODE):
+    #     dst_node = random.randint(0, number_of_nodes - 1)
         
     players_cache_sf_list = []
     players_unique_sf_list = []
@@ -180,9 +257,10 @@ def generate_sfc_session(parameter) -> None:
         unique_sf_list.append({"type": 2, "name":"EC_TC_p" + str(i) + "_" + counter, 
             "CPU": EC_TC*(1-chr), "cache": 0, "in_bw": RE_bw*(1-chr), "out_bw": EC_TC_bw*(1-chr)})
         players_unique_sf_list.append(unique_sf_list)
-    lifetime = np.random.poisson(max_duration)
+    #lifetime = np.random.poisson(max_duration)
     #lifetime = int(round(np.random.exponential(max_duration)))
-    duration = lifetime
+    #duration = lifetime
+    duration = sfc_destinations_and_routes[session_counter]['duration']
     players_sfc_cache_dict_list = []
     players_sfc_unique_dict_list = []
     

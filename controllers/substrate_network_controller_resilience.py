@@ -91,6 +91,7 @@ class ResilientSubstrateNetworkController():
         self.alg_name = None
         self.players_sfc_list = []
         self.sfcs_crashed = {}
+        self.sfcs_that_crashed = []
         self.crash_moment = 0
         self.shareable_list = []
 
@@ -233,7 +234,7 @@ class ResilientSubstrateNetworkController():
 
         player = sfc_id.split("_")[2][1]
         p_session = sfc_id.split("_")[3]
-        backup_sfc = True if p_session % 2 == 0 else False 
+        backup_sfc = True if int(p_session) % 2 == 0 else False 
         
         user_id = int(player + p_session)
 
@@ -245,15 +246,22 @@ class ResilientSubstrateNetworkController():
         # Aqui deve ser feita o cálculo de predição de caminho
         # Por enquanto a sfc de backup será instanciada por meio 
         # Obs: de preferencia o veículo da sfc de backup deve ser o mesmo da sfc normal
-        if backup_sfc:
-            prefixo, x = sfc_id.rsplit('_', 1)
-            real_sfc_id = f"{prefixo}_{int(x) - 1}"
-            try:
-                real_sfc = self.substrate_network.get_sfc_by_id(real_sfc_id)
-                dst_real_sfc = sfc.dst_node # Tem que ser diferente da sfc normal
+        # if backup_sfc:
+        #     prefixo, x = sfc_id.rsplit('_', 1)
+        #     real_sfc_id = f"{prefixo}_{int(x) - 1}"
+        #     try:
+        #         real_sfc = self.substrate_network.get_sfc_by_id(real_sfc_id)
+        #         dst_real_sfc = sfc.dst_node # Tem que ser diferente da sfc normal
+        #         real_user_id = int((player) + str(int(p_session)-1))
                 
-            except:
-                return sfc
+        #         if not self.tracer.is_vehicle_created(real_user_id):
+        #             self.tracer.create_vehicle(real_user_id,sfc_location)
+                
+        #         self.tracer.check_sfc_for_user(user_id,sfc_id)
+        
+        #         vehicle_dst = self.tracer.
+        #     except:
+        #         return sfc
 
         if dst_server_crashed:
             topology = self.tracer.topology 
@@ -485,7 +493,7 @@ class ResilientSubstrateNetworkController():
             traceback.print_exc()
             return sfc           
             
-            
+        
     def deploy_sfc(self, sfc: object) -> bool:
         """
         Deploys an SFC in the substrate network.
@@ -564,7 +572,7 @@ class ResilientSubstrateNetworkController():
         actual_session =  int(sfc.id.split("_")[3])
         actual_player  =  int(sfc.id.split("_")[2][1:])
 
-        if actual_session >= 25 and self.crasher_activate != 0 and self.crash_trials == 0 :
+        if actual_session >= 20 and self.crasher_activate != 0 and self.crash_trials == 0 :
             self.start_crasher()
             self.crash_trials = self.crash_trials + 1
             self.network_status = 'online' #flag for crasher thread start
@@ -770,6 +778,12 @@ class ResilientSubstrateNetworkController():
         Returns:
             tuple: A tuple containing the validated route_info and latency.
         """
+        sfc_id = sfc.id
+        player = sfc_id.split("_")[2][1]
+        p_session = sfc_id.split("_")[3]
+        user_id = int(player + p_session)
+        backup_sfc = True if int(p_session) % 2 == 0 else False 
+        
         if route_info:
             if (len(route_info.keys()) != 6 and sfc_mode == 'on') or (len(route_info.keys()) != 4 and sfc_mode == 'off'):
                 latency = None
@@ -784,17 +798,9 @@ class ResilientSubstrateNetworkController():
         if is_sfc_acceptable == False: #sfc's denied because is the 2nd time it could not fit
             latency = None
             route_info = False   
-            sfc_id = sfc.id
-            player = sfc_id.split("_")[2][1]
-            p_session = sfc_id.split("_")[3]
-            user_id = int(player + p_session)
             self.tracer.set_sfc_status_for_user(user_id,sfc_id, new_status = 'completed')
         
         if route_info == False or latency ==  None:
-            sfc_id = sfc.id
-            player = sfc_id.split("_")[2][1]
-            p_session = sfc_id.split("_")[3]
-            user_id = int(player + p_session)
             vehicle_is_created = self.tracer.is_vehicle_created(user_id)
             if vehicle_is_created:
                 self.tracer.set_sfc_status_for_user(user_id,sfc_id, new_status = 'completed')
@@ -813,6 +819,16 @@ class ResilientSubstrateNetworkController():
                 print("Already crash")
                 route_info = False
                 latency = None
+
+        if backup_sfc:
+            prefixo, x = sfc_id.rsplit('_', 1)
+            real_sfc_id = f"{prefixo}_{int(x) - 1}"
+            
+            if (real_sfc_id not in self.sfc_list) :
+                if not (real_sfc_id in self.sfcs_that_crashed):
+                    route_info = False
+                    latency = None
+
         return route_info, latency
 
     def start_crasher(self):
@@ -853,9 +869,22 @@ class ResilientSubstrateNetworkController():
                     sfc = self.substrate_network.get_sfc_by_id(sfc_id)
 
                     #TODO:se tiver backup faz o undeploy e ativa a backup como principal, se não move pra fila.
+
+                    player = sfc_id.split("_")[2][1]
+                    p_session = sfc_id.split("_")[3]
+                    backup_sfc = True if int(p_session) % 2 == 0 else False 
                     
-                    #self.undeploy_sfc()
-                    self.send_back_to_qeue(self.substrate_network.get_sfc_by_id(sfc_id))
+                    if backup_sfc:
+                        self.undeploy_sfc(sfc_id)
+                    else:
+                        has_backup_running = False
+                        sfc_id_backup = re.sub(r'\d+$', lambda x: str(int(x.group()) + 1),sfc_id)
+                        
+                        if sfc_id_backup in self.sfc_list:
+                            self.undeploy_sfc(sfc_id)
+                        else:
+                            self.send_back_to_qeue(self.substrate_network.get_sfc_by_id(sfc_id))
+
                     #except Exception as e :
 #                         print()
 #                         print()
@@ -870,7 +899,7 @@ class ResilientSubstrateNetworkController():
                 for sfc_id in sfc_ids:
                     # Popula o dicionário sfcs_crashed
                     self.sfcs_crashed[sfc_id] = time.time()
-
+                    self.sfcs_that_crashed.append(sfc_id)
             for link, sfc_vnf in filtered_edges.items():
                 # if sfc_vnf == []:
                 #     self.substrate_network.set_link_bandwidth_capacity(link[0], link[1], 0)
@@ -925,24 +954,39 @@ class ResilientSubstrateNetworkController():
 
                         player = sfc_id.split("_")[2][1]
                         p_session = sfc_id.split("_")[3]
-                        
-
-
+                        backup_sfc = True if int(p_session) % 2 == 0 else False                        
                         # The user id in the tracer is given by concatenation of the id with the session number
-                        user_id = int(player + p_session)
+                        user_id = int(player + p_session) if not backup_sfc else int(player + str(int(p_session)-1))
 
                         # Check if the player is already in the tracer, if not it creates a vehicle for it
                         # Check if the simulation is still running 
                         if not self.tracer.is_simulation_running():
                             break
-
-                        if not self.tracer.is_vehicle_created(user_id):
+                        
+                        if not self.tracer.is_vehicle_created(user_id) and not backup_sfc:
                             self.tracer.create_vehicle(user_id,sfc_location)
                         
                         self.tracer.check_sfc_for_user(user_id,sfc_id)
                         
-                        player_location = self.tracer.get_closest_server(user_id,self.crasher.crashed_nodes,sfc_location)
+                        if backup_sfc:
+                            backup_sfc_needs_reroute = self.tracer.check_backup_sfc_location(user_id,sfc.dst.substrate_node)
+                            if backup_sfc_needs_reroute == -1:
+                                break
+
+                            if backup_sfc_needs_reroute:
+                                player_location = self.tracer.gets_next_backup_server(sfc.dst.substrate_node,int(player),int(p_session))
+                            else:
+                                break
+                        else:
+                            player_location = self.tracer.get_closest_server(user_id,self.crasher.crashed_nodes,sfc_location)
                         
+                        # if backup_sfc:
+                        #     try:
+                        #         sfc = self.substrate_network.get_sfc_by_id(sfc_id)
+                        #         sfc.dst.substrate 
+                        #     except:
+                        #         break
+
                         if player_location != -1:
                             try:
                                 if player_location != sfc_location:

@@ -32,7 +32,7 @@ class Crasher():
         mais_usado = 0
         servidor_mais_usado = 0
         nodes_resource = network._node
-        
+        servers_that_use_cpu = []
         for server,info in nodes_resource.items():
             if server == 34:
                 continue
@@ -41,12 +41,16 @@ class Crasher():
                 mais_usado = info['cpu_used']
                 servidor_mais_usado = server
 
+            if info['cpu_used'] >= 50:
+                servers_that_use_cpu.append(server)
+        server_choice = random.choice(servers_that_use_cpu)
         edges = network.sfs_flux_info.keys()
-        servers_to_crash = [servidor_mais_usado]
+        #servers_to_crash = [servidor_mais_usado]
+        servers_to_crash = [server_choice]
         
         for edge in edges:
-            if servidor_mais_usado in edge:
-                server_par = edge[0] if servidor_mais_usado != edge[0] else edge[1]
+            if server_choice in edge:
+                server_par = edge[0] if server_choice != edge[0] else edge[1]
                 if server_par not in network_nodes and server_par != 0 and server_par != 34:
                     servers_to_crash.append(server_par)
 
