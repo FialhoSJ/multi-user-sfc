@@ -572,7 +572,7 @@ class ResilientSubstrateNetworkController():
         actual_session =  int(sfc.id.split("_")[3])
         actual_player  =  int(sfc.id.split("_")[2][1:])
 
-        if actual_session >= 20 and self.crasher_activate != 0 and self.crash_trials == 0 :
+        if actual_session >= 50 and self.crasher_activate != 0 and self.crash_trials == 0 :
             self.start_crasher()
             self.crash_trials = self.crash_trials + 1
             self.network_status = 'online' #flag for crasher thread start
@@ -881,6 +881,10 @@ class ResilientSubstrateNetworkController():
                         sfc_id_backup = re.sub(r'\d+$', lambda x: str(int(x.group()) + 1),sfc_id)
                         
                         if sfc_id_backup in self.sfc_list:
+                            try:
+                                self.substrate_network.get_sfc_by_id(sfc_id_backup)
+                            except:
+                                print("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
                             self.undeploy_sfc(sfc_id)
                         else:
                             self.send_back_to_qeue(self.substrate_network.get_sfc_by_id(sfc_id))

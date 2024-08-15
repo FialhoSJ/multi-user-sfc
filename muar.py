@@ -28,7 +28,7 @@ np.random.seed(seed)
 # command line arguments
 parser = argparse.ArgumentParser(description='Select MUAR arguments') 
 parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
-parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='msf')
+parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='goku')
 parser.add_argument('--n_players', type=int, help='(int) number of players', default=4)
 parser.add_argument('--sfc',   type=str, help='(str) on or off', default='on')
 parser.add_argument('--topology', type=str, help='(str) wich topology ex: luxembourg,small luxembourg ,paloalto', default='luxembourg')
@@ -101,7 +101,7 @@ max_duration = 120
 latency_interval = [6,10]
 sfcs_latency = latency_interval[1] if args.allow_delay == 'y' else latency_interval[0]
 
-fator = 0.25 # 1 players consumes fator*100 percentage of resources of an Edge Server
+fator = 0.33 # 1 players consumes fator*100 percentage of resources of an Edge Server
 #fator = 0.1 # 1 players consumes fator*100 percentage of resources of an Edge Server
 edges = substrate_network.edges
 #https://ieeexplore.ieee.org/document/9417376
@@ -218,8 +218,10 @@ def previous_sfc_setup (backup=False):
 
     return sfc_destinations_and_routes
 
-
-sfc_destinations_and_routes = previous_sfc_setup()
+if alg_name == "goku":
+    sfc_destinations_and_routes = previous_sfc_setup(backup=True)
+else: 
+    sfc_destinations_and_routes = previous_sfc_setup()
 tracer = tracer_instantiator.instantiate_tracer(top_name,user_manager,initial_routes=sfc_destinations_and_routes) if mobility_activated else 0
 
 session_counter = 0
