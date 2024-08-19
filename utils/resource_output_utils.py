@@ -95,11 +95,8 @@ class OutputWritter:
                    str(time_value) + ',' + \
                    str(sfc.number_of_vnfs) + ',' + \
                    str(cpu_utilization) + ',' + \
-                   str(active_servers_cpu) + ',' + \
                    str(bw_utilization) + ',' + \
-                   str(active_links_bw) + ',' + \
                    str(cache_utilization) + ',' + \
-                   str(active_servers_cache) + ',' + \
                    str(cpu_resilient) + ',' + \
                    str(cache_resilient) + ',' + \
                    str(bw_resilient) + ',' + \

@@ -388,7 +388,6 @@ sbn_controller.servers_to_crash = servers_to_crash
 
 sbn_controller.verbose = verbose
 
-
 sbn_controller.nodes = quantity_of_nodes_arranged
 sbn_controller.edges = edges
 sbn_controller.edges_vnf = edges_vnf

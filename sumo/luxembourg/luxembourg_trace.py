@@ -244,36 +244,36 @@ class Sumo_Luxembourg:
         session_key = int(str(user_id)[1:])
         player_key = int(str(user_id)[0])
         routes = self.pre_defined_routes[session_key]['route'][player_key]
+        if len(routes) != 0:
+            del self.pre_defined_routes[session_key]['route'][player_key][0]
+            routes = routes[0]
+            #try:
+            user_id = int(vehicle_id.split("_")[-1])
 
-        del self.pre_defined_routes[session_key]['route'][player_key][0]
-        routes = routes[0]
-        #try:
-        user_id = int(vehicle_id.split("_")[-1])
+            # New destiny server
+            # new_destiny_server = random.choice(list(self.positions.keys()))
+            # new_destiny_edge = random.choice(self.positions[new_destiny_server]) 
+            new_destiny_server = routes[1]
+            new_destiny_edge = random.choice(self.positions[new_destiny_server]) 
 
-        # New destiny server
-        # new_destiny_server = random.choice(list(self.positions.keys()))
-        # new_destiny_edge = random.choice(self.positions[new_destiny_server]) 
-        new_destiny_server = routes[1]
-        new_destiny_edge = random.choice(self.positions[new_destiny_server]) 
+            #New origin/closest server
+            # new_origin_server = self.user_manager.get_trip_attribute(user_id, 'end_server')
+            new_origin_server = routes[0]
+            new_origin_edge   = self.user_manager.get_trip_attribute(user_id, 'route')[1]
 
-        #New origin/closest server
-        # new_origin_server = self.user_manager.get_trip_attribute(user_id, 'end_server')
-        new_origin_server = routes[0]
-        new_origin_edge   = self.user_manager.get_trip_attribute(user_id, 'route')[1]
+            new_route = [new_origin_edge,new_destiny_edge]
+            new_origin_server, new_destiny_server = self.validate_route(new_origin_server,new_destiny_server)
 
-        new_route = [new_origin_edge,new_destiny_edge]
-        new_origin_server, new_destiny_server = self.validate_route(new_origin_server,new_destiny_server)
+            new_trip_attributes = {
+                'start_server': new_origin_server,
+                'end_server':new_destiny_server ,
+                'route': new_route}
 
-        new_trip_attributes = {
-            'start_server': new_origin_server,
-            'end_server':new_destiny_server ,
-            'route': new_route}
+            self.user_manager.update_trip_attributes(user_id, new_trip_attributes)
 
-        self.user_manager.update_trip_attributes(user_id, new_trip_attributes)
-
-        traci.vehicle.changeTarget(vehicle_id, new_destiny_edge)
-        #except:
-        #    print("Erro in reroute")
+            traci.vehicle.changeTarget(vehicle_id, new_destiny_edge)
+            #except:
+            #    print("Erro in reroute")
 
     def check_sfc_for_user(self,user_id,sfc_id):
         if self.user_manager.sfc_exists_for_user(user_id, sfc_id):
