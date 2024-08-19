@@ -136,10 +136,11 @@ class Sumo_Luxembourg:
 
     def create_vehicle(self, id_number, server_start, vehicle_type="car"):
         # try:
+        player_key = int(str(id_number)[0])
         session_key = int(str(id_number)[1:])
         
         if True:
-            routes = self.pre_defined_routes[session_key]['route'][0]
+            routes = self.pre_defined_routes[session_key]['route'][player_key][0]
             # del self.pre_defined_routes[session_key]['route'][0]
 
         trip = self.add_trip_to_simulation(id_number, server_start,routes)
@@ -211,7 +212,7 @@ class Sumo_Luxembourg:
         value_to_remove = actual_backup_sfc_loc
         
         #old_value = self.pre_defined_routes[session_key]['locations'][player_id]
-        next_server = self.pre_defined_routes[session_key]['route'][actual_backup_sfc_loc]
+        next_server = self.pre_defined_routes[session_key]['route'][player_id][actual_backup_sfc_loc]
         self.pre_defined_routes[session_key]['route'][player_id-1] = next_server
 
         return next_server    
@@ -222,18 +223,18 @@ class Sumo_Luxembourg:
         # return new_server
 
     def update_vehicles(self):
-        try:
-            if self.is_simulation_running():
-                vehicles = traci.vehicle.getIDList()
-                for vehicle_id in vehicles:
-                    if self.traci_connected:
-                        arrived = traci.vehicle.getRouteIndex(vehicle_id) == len(traci.vehicle.getRoute(vehicle_id))-1
-                        if arrived:
-                            self.reroute_vehicle(vehicle_id)
-        except:
-            print("Erro in rerouted")
-            print(f"Simulation running status: {self.traci_connected}")
-            pass
+        # try:
+        if self.is_simulation_running():
+            vehicles = traci.vehicle.getIDList()
+            for vehicle_id in vehicles:
+                if self.traci_connected:
+                    arrived = traci.vehicle.getRouteIndex(vehicle_id) == len(traci.vehicle.getRoute(vehicle_id))-1
+                    if arrived:
+                        self.reroute_vehicle(vehicle_id)
+        # except:
+        #     print("Erro in rerouted")
+        #     print(f"Simulation running status: {self.traci_connected}")
+        #     pass
 
     def reroute_vehicle(self, vehicle_id):
         """
@@ -241,20 +242,23 @@ class Sumo_Luxembourg:
         """
         user_id = int(vehicle_id.split("_")[-1])
         session_key = int(str(user_id)[1:])
-        routes = self.pre_defined_routes[session_key]['route'][0]
-        del self.pre_defined_routes[session_key]['route'][0]
+        player_key = int(str(user_id)[0])
+        routes = self.pre_defined_routes[session_key]['route'][player_key]
 
+        del self.pre_defined_routes[session_key]['route'][player_key][0]
+        routes = routes[0]
         #try:
         user_id = int(vehicle_id.split("_")[-1])
 
         # New destiny server
         # new_destiny_server = random.choice(list(self.positions.keys()))
         # new_destiny_edge = random.choice(self.positions[new_destiny_server]) 
-        new_destiny_server = routes[0]
+        new_destiny_server = routes[1]
         new_destiny_edge = random.choice(self.positions[new_destiny_server]) 
 
         #New origin/closest server
-        new_origin_server = self.user_manager.get_trip_attribute(user_id, 'end_server')
+        # new_origin_server = self.user_manager.get_trip_attribute(user_id, 'end_server')
+        new_origin_server = routes[0]
         new_origin_edge   = self.user_manager.get_trip_attribute(user_id, 'route')[1]
 
         new_route = [new_origin_edge,new_destiny_edge]

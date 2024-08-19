@@ -13,7 +13,8 @@ class OutputWritter:
         self.sf_utilization_file = sf_utilization_file
         self.flows_file = flows_file
         self.first_time = 0
-        self.backup_activated = backup_activated 
+        self.backup_activated = backup_activated
+        self.sfcs_latency_dict = {}
 
     def output_flows(self,substrate_network,running_players_sessions,counter,remaining_time,current_time, sfc, latency, run_duration, is_success, s2, a_server_was_crashed,bw_transcode,users_crashed,sfcs_crashed,crash_moment):
         """
@@ -67,9 +68,26 @@ class OutputWritter:
         else:        
             time_value = round(current_time - self.first_time,1)
         
+        is_backup_sfc = int(sfc.id.split("_")[3]) % 2 
+
         if int(sfc.id.split("_")[3]) % 2  == 0 and self.backup_activated:
             is_success = None
 
+        # latency_diff = 0
+        # if not sfc.id in self.sfcs_latency_dict and latency != None:
+        #     self.sfcs_latency_dict[sfc.id] = latency 
+        # else:
+        #     if self.backup_activated:
+        #         if is_backup_sfc:
+        #             real_sfc_id = re.sub(r'\d+$', lambda x: str(int(x.group()) - 1), sfc.id)
+        #             self.sfcs_latency_dict[real_sfc_id]
+        #         else:
+        #             print("i")
+        #     else:
+        #         value_to_rescue = self.sfcs_latency_dict[sfc.id]
+        #         latency_diff = value_to_rescue - latency 
+
+        
         with open(self.flows_file, "a") as file:
             line = str(counter) + ',' + \
                    str(remaining_time) + ',' + \

@@ -59,6 +59,6 @@ def setup_sbn_controller_directory_and_file(n_sessions,n_players, alg_name, numb
 
     file_name = os.path.join(directory_path, f'{timestamp}.csv')
     with open(file_name, "a") as f:
-        header = "No.,time,timestamp,tempo_norm,number_of_sfc,cpu_utilization,cpu_active_servers,bandwidth_utilization,bw_active_links,cache_utilization,cache_active_servers,cpu_resilient,cache_resilient,bw_resilient,latency,duration,success,arrival_time,depart_time,sfc_id,crash_moment,recovery_time,sfc_recovered,cpu_saved,cache_saved,shared_vnfs,running_sfcs,running_players,running_sessions,server_crashed,trascode_bw,users_crashed\n"
+        header = "No.,time,timestamp,tempo_norm,number_of_sfc,cpu_utilization,cpu_active_servers,bandwidth_utilization,bw_active_links,cache_utilization,cache_active_servers,cpu_resilient,cache_resilient,bw_resilient,latency,latency_diff,duration,success,arrival_time,depart_time,sfc_id,crash_moment,recovery_time,sfc_recovered,cpu_saved,cache_saved,shared_vnfs,running_sfcs,running_players,running_sessions,server_crashed,trascode_bw,users_crashed\n"
         f.write(header)
     return file_name

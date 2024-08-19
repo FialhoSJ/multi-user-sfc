@@ -172,15 +172,24 @@ def previous_sfc_setup (backup=False):
 
     # Iterando sobre sessões e jogadores para definir destinos e rotas
     for session in range(1, number_of_sessions + 1):
+
         # Definindo o nó de origem base para a sessão
         session_dst = random.randint(1, number_of_nodes)
         current_node = session_dst
-        routes = []
-        for _ in range(3):  # Criando 3 rotas para cada SFC
-            next_node = find_valid_route(current_node,topology_tracer_positions)
-            routes.append((current_node, next_node))
-            current_node = next_node
-
+        routes = {}
+        for i in range(n_players):
+            current_node = session_dst
+            
+            # Inicializando a lista de rotas para o jogador `i+1`
+            routes[i + 1] = []
+            
+            for _ in range(5):  # Criando 3 rotas para cada SFC
+                next_node = find_valid_route(current_node, topology_tracer_positions)
+                
+                # Adicionando a tupla (current_node, next_node) na lista correspondente ao jogador
+                routes[i + 1].append((current_node, next_node))
+                
+                current_node = next_node
         # for player in range(1, number_of_players + 1):
         #     # Definindo nomes das SFCs normais e de backup
             key_session = f'{session}'
@@ -189,32 +198,41 @@ def previous_sfc_setup (backup=False):
 
         if session % 2 == 1:  # Sessões ímpares (SFCs normais)
             # Definindo o destino da rota para a SFC normal
-            route_dst = find_valid_route(session_dst, topology_tracer_positions)    
+            # route_dst = find_valid_route(session_dst, topology_tracer_positions)    
             sfc_destinations_and_routes[session] = {
-                "current_dst": session_dst,
+                "current_dst": n_players*[session_dst],
                 "route": routes,
                 "duration": np.random.poisson(max_duration),
                 "locations": locations}
             
         else:  # Sessões pares (SFCs de backup)
             if backup:
-                last_normal_dst = sfc_destinations_and_routes[session-1]['route'][0][1]
-                routes = [x[1] for x in sfc_destinations_and_routes[session-1]['route']]
-                route_dict = {routes[i]: routes[i + 1] if i + 1 < len(routes) else routes[i] for i in range(len(routes))}
-                
+                last_normal_dst = [x[1][0][1] for x in sfc_destinations_and_routes[session-1]['route'].items()]
+                routes = sfc_destinations_and_routes[session-1]['route']
+                # Novo dicionário a ser criado
+                new_routes = {}
+
+                for key, value in routes.items():
+                    new_routes[key] = {}
+                    for i in range(len(value)):
+                        # Se não for o último elemento
+                        if i < len(value) - 1:
+                            new_routes[key][value[i][1]] = value[i+1][1]
+                        else:
+                            # Para o último elemento, ele se conecta a ele mesmo
+                            new_routes[key][value[i][1]] = value[i][1]
+
                 sfc_destinations_and_routes[session] = {
                     "current_dst": last_normal_dst,
-                    "route": route_dict,
+                    "route": new_routes,
                     "duration": sfc_destinations_and_routes[session-1]['duration'],
                     "locations": n_players*[last_normal_dst]}
             else:
                 sfc_destinations_and_routes[session] = {
-                "current_dst": session_dst,
+                "current_dst": n_players*[session_dst],
                 "route": routes,
                 "duration": np.random.poisson(max_duration),
                 "locations": locations}
-
-
 
     return sfc_destinations_and_routes
 
@@ -232,13 +250,14 @@ def generate_sfc_session(parameter) -> None:
     counter = str(session_counter)
     print("Total Number of MUAR SFCs in session: ", counter)
     #dst_node = random.randint(0, number_of_nodes -1 )
-    dst_node = sfc_destinations_and_routes[session_counter]['current_dst']
+    #dst_node = sfc_destinations_and_routes[session_counter]['current_dst'][0]
     # while(dst_node == SRC_NODE):
     #     dst_node = random.randint(0, number_of_nodes - 1)
         
     players_cache_sf_list = []
     players_unique_sf_list = []
     for i in range(1,n_players+1):
+        dst_node = sfc_destinations_and_routes[session_counter]['current_dst'][i-1]
         caching_sf_list = []
         caching_sf_list.append({"type": 2, "name":"IA_DET_FT_" + counter, 
             "CPU": IA_DET_FT, "cache": 0, "in_bw": IA_bw, "out_bw": IA_DET_FT_bw})
@@ -267,6 +286,7 @@ def generate_sfc_session(parameter) -> None:
     players_sfc_unique_dict_list = []
     
     for i in range(1,n_players+1):
+        dst_node = sfc_destinations_and_routes[session_counter]['current_dst'][i-1]
         player_cache_dict = {}
         player_cache_dict['name'] = 'sfc_cache_p' + str(i) + '_' + counter
         player_cache_dict["vnf_list"] = players_cache_sf_list[i-1]
@@ -288,7 +308,9 @@ def generate_sfc_session(parameter) -> None:
     
     players_sfc_list = []
     for i in range(1,n_players+1):
-        players_sfc_list.append([SFCGenerator(players_sfc_cache_dict_list[i-1]).generate(), SFCGenerator(players_sfc_unique_dict_list[i-1]).generate()])
+        players_sfc_list.append([SFCGenerator(players_sfc_cache_dict_list[i-1]).generate(),
+                                  SFCGenerator(players_sfc_unique_dict_list[i-1]).generate()])
+        
         sfc_queue.put_sfc(players_sfc_list[i-1])
         #heapq.heappush(sfc_queue, (1, counter, i, players_sfc_list[i-1]))
     if session_counter >= n_sessions:
