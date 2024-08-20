@@ -41,7 +41,7 @@ class Crasher():
                 mais_usado = info['cpu_used']
                 servidor_mais_usado = server
 
-            if info['cpu_used'] >= 75:
+            if info['cpu_used'] >= 90:
                 servers_that_use_cpu.append(server)
         server_choice = random.choice(servers_that_use_cpu)
         edges = network.sfs_flux_info.keys()

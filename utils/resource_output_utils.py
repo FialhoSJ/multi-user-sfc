@@ -3,6 +3,8 @@ import re
 import time
 from typing import Dict
 
+import pandas as pd
+
 class OutputWritter:
     def __init__(self, nodes, edges, cpu_utilization_file, cache_utilization_file, bw_utilization_file, sf_utilization_file,flows_file,backup_activated=False):
         self.nodes = nodes
@@ -16,7 +18,7 @@ class OutputWritter:
         self.backup_activated = backup_activated
         self.sfcs_latency_dict = {}
 
-    def output_flows(self,substrate_network,running_players_sessions,counter,remaining_time,current_time, sfc, latency, run_duration, is_success, s2, a_server_was_crashed,bw_transcode,users_crashed,sfcs_crashed,crash_moment):
+    def output_flows(self,substrate_network,running_players_sessions,counter,remaining_time,current_time, sfc, latency, run_duration, is_success, a_server_was_crashed,bw_transcode,users_crashed,sfcs_crashed,crash_moment,backup_sfc_activated=0, latency_diff=None):
         """
         Outputs the flow information including various network utilization metrics.
 
@@ -39,9 +41,9 @@ class OutputWritter:
         cache_resilient = round(substrate_network.get_resilient_cache_utilization(), 4)
         bw_resilient = round(substrate_network.get_resilient_bandwidth_utilization(), 4)
 
-        active_servers_cpu = round(substrate_network.get_active_servers_cpu_rate(), 4)
-        active_servers_cache = round(substrate_network.get_active_servers_cache_rate(), 4)
-        active_links_bw = round(substrate_network.get_active_links_bw_rate(), 4)
+        # active_servers_cpu = round(substrate_network.get_active_servers_cpu_rate(), 4)
+        # active_servers_cache = round(substrate_network.get_active_servers_cache_rate(), 4)
+        # active_links_bw = round(substrate_network.get_active_links_bw_rate(), 4)
 
         running_sfcs, running_players, running_sessions = running_players_sessions
 
@@ -58,9 +60,9 @@ class OutputWritter:
         if sfc.id in sfcs_crashed and is_success == 1:
             sfc_recovery_time = time.time() - sfcs_crashed[sfc.id]
             sfc_recovered = 1
+
         first_loop = (self.first_time == 0)
         time_value = 0  
-
 
         if first_loop: 
             self.first_time = current_time
@@ -71,7 +73,15 @@ class OutputWritter:
         is_backup_sfc = int(sfc.id.split("_")[3]) % 2 
 
         if int(sfc.id.split("_")[3]) % 2  == 0 and self.backup_activated:
+            #is_success = np.nan
             is_success = None
+            sfc_recovery_time = 0
+            sfc_recovered = 1
+            latency_solution_diff = 1-1
+
+
+        if backup_sfc_activated == 1:
+            is_success = 1 
 
         # latency_diff = 0
         # if not sfc.id in self.sfcs_latency_dict and latency != None:
@@ -86,7 +96,6 @@ class OutputWritter:
         #     else:
         #         value_to_rescue = self.sfcs_latency_dict[sfc.id]
         #         latency_diff = value_to_rescue - latency 
-
         
         with open(self.flows_file, "a") as file:
             line = str(counter) + ',' + \
@@ -101,11 +110,12 @@ class OutputWritter:
                    str(cache_resilient) + ',' + \
                    str(bw_resilient) + ',' + \
                    str(latency) + ',' + \
+                   str(latency_diff) + ',' + \
                    str(run_duration) + ',' + \
                    str(is_success) + ',' + \
                    str(sfc.arrival_time) + ',' + \
-                   str(s2) + "," + \
                    str(sfc.id) + "," + \
+                   str(backup_sfc_activated) + "," + \
                    str(crash_moment) + "," + \
                    str(sfc_recovery_time) + "," + \
                    str(sfc_recovered) + "," + \

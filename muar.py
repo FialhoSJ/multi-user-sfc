@@ -27,7 +27,7 @@ np.random.seed(seed)
 
 # command line arguments
 parser = argparse.ArgumentParser(description='Select MUAR arguments') 
-parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
+parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=25)
 parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='goku')
 parser.add_argument('--n_players', type=int, help='(int) number of players', default=4)
 parser.add_argument('--sfc',   type=str, help='(str) on or off', default='on')
@@ -55,7 +55,7 @@ args = parser.parse_args()
 
 alg_name = args.alg
 top_name = args.topology
-n_sessions = int(args.n_sessions) * 2 if alg_name == 'goku' else int(args.n_sessions)
+n_sessions = int(args.n_sessions) * 2 if alg_name == 'goku_backup' else int(args.n_sessions)
 n_players = int(args.n_players)
 mobility_activated = True if args.mobility == 'y' else False 
 verbose = True if args.verbose == 'y' else False 
@@ -236,7 +236,7 @@ def previous_sfc_setup (backup=False):
 
     return sfc_destinations_and_routes
 
-if alg_name == "goku":
+if alg_name == "goku_backup":
     sfc_destinations_and_routes = previous_sfc_setup(backup=True)
 else: 
     sfc_destinations_and_routes = previous_sfc_setup()
@@ -295,6 +295,7 @@ def generate_sfc_session(parameter) -> None:
         player_cache_dict["dst_node"] = dst_node
         player_cache_dict["duration"] = duration
         player_cache_dict["latency"] = sfcs_latency
+        player_cache_dict["time"] = sfcs_latency
         players_sfc_cache_dict_list.append(player_cache_dict)
         player_unique_dict = {}
         player_unique_dict['name'] = 'sfc_unique_p' + str(i) + '_' + counter
@@ -371,7 +372,7 @@ timestamp,file_paths = setup_directories_and_files(n_sessions,n_players, args, q
 substrate_network.shareable_band = shareable_band
 substrate_network.shareable_node = shareable
 
-resilient_algs = ['goku']
+resilient_algs = ['goku_backup']
 backup_activated = True if alg_name in resilient_algs else False
 sbn_controller = ResilientSubstrateNetworkController(substrate_network) if alg_name in resilient_algs else SubstrateNetworkController(substrate_network)
 

@@ -41,6 +41,8 @@ class AlgorithmInstantiator:
             alg = Osfem()
         elif type ==  'goku':
             alg = Goku()
+        elif type ==  'goku_backup':
+            alg = Goku()
         else:
             raise ValueError('algorithm not found')
         return alg

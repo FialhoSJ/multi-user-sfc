@@ -402,41 +402,41 @@ class Net(nx.Graph):
             # sfc.start()
 
     def undeploy_sfc(self, sfc_id):
-        with self.lock:
-            if sfc_id not in self.sfc_route_info or sfc_id not in self.sfc_dict:
-                print("Not in both")
-            else:
-                # after undeployed sfc, sfc need to be deleted from following dicts
-                route_info = self.sfc_route_info[sfc_id]
-                sfc = self.sfc_dict[sfc_id]
-                # sfc.stop()
-                # recovery cpu resources
-                # no need to actually modify used and free cpu resource.
-                # the substrate network will be updated once the vnf removed from node
-                for vnf_id, path in list(route_info.items()):
-                    if vnf_id == 'dst':
-                        self.nodes[sfc.dst.substrate_node]['sfc_vnf_list'].remove((sfc_id, sfc.dst))
-                        continue  
-                    for node in self.nodes():
-                        for sfc_vnfs in self.get_node_sfc_vnf_list(node):
-                            for vnf in sfc_vnfs:
-                                if vnf == sfc.get_vnf_by_id(vnf_id):
-                                    save_node = node
-                                    continue
-                    self.nodes[save_node]['sfc_vnf_list'].remove((sfc_id, sfc.get_vnf_by_id(vnf_id)))
-                    #print('#########  sfc net.py  ###########')
-                    #self.nodes[sfc.get_substrate_node(sfc.get_vnf_by_id(vnf_id))]['sfc_vnf_list'].remove((sfc_id, sfc.get_vnf_by_id(vnf_id)))
-                self.sfc_route_info.pop(sfc_id, None)
-                self.sfc_dict.pop(sfc_id, None)
-                
-                if self.verbose == True:
-                    print('sfc size', len(self.sfc_dict))
-                
-                #if(len(self.sfc_dict) == 0):
-                # print('quitting')
-                #return 
-                    #quit()
-                # recovery bandwidth resources
+
+        if sfc_id not in self.sfc_route_info or sfc_id not in self.sfc_dict:
+            print("Not in both")
+        else:
+            # after undeployed sfc, sfc need to be deleted from following dicts
+            route_info = self.sfc_route_info[sfc_id]
+            sfc = self.sfc_dict[sfc_id]
+            # sfc.stop()
+            # recovery cpu resources
+            # no need to actually modify used and free cpu resource.
+            # the substrate network will be updated once the vnf removed from node
+            for vnf_id, path in list(route_info.items()):
+                if vnf_id == 'dst':
+                    self.nodes[sfc.dst.substrate_node]['sfc_vnf_list'].remove((sfc_id, sfc.dst))
+                    continue  
+                for node in self.nodes():
+                    for sfc_vnfs in self.get_node_sfc_vnf_list(node):
+                        for vnf in sfc_vnfs:
+                            if vnf == sfc.get_vnf_by_id(vnf_id):
+                                save_node = node
+                                continue
+                self.nodes[save_node]['sfc_vnf_list'].remove((sfc_id, sfc.get_vnf_by_id(vnf_id)))
+                #print('#########  sfc net.py  ###########')
+                #self.nodes[sfc.get_substrate_node(sfc.get_vnf_by_id(vnf_id))]['sfc_vnf_list'].remove((sfc_id, sfc.get_vnf_by_id(vnf_id)))
+            self.sfc_route_info.pop(sfc_id, None)
+            self.sfc_dict.pop(sfc_id, None)
+            
+            if self.verbose == True:
+                print('sfc size', len(self.sfc_dict))
+            
+            #if(len(self.sfc_dict) == 0):
+            # print('quitting')
+            #return 
+                #quit()
+            # recovery bandwidth resources
 
     def update_network_state(self):
         self.update_nodes_state()

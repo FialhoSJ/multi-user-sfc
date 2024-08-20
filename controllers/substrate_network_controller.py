@@ -91,6 +91,7 @@ class SubstrateNetworkController():
         self.alg_name = None
         self.players_sfc_list = []
         self.sfcs_crashed = {}
+        self.sfcs_back_to_qeue_latency_diff = {}
         self.crash_moment = 0
         self.shareable_list = []
 
@@ -148,10 +149,15 @@ class SubstrateNetworkController():
         self.output_writter.output_nodes_sf_utilization(self.substrate_network, deploy_time)
         #self.output_utils.output_edges_sf_utilization(self.edges_vnf, self.existing_vnf, self.sfc_list, deploy_time, route_info, sfc)
 
-    def output_flows(self,current_time, sfc, latency, run_duration, is_success, s2,bw_transcode):
+    def output_flows(self,current_time, sfc, latency, run_duration, is_success,bw_transcode,backup_sfc_activated=0,latency_diff=None):
         if self.crasher.a_server_was_crashed == 1:
             self.crash_moment = self.crash_moment + 1
-        
+
+        if sfc.id in self.sfcs_crashed and sfc.id in list(self.sfcs_back_to_qeue_latency_diff.keys()):
+            old_latency = self.sfcs_back_to_qeue_latency_diff[sfc.id]
+            new_latency = latency
+            latency_diff = old_latency-new_latency 
+
         self.output_writter.output_flows(self.substrate_network,
                                          self.get_running_players_sessions(),
                                          self.counter,
@@ -161,12 +167,13 @@ class SubstrateNetworkController():
                                          latency,
                                          run_duration,
                                          is_success,
-                                         s2,
                                          self.crasher.a_server_was_crashed,
                                          bw_transcode,
                                          self.users_crashed,
                                          self.sfcs_crashed,
-                                         self.crash_moment)
+                                         self.crash_moment,
+                                         backup_sfc_activated,
+                                         latency_diff)
 
         if sfc.id in self.sfcs_crashed:
             self.sfcs_crashed.pop(sfc.id)
@@ -544,8 +551,8 @@ class SubstrateNetworkController():
         
         # output of the simulation
         self.output_network_resources(deploy_time=current_time)
-        self.output_flows(current_time,sfc,latency,run_duration,is_success,s2,bw_transcode)
-        
+        self.output_flows(current_time,sfc,latency,run_duration,is_success,bw_transcode,latency_diff=None,backup_sfc_activated=0)
+
         actual_session =  int(sfc.id.split("_")[3])
         actual_player  =  int(sfc.id.split("_")[2][1:])
 
@@ -874,8 +881,12 @@ class SubstrateNetworkController():
                     #try:
                     if sfc_id not in self.substrate_network.sfc_dict:
                         continue
-
+                    sfc_rf = network.sfc_route_info[sfc_id]
+                    latency_sfc= sum((len(value) - 1) for key, value in sfc_rf.items() if key not in ('src', 'dst'))
+                    self.sfcs_back_to_qeue_latency_diff[sfc_id] = {'old_latency': latency_sfc}
+                    
                     self.send_back_to_qeue(self.substrate_network.get_sfc_by_id(sfc_id))
+
                     #except Exception as e :
 #                         print()
 #                         print()
