@@ -153,10 +153,16 @@ class ResilientSubstrateNetworkController():
         if self.crasher.a_server_was_crashed == 1:
             self.crash_moment = self.crash_moment + 1
 
-        if  sfc.id in list(self.sfcs_back_to_qeue_latency_diff.keys()):
-            old_latency = self.sfcs_back_to_qeue_latency_diff[sfc.id]
+        crash_moment = 0
+
+        if backup_sfc_activated == 1:
+            crash_moment = 1
+
+        if sfc.id in list(self.sfcs_back_to_qeue_latency_diff.keys()):
+            old_latency = self.sfcs_back_to_qeue_latency_diff[sfc.id]['old_latency']
             new_latency = latency
-            latency_diff = old_latency-new_latency 
+            latency_diff = old_latency-new_latency
+            crash_moment = 1
 
         self.output_writter.output_flows(self.substrate_network,
                                          self.get_running_players_sessions(),
@@ -171,7 +177,7 @@ class ResilientSubstrateNetworkController():
                                          bw_transcode,
                                          self.users_crashed,
                                          self.sfcs_crashed,
-                                         self.crash_moment,
+                                         crash_moment,
                                          backup_sfc_activated,
                                          latency_diff)
 
@@ -829,9 +835,13 @@ class ResilientSubstrateNetworkController():
         if backup_sfc:
             prefixo, x = sfc_id.rsplit('_', 1)
             real_sfc_id = f"{prefixo}_{int(x) - 1}"
+            real_sfc_running = real_sfc_id in self.sfc_list 
             
-            if (real_sfc_id not in self.sfc_list) :
-                if not (real_sfc_id in self.sfcs_that_crashed):
+            if not real_sfc_running: # Se a sfc original não está rodando, a de backup não deve ser instanciada
+                real_sfc_crashed = real_sfc_id in self.sfcs_that_crashed
+                if real_sfc_crashed: # Se a sfc original crashou, a de backup pode ser instanciada
+                    pass
+                else: # caso não tenha sido uma situação de crash, a de backup não pode ser instanciada.
                     route_info = False
                     latency = None
 
@@ -880,17 +890,18 @@ class ResilientSubstrateNetworkController():
                     p_session = sfc_id.split("_")[3]
                     backup_sfc = True if int(p_session) % 2 == 0 else False 
                     
-                    if backup_sfc:
+                    # Se for  uma sfc de backup que caiu, para esse experimento iremos apenas desalocar ela.
+                    if backup_sfc: 
                         self.undeploy_sfc(sfc_id)
-                    else:
+                    else: # Se for uma sfc orignal, iremos tentar primeiro buscar a de backup dessa sfc. No segundo mandar de volta pra fila.
                         has_backup_running = False
                         sfc_id_backup = re.sub(r'\d+$', lambda x: str(int(x.group()) + 1),sfc_id)
                         
                         if sfc_id_backup in self.sfc_list:
                             try:
-                                sfc_bakup = self.substrate_network.get_sfc_by_id(sfc_id_backup)
+                                sfc_backup = self.substrate_network.get_sfc_by_id(sfc_id_backup)
                             except:
-                                print("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+                                print("Não há de backup rodando")
                             
                             bw_transcode =  sfc.vnfs_dict[-1]['out_bw'] #if self.alg_name != 'osfem' else alg.get_transcode_bw()
 
@@ -902,7 +913,8 @@ class ResilientSubstrateNetworkController():
 
                             latency_diff = latency_backup - latency_sfc
 
-                            self.output_flows(current_time=time.time(),sfc=sfc_bakup,latency=latency_backup,latency_diff=latency_diff,run_duration=0,is_success=1,bw_transcode=bw_transcode,backup_sfc_activated=1)
+                            # Nesse caso iremos fazer o undeploy da sfc original e manter somente a de backup. Imprimindo no log
+                            self.output_flows(current_time=time.time(),sfc=sfc_backup,latency=latency_backup,latency_diff=latency_diff,run_duration=0,is_success=1,bw_transcode=bw_transcode,backup_sfc_activated=1)
                             self.undeploy_sfc(sfc_id)
                         else:
                             sfc_rf = network.sfc_route_info[sfc_id]

@@ -72,17 +72,24 @@ class OutputWritter:
         
         is_backup_sfc = int(sfc.id.split("_")[3]) % 2 
 
-        if int(sfc.id.split("_")[3]) % 2  == 0 and self.backup_activated:
-            #is_success = np.nan
-            is_success = None
-            sfc_recovery_time = 0
+        # if int(sfc.id.split("_")[3]) % 2  == 0 and self.backup_activated and backup_sfc_activated == 0:
+        #     #is_success = np.nan
+        #     is_success = None
+        #     latency = None
+        #     # sfc_recovery_time = 0
+        #     # sfc_recovered = 0
+        #     # latency_solution_diff = 1-1
+
+
+        if backup_sfc_activated == 1: # Essa condição é para sfcs de backup que foram ativadas
+            is_success = 1
             sfc_recovered = 1
-            latency_solution_diff = 1-1
+            sfc_recovery_time = 0  
 
-
-        if backup_sfc_activated == 1:
-            is_success = 1 
-
+        if int(crash_moment) != 1:
+            sfc_recovery_time = None
+            sfc_recovered = None
+        
         # latency_diff = 0
         # if not sfc.id in self.sfcs_latency_dict and latency != None:
         #     self.sfcs_latency_dict[sfc.id] = latency 
@@ -99,10 +106,8 @@ class OutputWritter:
         
         with open(self.flows_file, "a") as file:
             line = str(counter) + ',' + \
-                   str(remaining_time) + ',' + \
                    str(current_time) + ',' + \
                    str(time_value) + ',' + \
-                   str(sfc.number_of_vnfs) + ',' + \
                    str(cpu_utilization) + ',' + \
                    str(bw_utilization) + ',' + \
                    str(cache_utilization) + ',' + \
@@ -111,7 +116,7 @@ class OutputWritter:
                    str(bw_resilient) + ',' + \
                    str(latency) + ',' + \
                    str(latency_diff) + ',' + \
-                   str(run_duration) + ',' + \
+                   str(round(run_duration * 1000, 3)) + ',' + \
                    str(is_success) + ',' + \
                    str(sfc.arrival_time) + ',' + \
                    str(sfc.id) + "," + \
@@ -121,11 +126,11 @@ class OutputWritter:
                    str(sfc_recovered) + "," + \
                    str(cpu_saved) + "," + \
                    str(cache_saved) + "," + \
+                   str(sfc.number_of_vnfs) + ',' + \
                    str(shared_vnfs_count) + "," + \
                    str(running_sfcs) + "," + \
                    str(running_players) + "," + \
                    str(running_sessions) + "," + \
-                   str(a_server_was_crashed) + "," + \
                    str(bw_transcode) + "," + \
                    str(users_crashed) + "\n"
             file.write(line)
