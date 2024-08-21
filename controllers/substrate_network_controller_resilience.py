@@ -584,7 +584,7 @@ class ResilientSubstrateNetworkController():
         actual_session =  int(sfc.id.split("_")[3])
         actual_player  =  int(sfc.id.split("_")[2][1:])
 
-        if actual_session >= int(10) and self.crasher_activate != 0 and self.crash_trials == 0 :
+        if actual_session >= self.flows/2 and self.crasher_activate != 0 and self.crash_trials == 0 :
             self.start_crasher()
             self.crash_trials = self.crash_trials + 1
             self.network_status = 'online' #flag for crasher thread start

@@ -153,11 +153,17 @@ class SubstrateNetworkController():
         if self.crasher.a_server_was_crashed == 1:
             self.crash_moment = self.crash_moment + 1
 
-        if sfc.id in self.sfcs_crashed and sfc.id in list(self.sfcs_back_to_qeue_latency_diff.keys()):
-            old_latency = self.sfcs_back_to_qeue_latency_diff[sfc.id]
-            new_latency = latency
-            latency_diff = old_latency-new_latency 
+        crash_moment = 0
 
+        if backup_sfc_activated == 1:
+            crash_moment = 1
+
+        if sfc.id in list(self.sfcs_back_to_qeue_latency_diff.keys()):
+            old_latency = self.sfcs_back_to_qeue_latency_diff[sfc.id]['old_latency']
+            new_latency = latency
+            if latency != None:
+                latency_diff = old_latency-new_latency
+            crash_moment = 1
         self.output_writter.output_flows(self.substrate_network,
                                          self.get_running_players_sessions(),
                                          self.counter,
@@ -171,7 +177,7 @@ class SubstrateNetworkController():
                                          bw_transcode,
                                          self.users_crashed,
                                          self.sfcs_crashed,
-                                         self.crash_moment,
+                                         crash_moment,
                                          backup_sfc_activated,
                                          latency_diff)
 
@@ -555,8 +561,8 @@ class SubstrateNetworkController():
 
         actual_session =  int(sfc.id.split("_")[3])
         actual_player  =  int(sfc.id.split("_")[2][1:])
-
-        if actual_session >= 25 and self.crasher_activate != 0 and self.crash_trials == 0 :
+        session_break_crasher = self.flows/2
+        if actual_session >= session_break_crasher  and self.crasher_activate != 0 and self.crash_trials == 0 :
             self.start_crasher()
             self.crash_trials = self.crash_trials + 1
             self.network_status = 'online' #flag for crasher thread start

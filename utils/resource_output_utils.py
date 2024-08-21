@@ -54,9 +54,9 @@ class OutputWritter:
         sfc_recovery_time = 0
         sfc_recovered = None
         
-        if sfc.id in sfcs_crashed:
-            sfc_recovered =  0   
-
+        # if sfc.id in sfcs_crashed:
+        #     sfc_recovered =  0   
+        #     sfc_recovery_time = None
         if sfc.id in sfcs_crashed and is_success == 1:
             sfc_recovery_time = time.time() - sfcs_crashed[sfc.id]
             sfc_recovered = 1
@@ -81,6 +81,7 @@ class OutputWritter:
         #     # latency_solution_diff = 1-1
 
 
+
         if backup_sfc_activated == 1: # Essa condição é para sfcs de backup que foram ativadas
             is_success = 1
             sfc_recovered = 1
@@ -89,7 +90,11 @@ class OutputWritter:
         if int(crash_moment) != 1:
             sfc_recovery_time = None
             sfc_recovered = None
-        
+
+        if sfc_recovered == None:
+            sfc_recovery_time = None
+            latency_diff = None
+            crash_moment = 0
         # latency_diff = 0
         # if not sfc.id in self.sfcs_latency_dict and latency != None:
         #     self.sfcs_latency_dict[sfc.id] = latency 

@@ -27,8 +27,8 @@ np.random.seed(seed)
 
 # command line arguments
 parser = argparse.ArgumentParser(description='Select MUAR arguments') 
-parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=25)
-parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='goku_backup')
+parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
+parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='msf')
 parser.add_argument('--n_players', type=int, help='(int) number of players', default=4)
 parser.add_argument('--sfc',   type=str, help='(str) on or off', default='on')
 parser.add_argument('--topology', type=str, help='(str) wich topology ex: luxembourg,small luxembourg ,paloalto', default='luxembourg')
@@ -48,7 +48,7 @@ parser.add_argument('--reliability', type=str, help='(str) whether to allow dela
 parser.add_argument('--servers_to_crash', type=str, help='(str) whether to allow delay or not', default=1) #0.95,0.975,0.99
 
 parser.add_argument('--costs_parameter',   type=str, help='cpu,cache,bandwidht,boot Ex: 1111', default='[1,1,1,1]')
-parser.add_argument('--verbose',   type=str, help='verbose log', default='y')
+parser.add_argument('--verbose',   type=str, help='verbose log', default='n')
 
 #Coleta dos parâmetros da simulação
 args = parser.parse_args()
