@@ -48,7 +48,7 @@ parser.add_argument('--reliability', type=str, help='(str) whether to allow dela
 parser.add_argument('--servers_to_crash', type=str, help='(str) whether to allow delay or not', default=1) #0.95,0.975,0.99
 
 parser.add_argument('--costs_parameter',   type=str, help='cpu,cache,bandwidht,boot Ex: 1111', default='[1,1,1,1]')
-parser.add_argument('--verbose',   type=str, help='verbose log', default='n')
+parser.add_argument('--verbose',   type=str, help='verbose log', default='y')
 
 #Coleta dos parâmetros da simulação
 args = parser.parse_args()
@@ -367,13 +367,18 @@ if args.sfc == 'on':
 
 substrate_network.set_verbose(verbose=verbose)
 
-timestamp,file_paths = setup_directories_and_files(n_sessions,n_players, args, quantity_of_nodes_arranged, edges)
+
+resilient_algs = ['goku_backup']
+backup_activated = True if alg_name in resilient_algs else False
+if backup_activated:
+    n_sessions_folder = int(int(n_sessions)/2)
+else:
+    n_sessions_folder = n_sessions
+timestamp,file_paths = setup_directories_and_files(n_sessions_folder,n_players, args, quantity_of_nodes_arranged, edges)
 
 substrate_network.shareable_band = shareable_band
 substrate_network.shareable_node = shareable
 
-resilient_algs = ['goku_backup']
-backup_activated = True if alg_name in resilient_algs else False
 sbn_controller = ResilientSubstrateNetworkController(substrate_network) if alg_name in resilient_algs else SubstrateNetworkController(substrate_network)
 
 sbn_controller.number_of_nodes = number_of_nodes
@@ -398,7 +403,7 @@ sbn_controller.allow_temporary_high_latency =  allow_delay
 
 sbn_controller.latency_interval = latency_interval
 
-sbn_controller.output_writter = OutputWritter(quantity_of_nodes_arranged, edges, file_paths['cpu'], file_paths['cache'], file_paths['bandwidth'], file_paths['sf'],setup_sbn_controller_directory_and_file(n_sessions,n_players,alg_name, number_of_nodes, args, timestamp),backup_activated=backup_activated)
+sbn_controller.output_writter = OutputWritter(quantity_of_nodes_arranged, edges, file_paths['cpu'], file_paths['cache'], file_paths['bandwidth'], file_paths['sf'],setup_sbn_controller_directory_and_file(n_sessions_folder,n_players,alg_name, number_of_nodes, args, timestamp),backup_activated=backup_activated)
 sbn_controller.shareable_band = shareable_band
 sbn_controller.costs_parameters = costs_parameters
 sbn_controller.flows = n_sessions

@@ -150,20 +150,22 @@ class SubstrateNetworkController():
         #self.output_utils.output_edges_sf_utilization(self.edges_vnf, self.existing_vnf, self.sfc_list, deploy_time, route_info, sfc)
 
     def output_flows(self,current_time, sfc, latency, run_duration, is_success,bw_transcode,backup_sfc_activated=0,latency_diff=None):
-        if self.crasher.a_server_was_crashed == 1:
-            self.crash_moment = self.crash_moment + 1
-
-        crash_moment = 0
-
-        if backup_sfc_activated == 1:
+        # if self.crasher.a_server_was_crashed == 1:
+        #     self.crash_moment = self.crash_moment + 1
+        sfc_to_remove = sfc.id
+        backup_sfc = False
+        if sfc.id in self.sfcs_crashed:
             crash_moment = 1
+            if self.sfcs_crashed[sfc.id]['has_backup'] == True:
+                latency_diff = self.sfcs_crashed[sfc.id]['latency_diff']
+                backup_sfc = self.sfcs_crashed[sfc.id]['backup_sfc']
+            else:
+                old_latency = self.sfcs_crashed[sfc.id]['old_latency']
+                new_latency = latency
+                latency_diff = old_latency-new_latency if latency != None else None
+        else:
+            crash_moment = 0 
 
-        if sfc.id in list(self.sfcs_back_to_qeue_latency_diff.keys()):
-            old_latency = self.sfcs_back_to_qeue_latency_diff[sfc.id]['old_latency']
-            new_latency = latency
-            if latency != None:
-                latency_diff = old_latency-new_latency
-            crash_moment = 1
         self.output_writter.output_flows(self.substrate_network,
                                          self.get_running_players_sessions(),
                                          self.counter,
@@ -181,8 +183,10 @@ class SubstrateNetworkController():
                                          backup_sfc_activated,
                                          latency_diff)
 
-        if sfc.id in self.sfcs_crashed:
+        if sfc.id in list(self.sfcs_crashed.keys()):
             self.sfcs_crashed.pop(sfc.id)
+        # if backup_sfc in list(self.sfcs_crashed.keys()):
+        #     self.sfcs_crashed.pop(sfc.id)
 
         self.crasher.a_server_was_crashed = 0 # Resets crash variable
 
@@ -554,7 +558,7 @@ class SubstrateNetworkController():
         self.update()
         is_success = self.check_resources_exceed(is_success,sfc) # Check if any fees exceed 100%
         self.counter += 1 # at this time all verifications are done. So we add 1 to counter of sfc
-        
+
         # output of the simulation
         self.output_network_resources(deploy_time=current_time)
         self.output_flows(current_time,sfc,latency,run_duration,is_success,bw_transcode,latency_diff=None,backup_sfc_activated=0)
@@ -562,6 +566,7 @@ class SubstrateNetworkController():
         actual_session =  int(sfc.id.split("_")[3])
         actual_player  =  int(sfc.id.split("_")[2][1:])
         session_break_crasher = self.flows/2
+
         if actual_session >= session_break_crasher  and self.crasher_activate != 0 and self.crash_trials == 0 :
             self.start_crasher()
             self.crash_trials = self.crash_trials + 1
@@ -889,8 +894,9 @@ class SubstrateNetworkController():
                         continue
                     sfc_rf = network.sfc_route_info[sfc_id]
                     latency_sfc= sum((len(value) - 1) for key, value in sfc_rf.items() if key not in ('src', 'dst'))
-                    self.sfcs_back_to_qeue_latency_diff[sfc_id] = {'old_latency': latency_sfc}
-                    
+                    self.sfcs_crashed[sfc_id] = {'fall_time':time.time(),'has_backup':False,'old_latency':latency_sfc}
+                    #self.sfcs_back_to_qeue_latency_diff[sfc_id] = {'old_latency': latency_sfc}
+
                     self.send_back_to_qeue(self.substrate_network.get_sfc_by_id(sfc_id))
 
                     #except Exception as e :
@@ -903,10 +909,10 @@ class SubstrateNetworkController():
             self.substrate_network.set_node_cache_capacity(server, 0)
             self.substrate_network.set_node_cpu_capacity(server, 0)
             
-            if sfc_ids != []:
-                for sfc_id in sfc_ids:
-                    # Popula o dicionário sfcs_crashed
-                    self.sfcs_crashed[sfc_id] = time.time()
+            # if sfc_ids != []:
+            #     for sfc_id in sfc_ids:
+            #         # Popula o dicionário sfcs_crashed
+            #         self.sfcs_crashed[sfc_id] = time.time()
 
             for link, sfc_vnf in filtered_edges.items():
                 # if sfc_vnf == []:

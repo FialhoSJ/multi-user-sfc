@@ -43,12 +43,15 @@ class Crasher():
 
             if info['cpu_used'] >= 90:
                 servers_that_use_cpu.append(server)
+        
         if len(servers_that_use_cpu) == 0:
-            server_choice = random.choice(servers_that_use_cpu)
+            server_choice = servidor_mais_usado # caso não haja nenhum servidor usando mais de x cpu
         else:
-            server_choice = [servidor_mais_usado]
+            server_choice = random.choice(servers_that_use_cpu)
+        
         edges = network.sfs_flux_info.keys()
         #servers_to_crash = [servidor_mais_usado]
+
         servers_to_crash = [server_choice]
         
         for edge in edges:
