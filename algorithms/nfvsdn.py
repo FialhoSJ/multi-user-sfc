@@ -66,8 +66,8 @@ class Goku(Algorithm):
         self.G = 0 
         self.services = 0
         
-        self.cpu_factor=1
-        self.cache_factor=1
+        self.cpu_factor=2
+        self.cache_factor=2
         self.band_factor=1
         self.boot_factor=1
         
@@ -328,6 +328,7 @@ class Goku(Algorithm):
 
         # Função para calcular o custo total
         def calculate_total_cost(node_resource_cost, boot_cost, bandwidth_cost, latency_cost):
+            boot_cost = 0
             return (node_resource_cost * self.cpu_factor)/2 + (node_resource_cost * self.cache_factor)/2 + (boot_cost * self.boot_factor) + (bandwidth_cost * self.band_factor) + latency_cost
 
         # Função para verificar disponibilidade de largura de banda e recursos do servidor
@@ -406,13 +407,12 @@ class Goku(Algorithm):
                 pass
 
             # Se encontrou candidatos viáveis, não tenta com bitrate menor
-            if best_cost < float('inf'):
-                break
+            # if best_cost < float('inf'):
+            #     break
 
         best_candidate = min(candidates, key=lambda x: x[2], default=(None, None, None, None))
 
         return best_cost, best_candidate, candidates
-
 
     # latency as restriction
     def calculate_latency_cost(self,distance):

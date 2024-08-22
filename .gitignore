@@ -24,3 +24,15 @@ core/__init__.py
 *.pyc
 csbc_simu.rar
 RESULTADOS_8_12.rar
+plots/2024/latency_diff_barplot.pdf
+plots/2024/latency_diff_boxplot.pdf
+plots/2024/recovered_rate_barplot.pdf
+plots/2024/recovered_rate_boxplot.pdf
+plots/2024/recovered_rate.pdf
+plots/2024/recovery_time_barplot.pdf
+plots/2024/recovery_time_boxplot.pdf
+plots/2024/recovery_time.pdf
+plots/2024/recovery_time_barplot.pdf
+plots/2024/recovery_time.pdf
+plots/2024/recovered_rate.pdf
+plots/2024/recovered_rate_barplot.pdf
