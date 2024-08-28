@@ -535,8 +535,12 @@ class ResilientSubstrateNetworkController():
         alg = copy.deepcopy(self.alg)
         alg.clear_all()
         alg.install_substrate_network(self.substrate_network)
-        alg.install_SFC(sfc)
         
+        # if self.alg_name == 'goku_backup':
+        #     sfc == copy.deepcopy(alg.check_sfc(sfc))
+        
+        alg.install_SFC(sfc)
+
         s = time.time() # Start measuring how long it takes to the alg run
 
         shareable_sfs = self.substrate_network.get_shareable_sfs()

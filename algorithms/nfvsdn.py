@@ -94,7 +94,30 @@ class Goku(Algorithm):
         self.latency_request = sfc.get_latency_request()
         self.using_bit_rate = False
         self.bitrate_cut = 1.0
-        return self.sfc
+        return self.sfc 
+
+    def check_sfc(self,sfc):
+        backup = False
+        sfc_id = sfc.id
+        is_backup = True if int(sfc_id.split("_")[-1]) % 2 == 0 else False
+
+        new_sfc = 0
+        if is_backup == True:
+            prefixo, x = sfc_id.rsplit('_', 1)
+            real_sfc_id = f"{prefixo}_{int(x) - 1}"
+            route_info = self.substrate_network.sfc_route_info
+            
+            if real_sfc_id in list(route_info.keys()):
+                route_info = route_info[real_sfc_id]
+            else:
+                return sfc
+            
+            servers_used = list(set([item for chave, valor in route_info.items() if chave not in ['src', 'dst'] for item in valor])) 
+            
+
+            return new_sfc 
+        else:
+            return sfc
     
     def set_costs(self,costs_parameters):
         self.cpu_weight   =  costs_parameters[0]
@@ -242,17 +265,6 @@ class Goku(Algorithm):
                 # Caso não exista, define o próximo serviço como None
                 next_service = None
             
-            # try:
-            #     # Chama a função com o serviço atual e o próximo serviço (ou None)
-            #     best_server, best_path, cost_details = self.find_best_server_for_service_with_exploration(G, server_resources, service_requirements, current_location, service, next_service)
-            # except Exception as e:
-            #     print("***************************************************")
-            #     print("***************************************************")
-            #     print()
-            #     print(f"Erro na alocação do osfem: {e}")
-            #     print()
-            #     print("***************************************************")
-            #     print("***************************************************")
             best_server, best_path, cost_details = self.find_best_server_for_service_with_exploration(G, server_resources, service_requirements, current_location, service, next_service)
 
             allocation_results[service] = {
@@ -292,26 +304,11 @@ class Goku(Algorithm):
         
         return route_info,total_latency
 
-
     def find_best_server_for_service_with_exploration(self, G, server_resources, service_requirements, current_location, service, next_service, exploration_margin=1):
         best_cost, best_candidate, candidates = self.find_candidates_serves_for_sf(G, server_resources, service_requirements, current_location, service)
         
         if best_cost == float('inf') or best_candidate == float('inf') or candidates == None:
             return False, False, False
-        
-        # exploration_threshold = best_cost * (1 + exploration_margin)
-        # filtered_candidates = [candidate for candidate in candidates if candidate[2] <= exploration_threshold]
-
-        # if next_service is not None:
-        #     best_c_cost = float('inf')
-        #     for candidato in filtered_candidates:
-        #         candidate_future_cost, _, _, = self.find_candidates_serves_for_sf(G, server_resources, service_requirements, candidato[0], next_service)
-        #         candidate_atual_cost = candidato[3]['total_cost']
-        #         custo_conjunto = candidate_atual_cost + candidate_future_cost
-                
-        #         if custo_conjunto < best_c_cost:
-        #             best_c_cost = custo_conjunto
-        #             best_candidate = candidato
 
         server_choose = best_candidate[0]
         path_to = best_candidate[1]
@@ -340,7 +337,6 @@ class Goku(Algorithm):
                     return True
             return False
 
-        # Função para calcular o custo robusto de largura de banda
         # Função para calcular o custo robusto de largura de banda
         def calculate_bandwidth_cost(path, bandwidth_requirement):
             cost = 0
@@ -411,7 +407,6 @@ class Goku(Algorithm):
             #     break
 
         best_candidate = min(candidates, key=lambda x: x[2], default=(None, None, None, None))
-
         return best_cost, best_candidate, candidates
 
     # latency as restriction

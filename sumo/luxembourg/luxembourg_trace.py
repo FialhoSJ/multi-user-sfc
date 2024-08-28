@@ -326,8 +326,8 @@ class Sumo_Luxembourg:
                     # Adicione tratamento específico para este erro, se necessário
                 else:
                     print("******************Erro tipo OS******************")
-                    print(f"Erro não esperado na movimentação do veículo: {e}")
-                    traceback.print_exc()
+                   # print(f"Erro não esperado na movimentação do veículo: {e}")
+                    #traceback.print_exc()
             #except Exception as e:
                 #print("******************Erro tipo E********************")
                 #print(f"Erro não esperado na movimentação do veículo: {e}")

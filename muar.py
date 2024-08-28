@@ -154,10 +154,24 @@ def previous_sfc_setup (backup=False):
         x2, y2 = topology_tracer_positions[node2]
         return math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
 
-    # Função para encontrar um destino para a rota
-    def find_valid_route(node, topology_tracer_positions):
+    def find_valid_route(node, topology_tracer_positions,routes):
         destination = random.choice(list(topology_tracer_positions.keys()))
-        while calculate_distance(node, destination, topology_tracer_positions) < 2000 or destination == node:
+        nodes_routes = []
+        if len(routes) > 0:
+            for rota in routes:
+                nodes_routes.append(rota[0])
+                #nodes_routes.append(rota[1])
+
+        # nodes_routes = [x[0].extend(x[1]) for x in routes] if len(routes) >0 else []
+                # nodes_routes = [x[0].extend(x[1]) for x in routes] if len(routes) >0 else []
+        limiar  = [200,1500]
+        distancia = calculate_distance(node, destination, topology_tracer_positions)
+        limiar_sup = distancia > limiar[1]
+        limiar_inf = distancia < limiar[0]
+        while (limiar_inf and limiar_sup) or destination == node or destination in nodes_routes :
+            distancia = calculate_distance(node, destination, topology_tracer_positions)
+            limiar_sup = distancia > limiar[1]
+            limiar_inf = distancia < limiar[0]
             destination = random.choice(list(topology_tracer_positions.keys()))
         return destination
 
@@ -179,13 +193,10 @@ def previous_sfc_setup (backup=False):
         routes = {}
         for i in range(n_players):
             current_node = session_dst
-            
             # Inicializando a lista de rotas para o jogador `i+1`
             routes[i + 1] = []
-            
-            for _ in range(5):  # Criando 3 rotas para cada SFC
-                next_node = find_valid_route(current_node, topology_tracer_positions)
-                
+            for _ in range(7):  # Criando 3 rotas para cada SFC
+                next_node = find_valid_route(current_node, topology_tracer_positions,routes[i+1])
                 # Adicionando a tupla (current_node, next_node) na lista correspondente ao jogador
                 routes[i + 1].append((current_node, next_node))
                 
