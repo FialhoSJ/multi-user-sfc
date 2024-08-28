@@ -154,26 +154,22 @@ def previous_sfc_setup (backup=False):
         x2, y2 = topology_tracer_positions[node2]
         return math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
 
-    def find_valid_route(node, topology_tracer_positions,routes):
-        destination = random.choice(list(topology_tracer_positions.keys()))
-        nodes_routes = []
-        if len(routes) > 0:
-            for rota in routes:
-                nodes_routes.append(rota[0])
-                #nodes_routes.append(rota[1])
+    def find_valid_route(node, topology_tracer_positions, routes, visited_nodes):
+        possible_destinations = {n: calculate_distance(node, n, topology_tracer_positions) 
+                                for n in topology_tracer_positions if n != node and n not in visited_nodes}
+        
+        # Se não houver nós disponíveis, retorna None
+        if len(possible_destinations) < 2:
+            return None
 
-        # nodes_routes = [x[0].extend(x[1]) for x in routes] if len(routes) >0 else []
-                # nodes_routes = [x[0].extend(x[1]) for x in routes] if len(routes) >0 else []
-        limiar  = [200,1500]
-        distancia = calculate_distance(node, destination, topology_tracer_positions)
-        limiar_sup = distancia > limiar[1]
-        limiar_inf = distancia < limiar[0]
-        while (limiar_inf and limiar_sup) or destination == node or destination in nodes_routes :
-            distancia = calculate_distance(node, destination, topology_tracer_positions)
-            limiar_sup = distancia > limiar[1]
-            limiar_inf = distancia < limiar[0]
-            destination = random.choice(list(topology_tracer_positions.keys()))
+        # Ordenar os destinos possíveis pela distância
+        sorted_destinations = sorted(possible_destinations, key=possible_destinations.get)
+        
+        # Selecionar o segundo nó mais próximo
+        destination = sorted_destinations[2] if len(sorted_destinations) > 2 else sorted_destinations[0]
+        
         return destination
+
 
     # Definindo o número de nós, sessões e jogadores
     number_of_nodes = len(topology_tracer_positions)
@@ -186,23 +182,24 @@ def previous_sfc_setup (backup=False):
 
     # Iterando sobre sessões e jogadores para definir destinos e rotas
     for session in range(1, number_of_sessions + 1):
-
         # Definindo o nó de origem base para a sessão
         session_dst = random.randint(1, number_of_nodes)
         current_node = session_dst
         routes = {}
         for i in range(n_players):
             current_node = session_dst
+            visited_nodes = {current_node}  # Conjunto de nós visitados
             # Inicializando a lista de rotas para o jogador `i+1`
             routes[i + 1] = []
-            for _ in range(7):  # Criando 3 rotas para cada SFC
-                next_node = find_valid_route(current_node, topology_tracer_positions,routes[i+1])
+            for _ in range(10):  
+                next_node = find_valid_route(current_node, topology_tracer_positions, routes[i + 1], visited_nodes)
+                if next_node is None:
+                    break  # Se não há mais destinos válidos, interrompe o loop
                 # Adicionando a tupla (current_node, next_node) na lista correspondente ao jogador
                 routes[i + 1].append((current_node, next_node))
-                
-                current_node = next_node
-        # for player in range(1, number_of_players + 1):
-        #     # Definindo nomes das SFCs normais e de backup
+                visited_nodes.add(next_node)  # Adiciona o nó visitado ao conjunto
+                current_node = next_node  # Atualiza o nó atual para o próximo
+
             key_session = f'{session}'
 
         locations = {i: session_dst for i in range(1, n_players+1)}

@@ -41,7 +41,7 @@ class Crasher():
                 mais_usado = info['cpu_used']
                 servidor_mais_usado = server
 
-            if info['cpu_used'] >= 90:
+            if info['cpu_used'] >= 95:
                 servers_that_use_cpu.append(server)
         
         if len(servers_that_use_cpu) == 0:

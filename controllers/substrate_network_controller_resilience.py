@@ -593,6 +593,7 @@ class ResilientSubstrateNetworkController():
         actual_player  =  int(sfc.id.split("_")[2][1:])
 
         session_break_point = self.flows / 2
+        session_break_point = 20
         if actual_session >=  session_break_point and self.crasher_activate != 0 and self.crash_trials == 0 :
             self.start_crasher()
             self.crash_trials = self.crash_trials + 1
@@ -1034,7 +1035,7 @@ class ResilientSubstrateNetworkController():
                                 break
 
                             if backup_sfc_needs_reroute:
-                                player_location = self.tracer.gets_next_backup_server(sfc.dst.substrate_node,int(player),int(p_session))
+                                player_location = self.tracer.gets_next_backup_server(int(player),int(p_session))
                             else:
                                 break
                         else:

@@ -68,8 +68,8 @@ class Goku(Algorithm):
         
         self.cpu_factor=2
         self.cache_factor=2
-        self.band_factor=1
-        self.boot_factor=1
+        self.band_factor=0.5
+        self.boot_factor=0
         
         self.using_bit_rate = False
         self.bitrate_cut = 1.0

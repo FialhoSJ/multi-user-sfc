@@ -208,20 +208,29 @@ class Sumo_Luxembourg:
         except:
             return -1
         
-    def gets_next_backup_server(self,actual_backup_sfc_loc,player_id,session_key):
-        value_to_remove = actual_backup_sfc_loc
-        
-        #old_value = self.pre_defined_routes[session_key]['locations'][player_id]
-        next_server = self.pre_defined_routes[session_key]['route'][player_id][actual_backup_sfc_loc]
-        self.pre_defined_routes[session_key]['route'][player_id-1] = next_server
+    def gets_next_backup_server(self,player_id,session_key):
+        rotas = self.pre_defined_routes[session_key]['route'][player_id]
+        lista_rotas = list(rotas.keys())
+        actual_backup_sfc_loc = self.pre_defined_routes[session_key]['current_dst'][player_id-1]
 
-        return next_server    
-        # index = self.pre_defined_routes[session_key]['route'].index(old_value)
-        
-        # new_server = self.pre_defined_routes[session_key]['route']
+        if len(lista_rotas) != 0:
+            value_to_remove = actual_backup_sfc_loc
+            next_server = rotas[actual_backup_sfc_loc]
+            self.pre_defined_routes[session_key]['current_dst'][player_id-1] = next_server
 
-        # return new_server
+            if value_to_remove in rotas:
+                removed_value = self.pre_defined_routes[session_key]['route'][player_id].pop(value_to_remove)
+                # removed_value agora contém o valor removido, se necessário para uso posterior
+            else:
+                removed_value = None  # Se o valor não estava presente, None será retornado
+            return next_server    
+            # index = self.pre_defined_routes[session_key]['route'].index(old_value)
+            
+            # new_server = self.pre_defined_routes[session_key]['route']
 
+            # return new_server
+        else:
+            return actual_backup_sfc_loc
     def update_vehicles(self):
         # try:
         if self.is_simulation_running():
