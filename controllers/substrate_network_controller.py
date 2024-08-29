@@ -135,6 +135,9 @@ class SubstrateNetworkController():
         if self.mobility_activated != 0:
             self.start_tracer_thread()
 
+        if self.allow_temporary_high_latency:
+            self.start_check_altered_sfc_thread(interval = 5)
+
         # If crasher is activated
         # if self.crasher_activate != 0:
         #     self.start_crasher_thread(self.crasher.time_interval, trigger_value="online")
@@ -149,7 +152,7 @@ class SubstrateNetworkController():
         self.output_writter.output_nodes_sf_utilization(self.substrate_network, deploy_time)
         #self.output_utils.output_edges_sf_utilization(self.edges_vnf, self.existing_vnf, self.sfc_list, deploy_time, route_info, sfc)
 
-    def output_flows(self,current_time, sfc, latency, run_duration, is_success,bw_transcode,backup_sfc_activated=0,latency_diff=None):
+    def output_flows(self,current_time, sfc, latency, run_duration, is_success,bw_transcode,backup_sfc_activated=0,latency_diff=None,wait_time=None):
         # if self.crasher.a_server_was_crashed == 1:
         #     self.crash_moment = self.crash_moment + 1
         sfc_to_remove = sfc.id
@@ -167,6 +170,7 @@ class SubstrateNetworkController():
             crash_moment = 0 
 
         self.output_writter.output_flows(self.substrate_network,
+                                         wait_time,
                                          self.get_running_players_sessions(),
                                          self.counter,
                                          self.remaining_time,
@@ -175,13 +179,13 @@ class SubstrateNetworkController():
                                          latency,
                                          run_duration,
                                          is_success,
-                                         self.crasher.a_server_was_crashed,
                                          bw_transcode,
                                          self.users_crashed,
                                          self.sfcs_crashed,
                                          crash_moment,
                                          backup_sfc_activated,
-                                         latency_diff)
+                                         latency_diff,
+                                         )
 
         if sfc.id in list(self.sfcs_crashed.keys()):
             self.sfcs_crashed.pop(sfc.id)
@@ -189,6 +193,16 @@ class SubstrateNetworkController():
         #     self.sfcs_crashed.pop(sfc.id)
 
         self.crasher.a_server_was_crashed = 0 # Resets crash variable
+
+    def start_check_altered_sfc_thread(self, interval):
+        def task():
+            while not self.is_stopped:  # Loop infinito para chamar a função repetidamente
+                self.check_altered_sfcs()
+                time.sleep(interval)
+
+        thread_check_alt = threading.Thread(target=task)
+        thread_check_alt.daemon = True
+        thread_check_alt.start()
 
     # def start_crasher_thread(self, interval, trigger_value, mode='reliablity', poisson_lambda=100):
     #     def task():
@@ -533,7 +547,7 @@ class SubstrateNetworkController():
         if (self.alg_name == 'musfico') and (sfc.id in self.sfcs_routing_info.keys()): # musfico exclusive methodology
             latency,route_info = self.musfico_method(sfc)
 
-        is_acceptable  = self.check_latency_and_bitrate(sfc, latency,bit_rate_adjust) # for scenarios where high latency is acceptable
+        is_acceptable,wait_time  = self.check_latency_and_bitrate(sfc, route_info,latency,bit_rate_adjust) # for scenarios where high latency is acceptable
         route_info, latency = self.validate_route_info_and_latency(route_info, latency, sfc, self.sfc,is_acceptable)
 
         is_success = 0
@@ -561,7 +575,7 @@ class SubstrateNetworkController():
 
         # output of the simulation
         self.output_network_resources(deploy_time=current_time)
-        self.output_flows(current_time,sfc,latency,run_duration,is_success,bw_transcode,latency_diff=None,backup_sfc_activated=0)
+        self.output_flows(current_time,sfc,latency,run_duration,is_success,bw_transcode,latency_diff=None,backup_sfc_activated=0,wait_time=wait_time)
 
         actual_session =  int(sfc.id.split("_")[3])
         actual_player  =  int(sfc.id.split("_")[2][1:])
@@ -762,7 +776,7 @@ class SubstrateNetworkController():
                 self.timer = Timer((self.update_interval \
                                     - (time2 - time1)), self.check_sfc_duration, ()).start()
     
-    def check_latency_and_bitrate(self, sfc, latency: int,bitrate :int) -> bool:
+    def check_latency_and_bitrate(self, sfc,route_info, latency: int,bitrate :int) -> bool:
         """
         Checks if the latency is within acceptable limits and handles high latency scenarios.
         Checks if Trascoding bitrate was adjusted
@@ -774,29 +788,47 @@ class SubstrateNetworkController():
         Returns:
             bool: True if the latency and bitrate are acceptable, False otherwise.
         """
-        if not isinstance(latency, int):
-            if isinstance(latency,float):
-                pass
+        # if not isinstance(latency, int):
+        #     if isinstance(latency,float):
+        #         pass
+        #     else:
+        #         return False
+            
+        if route_info:
+            altered_sfc = False
+            wait_time = None
+
+            if self.allow_temporary_high_latency:
+                if latency > self.latency_interval[0] and latency <= self.latency_interval[1]:  #latency bettwen 6 and 10 ms
+                    altered_sfc = True
+
+            # TODO bitrate implementation is not being done in this simulation
+            # if bitrate != 1.0:
+            #     altered_sfc = True
+
+            if altered_sfc == True:
+                if sfc.id not in list(self.altered_sfcs.keys()):
+                    self.altered_sfcs[sfc.id] = {'wait_time':0,'timestamp':time.time(),'flag':True} # Primeira tentativa de alocação sem delay alto
+                    return True, None # Na primeira passagem ele permite a SFC ter delay alto
+                else:
+                    allow_reroute = self.altered_sfcs[sfc.id]['flag']
+                    if allow_reroute:
+                        return True, self.altered_sfcs[sfc.id]['wait_time']
+                    else:
+                        return False, 30
             else:
-                return False
-
-        altered_sfc = False
-
-        if self.allow_temporary_high_latency:
-            if latency >= self.latency_interval[0] and latency <= self.latency_interval[1]:  #latency bettwen 6 and 10 ms
-                altered_sfc = True
-
-        if bitrate != 1.0:
-            altered_sfc = True
-
-        if altered_sfc == True:
-            if sfc.id not in self.altered_sfcs.keys():
-                self.altered_sfcs[sfc.id] = {'time': 30, 'trials': 1}
-                return True
-            else:
-                return False  # second attempt to reallocate this SFC
+                if sfc.id in self.altered_sfcs: # Nesse caso a sfc não está alterada agora, mas antes ela estava, o que quer dizer que ela saiu desse estado
+                    wait_time = self.altered_sfcs[sfc.id]['wait_time']
+                    self.altered_sfcs[sfc.id]
+                    return True, wait_time
+                else:
+                    return True,None
         else:
-            return True
+            if sfc.id in list(self.altered_sfcs.keys()): # Retira
+                del self.altered_sfcs[sfc.id]
+                return True,None
+            else:
+                return False, None
         
     def validate_route_info_and_latency(self,route_info, latency, sfc, sfc_mode,is_sfc_acceptable):
         # TODO otimizar essas verificações
@@ -1005,23 +1037,33 @@ class SubstrateNetworkController():
                 self.timer = Timer((self.update_interval \
                                     - (time2 - time1)), self.check_user_position_thread, ()).start()
 
-    def check_altered_sfcs(self)->None:
-        altered_sfcs = self.altered_sfcs.items()
+    def check_altered_sfcs(self) -> None:
+        altered_sfcs = list(self.altered_sfcs.items())  # Create a list copy of the items
 
         for sfc_id, value in altered_sfcs:
             try:
                 sfc = self.substrate_network.get_sfc_by_id(sfc_id)
             except:
                 continue
-            trials = value['trials']
-            
-            if trials == 1:
-                duration = value['time']
-                if duration <= 1:
-                    self.send_back_to_qeue(sfc)
-                    self.altered_sfcs[sfc_id]['trials'] = trials + 1
-                    continue
-                self.altered_sfcs[sfc_id]['time'] = duration - 1
+
+            time_out = 30 # configurável
+
+            tempo_primeira_inicializacao = value['timestamp']
+            tempo_agora = time.time()
+            tempo_corrido = int(tempo_agora - tempo_primeira_inicializacao)
+            self.altered_sfcs[sfc_id]['wait_time'] = tempo_corrido # Tempo de espera aumenta
+
+            if tempo_corrido >= time_out:
+                self.altered_sfcs[sfc_id]['flag'] = False
+                try:
+                    self.undeploy_sfc(sfc)
+                    del self.altered_sfcs[sfc.id]
+                except:
+                    pass # Só para não tratar sfcs do mesmo usuários passando por undeploy
+            else:
+                self.altered_sfcs[sfc_id]['flag'] = True
+                self.send_back_to_qeue(sfc)
+
     
     def send_back_to_qeue(self,sfc,changed_location=False,new_location=False):
         sfc_id = sfc.id

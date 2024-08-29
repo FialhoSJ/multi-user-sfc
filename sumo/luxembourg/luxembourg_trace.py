@@ -232,18 +232,16 @@ class Sumo_Luxembourg:
         else:
             return actual_backup_sfc_loc
     def update_vehicles(self):
-        # try:
-        if self.is_simulation_running():
-            vehicles = traci.vehicle.getIDList()
-            for vehicle_id in vehicles:
-                if self.traci_connected:
-                    arrived = traci.vehicle.getRouteIndex(vehicle_id) == len(traci.vehicle.getRoute(vehicle_id))-1
-                    if arrived:
-                        self.reroute_vehicle(vehicle_id)
-        # except:
-        #     print("Erro in rerouted")
-        #     print(f"Simulation running status: {self.traci_connected}")
-        #     pass
+        try:
+            if self.is_simulation_running():
+                vehicles = traci.vehicle.getIDList()
+                for vehicle_id in vehicles:
+                    if self.traci_connected:
+                        arrived = traci.vehicle.getRouteIndex(vehicle_id) == len(traci.vehicle.getRoute(vehicle_id))-1
+                        if arrived:
+                            self.reroute_vehicle(vehicle_id)
+        except:
+              print("Erro in rerouted")
 
     def reroute_vehicle(self, vehicle_id):
         """
@@ -324,17 +322,10 @@ class Sumo_Luxembourg:
 
                 time.sleep(1)
                 
-            except traci.exceptions.FatalTraCIError as e:
+            except:
                 print("Conexão com o SUMO foi fechada. Finalizando simulação.")
                 self.stop_sumo_simulation()  # Chame a função para finalizar a simulação de forma limpa e segura
                 break  # Sai do loop para evitar mais chamadas após a simulação ter sido fechada
-            except OSError as e:
-                if e.winerror == 10054:
-                    print("******************Erro de WinError 10054******************")
-                    self.stop_sumo_simulation()
-                    # Adicione tratamento específico para este erro, se necessário
-                else:
-                    print("******************Erro tipo OS******************")
                    # print(f"Erro não esperado na movimentação do veículo: {e}")
                     #traceback.print_exc()
             #except Exception as e:
