@@ -139,7 +139,7 @@ class Sumo_Luxembourg:
         player_key = int(str(id_number)[0])
         session_key = int(str(id_number)[1:])
         
-        if True:
+        if True: # rotas predefinidas é algo ainda em aberto, portanto deixamos isso aqui mais como simbolico
             routes = self.pre_defined_routes[session_key]['route'][player_key][0]
             # del self.pre_defined_routes[session_key]['route'][0]
 
@@ -161,7 +161,7 @@ class Sumo_Luxembourg:
         server_end = random.choice(list(self.positions.keys()))    
         server_start, server_end = self.validate_route(server_start, server_end)
 
-        if True:
+        if True: # rotas predefinidas é algo ainda em aberto, portanto deixamos isso aqui mais como simbolico
             server_start = routes[0]
             server_end = routes[1]
 

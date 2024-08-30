@@ -43,7 +43,7 @@ logger.warn('warn message')
 logger.error('error message')
 logger.critical('critical message')
 
-class ResilientSubstrateNetworkController():
+class SubstrateNetworkController():
     def __init__(self, nw):
         self.altered_sfcs = {}
         
@@ -58,6 +58,7 @@ class ResilientSubstrateNetworkController():
         self.crasher = 0
         self.mobility_activated = None
         self.crasher_activate = 1
+        self.backup_activated = False
         self.users_crashed = 0 
         self.servers_to_crash = []
 
@@ -91,9 +92,7 @@ class ResilientSubstrateNetworkController():
         self.alg_name = None
         self.players_sfc_list = []
         self.sfcs_crashed = {}
-        self.sfcs_that_crashed = []
         self.sfcs_back_to_qeue_latency_diff = {}
-
         self.crash_moment = 0
         self.shareable_list = []
 
@@ -102,6 +101,8 @@ class ResilientSubstrateNetworkController():
         self.success = []
         self.crash_trials = 0
         #self.lock = threading.Lock()  # Inicializa o lock
+
+
         self.shareable_band = False # not being used
         #self.fail_resources = (1/3, 1/3, 1/3)
         self.costs_parameters = [1,1,1,1]
@@ -134,7 +135,7 @@ class ResilientSubstrateNetworkController():
         # If mobility is activated
         if self.mobility_activated != 0:
             self.start_tracer_thread()
-            
+
         if self.allow_temporary_high_latency:
             self.start_check_altered_sfc_thread(interval = 5)
 
@@ -152,7 +153,7 @@ class ResilientSubstrateNetworkController():
         self.output_writter.output_nodes_sf_utilization(self.substrate_network, deploy_time)
         #self.output_utils.output_edges_sf_utilization(self.edges_vnf, self.existing_vnf, self.sfc_list, deploy_time, route_info, sfc)
 
-    def output_flows(self,current_time, sfc, latency, run_duration, is_success,bw_transcode,backup_sfc_activated=0,latency_diff=None,wait_time = None):
+    def output_flows(self,current_time, sfc, latency, run_duration, is_success,bw_transcode,backup_sfc_activated=0,latency_diff=None,wait_time=None):
         # if self.crasher.a_server_was_crashed == 1:
         #     self.crash_moment = self.crash_moment + 1
         sfc_to_remove = sfc.id
@@ -184,14 +185,27 @@ class ResilientSubstrateNetworkController():
                                          self.sfcs_crashed,
                                          crash_moment,
                                          backup_sfc_activated,
-                                         latency_diff)
+                                         latency_diff,
+                                         )
 
         if sfc.id in list(self.sfcs_crashed.keys()):
             self.sfcs_crashed.pop(sfc.id)
-        if backup_sfc in list(self.sfcs_crashed.keys()):
-            self.sfcs_crashed.pop(sfc.id)
+        
+        if self.backup_activated == True:
+            if backup_sfc in list(self.sfcs_crashed.keys()):
+                self.sfcs_crashed.pop(sfc.id)
 
         self.crasher.a_server_was_crashed = 0 # Resets crash variable
+
+    def start_check_altered_sfc_thread(self, interval):
+        def task():
+            while not self.is_stopped:  # Loop infinito para chamar a função repetidamente
+                self.check_altered_sfcs()
+                time.sleep(interval)
+
+        thread_check_alt = threading.Thread(target=task)
+        thread_check_alt.daemon = True
+        thread_check_alt.start()
 
     # def start_crasher_thread(self, interval, trigger_value, mode='reliablity', poisson_lambda=100):
     #     def task():
@@ -208,18 +222,7 @@ class ResilientSubstrateNetworkController():
     #     thread = threading.Thread(target=task)
     #     thread.daemon = True
     #     thread.start()
-
-    def start_check_altered_sfc_thread(self, interval):
-        def task():
-            while not self.is_stopped:  # Loop infinito para chamar a função repetidamente
-                self.check_altered_sfcs()
-                time.sleep(interval)
-
-        thread_check_alt = threading.Thread(target=task)
-        thread_check_alt.daemon = True
-        thread_check_alt.start()
-
-
+        
     def get_nodes_information(self) -> None:
         """Get information for each node in the network."""
     
@@ -264,15 +267,17 @@ class ResilientSubstrateNetworkController():
 
         player = sfc_id.split("_")[2][1]
         p_session = sfc_id.split("_")[3]
+
         backup_sfc = True if int(p_session) % 2 == 0 else False 
         
         user_id = int(player + p_session)
 
         dst_server_crashed = old_loc in self.crasher.crashed_nodes
         
-        if dst_server_crashed and backup_sfc:
-            return sfc 
-    
+        if self.backup_activated:
+            if dst_server_crashed and backup_sfc:
+                return sfc 
+            
         if dst_server_crashed:
             topology = self.tracer.topology 
             current_server_id = old_loc
@@ -426,12 +431,8 @@ class ResilientSubstrateNetworkController():
         alg = copy.deepcopy(self.alg)
         alg.clear_all()
         alg.install_substrate_network(self.substrate_network)
-        
-        # if self.alg_name == 'goku_backup':
-        #     sfc == copy.deepcopy(alg.check_sfc(sfc))
-        
         alg.install_SFC(sfc)
-
+        
         s = time.time() # Start measuring how long it takes to the alg run
 
         shareable_sfs = self.substrate_network.get_shareable_sfs()
@@ -449,6 +450,9 @@ class ResilientSubstrateNetworkController():
         latency = alg.get_latency() # latency of the solution
         bit_rate_adjust =  1.0 if self.alg_name != 'osfem' else alg.get_bit_rate_used()
         bw_transcode =  sfc.vnfs_dict[-1]['out_bw'] if self.alg_name != 'osfem' else alg.get_transcode_bw()
+
+        if (self.alg_name == 'musfico') and (sfc.id in self.sfcs_routing_info.keys()): # musfico exclusive methodology
+            latency,route_info = self.musfico_method(sfc)
 
         is_acceptable,wait_time  = self.check_latency_and_bitrate(sfc, route_info,latency,bit_rate_adjust) # for scenarios where high latency is acceptable
         route_info, latency = self.validate_route_info_and_latency(route_info, latency, sfc, self.sfc,is_acceptable)
@@ -475,18 +479,16 @@ class ResilientSubstrateNetworkController():
         self.update()
         is_success = self.check_resources_exceed(is_success,sfc) # Check if any fees exceed 100%
         self.counter += 1 # at this time all verifications are done. So we add 1 to counter of sfc
-        
+
         # output of the simulation
         self.output_network_resources(deploy_time=current_time)
-
         self.output_flows(current_time,sfc,latency,run_duration,is_success,bw_transcode,latency_diff=None,backup_sfc_activated=0,wait_time=wait_time)
-        
+
         actual_session =  int(sfc.id.split("_")[3])
         actual_player  =  int(sfc.id.split("_")[2][1:])
+        session_break_crasher = self.flows/2
 
-        session_break_point = self.flows / 2
-        session_break_point = 49
-        if actual_session >=  session_break_point and self.crasher_activate != 0 and self.crash_trials == 0 :
+        if actual_session >= session_break_crasher  and self.crasher_activate != 0 and self.crash_trials == 0 :
             self.start_crasher()
             self.crash_trials = self.crash_trials + 1
             self.network_status = 'online' #flag for crasher thread start
@@ -525,7 +527,7 @@ class ResilientSubstrateNetworkController():
         """
         #with self.lock:
         if sfc_id not in self.sfc_list:
-            #print(sfc_id, "not on the substrate network")
+            print(sfc_id, "not on the substrate network")
             return -1
         
         try:
@@ -591,6 +593,45 @@ class ResilientSubstrateNetworkController():
         return (sfc_vnf_list, cpu_used, cpu_free, cpu_capacity, total_cpu_used, \
                 total_cpu_capacity, cache_used, cache_free, cache_capacity, \
                     total_cache_used, total_cache_capacity)
+
+    def musfico_method(self, sfc):
+        """
+        Calculates the latency and obtains the route information for the musfico algorithm.
+
+        Args:
+            sfc (object): The service function chain (SFC) object containing the SF details.
+
+        Returns:
+            tuple: A tuple containing the latency and route_info.
+        """
+        route_info = {}
+        # get stored route info
+        route_info = copy.deepcopy(self.sfcs_routing_info[sfc.id])
+        # gets dst vnf
+        dst_vnf = sfc.get_dst_vnf()
+        previous_vnf = sfc.get_previous_vnf(dst_vnf)
+        dst_substrate_node = sfc.get_substrate_node(dst_vnf)
+        prev_vnf_node = route_info[previous_vnf.id][0]
+        # applies k shortest to link the last vnf with the previous one
+        shortest_path = k_shortest_paths(self.substrate_network, prev_vnf_node, 
+                                        dst_substrate_node, k=1, weight='latency')
+        # get the shortest among the k shortest paths
+        route_info[previous_vnf.id] = shortest_path[0]
+        latency = 0
+        for vnf_id in route_info.keys():
+            if vnf_id == 'src':
+                continue
+            path = route_info[vnf_id]
+            for i in range(len(path) - 1):
+                edge_latency = self.substrate_network.get_link_latency(
+                    path[i], path[i + 1])
+                latency += edge_latency
+
+        if latency > sfc.get_latency_request() or latency < 0:
+            route_info = False
+            latency = None
+
+        return latency, route_info
     
     def check_node_cpu_threshold(self, node_id: str) -> None:
         """
@@ -682,17 +723,17 @@ class ResilientSubstrateNetworkController():
             else:
                 if sfc.id in self.altered_sfcs: # Nesse caso a sfc não está alterada agora, mas antes ela estava, o que quer dizer que ela saiu desse estado
                     wait_time = self.altered_sfcs[sfc.id]['wait_time']
-                    del self.altered_sfcs[sfc.id]
+                    self.altered_sfcs[sfc.id]
                     return True, wait_time
                 else:
                     return True,None
         else:
-            if sfc.id in list(self.altered_sfcs.keys()): # Solução piorou de modo a não aceitar mais
+            if sfc.id in list(self.altered_sfcs.keys()): # Retira
                 del self.altered_sfcs[sfc.id]
                 return True,None
             else:
                 return False, None
-                              
+        
     def validate_route_info_and_latency(self,route_info, latency, sfc, sfc_mode,is_sfc_acceptable):
         # TODO otimizar essas verificações
         """
@@ -712,7 +753,7 @@ class ResilientSubstrateNetworkController():
         p_session = sfc_id.split("_")[3]
         user_id = int(player + p_session)
         backup_sfc = True if int(p_session) % 2 == 0 else False 
-        
+
         if route_info:
             if (len(route_info.keys()) != 6 and sfc_mode == 'on') or (len(route_info.keys()) != 4 and sfc_mode == 'off'):
                 latency = None
@@ -727,9 +768,17 @@ class ResilientSubstrateNetworkController():
         if is_sfc_acceptable == False: #sfc's denied because is the 2nd time it could not fit
             latency = None
             route_info = False   
+            sfc_id = sfc.id
+            player = sfc_id.split("_")[2][1]
+            p_session = sfc_id.split("_")[3]
+            user_id = int(player + p_session)
             self.tracer.set_sfc_status_for_user(user_id,sfc_id, new_status = 'completed')
         
         if route_info == False or latency ==  None:
+            sfc_id = sfc.id
+            player = sfc_id.split("_")[2][1]
+            p_session = sfc_id.split("_")[3]
+            user_id = int(player + p_session)
             vehicle_is_created = self.tracer.is_vehicle_created(user_id)
             if vehicle_is_created:
                 self.tracer.set_sfc_status_for_user(user_id,sfc_id, new_status = 'completed')
@@ -741,15 +790,16 @@ class ResilientSubstrateNetworkController():
             intersection = [x for x in servers_used if x in crashed_nodes]
 
             if len(intersection ) > 0 :
+                print("Already crash")
+                print("**********DEBUG PANEL:*********")
                 print(f"Crashed Nodes: {crashed_nodes}")
                 print(f"My route_info: {route_info}")
                 print(f"Servers Used: {servers_used}")
                 print(f"Servers that are being used that crashed: {intersection}")
-                print("Already crash")
                 route_info = False
                 latency = None
 
-        if backup_sfc:
+        if backup_sfc and self.backup_activated:
             prefixo, x = sfc_id.rsplit('_', 1)
             real_sfc_id = f"{prefixo}_{int(x) - 1}"
             real_sfc_running = real_sfc_id in self.sfc_list 
@@ -800,85 +850,58 @@ class ResilientSubstrateNetworkController():
                         continue
                     sfc = self.substrate_network.get_sfc_by_id(sfc_id)
 
-                    #TODO:se tiver backup faz o undeploy e ativa a backup como principal, se não move pra fila.
-
-                    player = sfc_id.split("_")[2][1]
-                    p_session = sfc_id.split("_")[3]
-                    backup_sfc = True if int(p_session) % 2 == 0 else False 
+                    if not self.backup_activated: # Se a funcionalidade de backup não está ativada
+                        sfc_rf = network.sfc_route_info[sfc_id]
+                        latency_sfc= sum((len(value) - 1) for key, value in sfc_rf.items() if key not in ('src', 'dst'))
+                        self.sfcs_crashed[sfc_id] = {'fall_time':time.time(),'has_backup':False,'old_latency':latency_sfc}
+                        self.send_back_to_qeue(self.substrate_network.get_sfc_by_id(sfc_id))
                     
-                    # Se for  uma sfc de backup que caiu, para esse experimento iremos apenas desalocar ela.
-                    if backup_sfc: 
-                        self.undeploy_sfc(sfc_id)
-                        #self.sfcs_crashed[sfc_id] = {'fall_time':time.time(),'is_backup':True,'has_backup':False,'original_sfc':[]}
-                    else: # Se for uma sfc orignal, iremos tentar primeiro buscar a de backup dessa sfc. No segundo mandar de volta pra fila.
-                        has_backup_running = False
-                        sfc_id_backup = re.sub(r'\d+$', lambda x: str(int(x.group()) + 1),sfc_id)
-                        
-                        if sfc_id_backup in self.sfc_list:
-                            try:
-                                sfc_backup = self.substrate_network.get_sfc_by_id(sfc_id_backup)
-                            except:
-                                print("Não há de backup rodando")
-                            
-                            bw_transcode =  sfc.vnfs_dict[-1]['out_bw'] #if self.alg_name != 'osfem' else alg.get_transcode_bw()
-
-                            sfc_backup_rf = network.sfc_route_info[sfc_id_backup]
-                            latency_backup = sum((len(value) - 1) for key, value in sfc_backup_rf.items() if key not in ('src', 'dst'))
-
-                            sfc_rf = network.sfc_route_info[sfc_id]
-                            latency_sfc= sum((len(value) - 1) for key, value in sfc_rf.items() if key not in ('src', 'dst'))
-
-                            latency_diff = latency_backup - latency_sfc
-
-                            # Nesse caso iremos fazer o undeploy da sfc original e manter somente a de backup. Imprimindo a de backup no log
-                            self.sfcs_crashed[sfc_id] = {'fall_time':time.time(),'has_backup':True,'backup_sfc':sfc_id_backup,'latency_diff':latency_diff}
-                            self.output_flows(current_time=time.time(),sfc=sfc,latency=latency_backup,latency_diff=latency_diff,run_duration=0,is_success=1,bw_transcode=bw_transcode,backup_sfc_activated=1)
+                    else: # Se ela está ativada
+                        player = sfc_id.split("_")[2][1]
+                        p_session = sfc_id.split("_")[3]
+                        backup_sfc = True if int(p_session) % 2 == 0 else False     
+                        # Se for  uma sfc de backup que caiu, para esse experimento iremos apenas desalocar ela.
+                        if backup_sfc: 
                             self.undeploy_sfc(sfc_id)
-                        else:
-    
-                            sfc_rf = network.sfc_route_info[sfc_id]
-                            latency_sfc= sum((len(value) - 1) for key, value in sfc_rf.items() if key not in ('src', 'dst'))
-                            self.sfcs_crashed[sfc_id] = {'fall_time':time.time(),'has_backup':False,'old_latency':latency_sfc}
-                            self.sfcs_back_to_qeue_latency_diff[sfc_id] = {'old_latency': latency_sfc}
+                            #self.sfcs_crashed[sfc_id] = {'fall_time':time.time(),'is_backup':True,'has_backup':False,'original_sfc':[]}
+                        else: # Se for uma sfc orignal, iremos tentar primeiro buscar a de backup dessa sfc. No segundo mandar de volta pra fila.
+                            has_backup_running = False
+                            sfc_id_backup = re.sub(r'\d+$', lambda x: str(int(x.group()) + 1),sfc_id)
+                            
+                            if sfc_id_backup in self.sfc_list:
+                                try:
+                                    sfc_backup = self.substrate_network.get_sfc_by_id(sfc_id_backup)
+                                except:
+                                    print("Não há de backup rodando")
+                                
+                                bw_transcode =  sfc.vnfs_dict[-1]['out_bw'] #if self.alg_name != 'osfem' else alg.get_transcode_bw()
 
-                            self.send_back_to_qeue(self.substrate_network.get_sfc_by_id(sfc_id))
+                                sfc_backup_rf = network.sfc_route_info[sfc_id_backup]
+                                latency_backup = sum((len(value) - 1) for key, value in sfc_backup_rf.items() if key not in ('src', 'dst'))
 
-                    #except Exception as e :
-#                         print()
-#                         print()
-                    #print(f"Erro no send back to qeue {e}")
-#                         traceback.print_exc()
-#                         print()
-#                         print()
+                                sfc_rf = network.sfc_route_info[sfc_id]
+                                latency_sfc= sum((len(value) - 1) for key, value in sfc_rf.items() if key not in ('src', 'dst'))
+
+                                latency_diff = latency_backup - latency_sfc
+
+                                # Nesse caso iremos fazer o undeploy da sfc original e manter somente a de backup. Imprimindo a de backup no log
+                                self.sfcs_crashed[sfc_id] = {'fall_time':time.time(),'has_backup':True,'backup_sfc':sfc_id_backup,'latency_diff':latency_diff}
+                                self.output_flows(current_time=time.time(),sfc=sfc,latency=latency_backup,latency_diff=latency_diff,run_duration=0,is_success=1,bw_transcode=bw_transcode,backup_sfc_activated=1)
+                                self.undeploy_sfc(sfc_id)
+                            else:
+        
+                                sfc_rf = network.sfc_route_info[sfc_id]
+                                latency_sfc= sum((len(value) - 1) for key, value in sfc_rf.items() if key not in ('src', 'dst'))
+                                self.sfcs_crashed[sfc_id] = {'fall_time':time.time(),'has_backup':False,'old_latency':latency_sfc}
+                                self.sfcs_back_to_qeue_latency_diff[sfc_id] = {'old_latency': latency_sfc}
+
+                                self.send_back_to_qeue(self.substrate_network.get_sfc_by_id(sfc_id))
+
+
             self.substrate_network.set_node_cache_capacity(server, 0)
             self.substrate_network.set_node_cpu_capacity(server, 0)
-            
-            # if sfc_ids != []:
-            #     for sfc_id in sfc_ids:
-            #         player = sfc_id.split("_")[2][1]
-            #         p_session = sfc_id.split("_")[3]
-            #         backup_sfc = True if int(p_session) % 2 == 0 else False 
-            #         has_backup_running = False
-            #         sfc_id_backup = re.sub(r'\d+$', lambda x: str(int(x.group()) + 1),sfc_id)    
-                    
-            #         if sfc_id_backup in self.sfc_list:
-            #             has_backup_running = True
-
-            #         self.sfcs_crashed[sfc_id] = {'fall_time':time.time(),'is_backup':backup_sfc,'has_backup':has_backup_running}
-            #         self.sfcs_that_crashed.append(sfc_id)
 
             for link, sfc_vnf in filtered_edges.items():
-                # if sfc_vnf == []:
-                #     self.substrate_network.set_link_bandwidth_capacity(link[0], link[1], 0)
-                #     self.substrate_network.set_link_latency(link[0], link[1], 0)
-                #     continue
-                # try:
-                #     sfc_id = sfc_vnf[0]
-                #     self.send_back_to_qeue(self.substrate_network.get_sfc_by_id(sfc_id))
-                # except:
-                #     #self.undeploy_sfc(sfc_id)
-                #     print("CRASHER: Não foi possível realocar a sfc no link")
-
                 self.substrate_network.set_link_bandwidth_capacity(link[0], link[1], 0)
                 self.substrate_network.set_link_latency(link[0], link[1], 100)
 
@@ -923,36 +946,35 @@ class ResilientSubstrateNetworkController():
                         p_session = sfc_id.split("_")[3]
                         backup_sfc = True if int(p_session) % 2 == 0 else False                        
                         # The user id in the tracer is given by concatenation of the id with the session number
-                        user_id = int(player + p_session) if not backup_sfc else int(player + str(int(p_session)-1))
+                        
+                        if not self.backup_activated:
+                            user_id = int(player + p_session)
+                        else:
+                            if backup_sfc:
+                                user_id = int(player + str(int(p_session)-1))
+                            else:  
+                                user_id = int(player + p_session)
+
 
                         # Check if the player is already in the tracer, if not it creates a vehicle for it
                         # Check if the simulation is still running 
                         if not self.tracer.is_simulation_running():
                             break
-                        
-                        if not self.tracer.is_vehicle_created(user_id) and not backup_sfc:
-                            self.tracer.create_vehicle(user_id,sfc_location)
-                        
+
+                        if not self.tracer.is_vehicle_created(user_id):
+                            if not self.backup_activated or not backup_sfc:
+                                self.tracer.create_vehicle(user_id, sfc_location)
+
                         self.tracer.check_sfc_for_user(user_id,sfc_id)
                         
-                        if backup_sfc:
-                            backup_sfc_needs_reroute = self.tracer.check_backup_sfc_location(user_id,sfc.dst.substrate_node)
-                            if backup_sfc_needs_reroute == -1:
+                        if self.backup_activated and backup_sfc:
+                            backup_sfc_needs_reroute = self.tracer.check_backup_sfc_location(user_id, sfc.dst.substrate_node)
+                            
+                            if backup_sfc_needs_reroute == -1 or not backup_sfc_needs_reroute:
                                 break
-
-                            if backup_sfc_needs_reroute:
-                                player_location = self.tracer.gets_next_backup_server(int(player),int(p_session))
-                            else:
-                                break
+                            player_location = self.tracer.gets_next_backup_server(int(player), int(p_session))
                         else:
-                            player_location = self.tracer.get_closest_server(user_id,self.crasher.crashed_nodes,sfc_location)
-                        
-                        # if backup_sfc:
-                        #     try:
-                        #         sfc = self.substrate_network.get_sfc_by_id(sfc_id)
-                        #         sfc.dst.substrate 
-                        #     except:
-                        #         break
+                            player_location = self.tracer.get_closest_server(user_id, self.crasher.crashed_nodes, sfc_location)
 
                         if player_location != -1:
                             try:
@@ -1001,7 +1023,8 @@ class ResilientSubstrateNetworkController():
             else:
                 self.altered_sfcs[sfc_id]['flag'] = True
                 self.send_back_to_qeue(sfc)
-        
+
+    
     def send_back_to_qeue(self,sfc,changed_location=False,new_location=False):
         sfc_id = sfc.id
         new_sfc_list = []
@@ -1134,6 +1157,7 @@ class ResilientSubstrateNetworkController():
         last_sf_mono = 'sfc_unique_p4_' + str(self.flows)
         last_sf_dec = 'sfc_mono_p4_' + str(self.flows)
 
+        
         while not self.is_stopped:
             sfc_list = self.sfc_queue.peek_sfc()    
             

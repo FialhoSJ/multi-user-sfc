@@ -28,7 +28,7 @@ np.random.seed(seed)
 # command line arguments
 parser = argparse.ArgumentParser(description='Select MUAR arguments') 
 parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
-parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='goku')
+parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='msf')
 parser.add_argument('--n_players', type=int, help='(int) number of players', default=4)
 parser.add_argument('--sfc',   type=str, help='(str) on or off', default='on')
 parser.add_argument('--topology', type=str, help='(str) wich topology ex: luxembourg,small luxembourg ,paloalto', default='luxembourg')
@@ -48,6 +48,7 @@ parser.add_argument('--reliability', type=str, help='(str) whether to allow dela
 parser.add_argument('--servers_to_crash', type=str, help='(str) whether to allow delay or not', default=1) #0.95,0.975,0.99
 
 parser.add_argument('--costs_parameter',   type=str, help='cpu,cache,bandwidht,boot Ex: 1111', default='[1,1,1,1]')
+
 parser.add_argument('--verbose',   type=str, help='verbose log', default='n')
 
 #Coleta dos parâmetros da simulação
@@ -375,7 +376,6 @@ if args.sfc == 'on':
 
 substrate_network.set_verbose(verbose=verbose)
 
-
 resilient_algs = ['goku_backup']
 backup_activated = True if alg_name in resilient_algs else False
 if backup_activated:
@@ -387,7 +387,7 @@ timestamp,file_paths = setup_directories_and_files(n_sessions_folder,n_players, 
 substrate_network.shareable_band = shareable_band
 substrate_network.shareable_node = shareable
 
-sbn_controller = ResilientSubstrateNetworkController(substrate_network) if alg_name in resilient_algs else SubstrateNetworkController(substrate_network)
+sbn_controller = SubstrateNetworkController(substrate_network)
 
 sbn_controller.number_of_nodes = number_of_nodes
 sbn_controller.sfc_queue = sfc_queue
@@ -407,6 +407,8 @@ sbn_controller.edges = edges
 sbn_controller.edges_vnf = edges_vnf
 sbn_controller.tracer = tracer
 sbn_controller.mobility_activated = mobility_activated
+sbn_controller.backup_activated = backup_activated
+
 sbn_controller.allow_temporary_high_latency =  allow_delay
 
 sbn_controller.latency_interval = latency_interval
