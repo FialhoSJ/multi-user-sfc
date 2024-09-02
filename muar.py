@@ -9,7 +9,7 @@ import ast
 from controllers.substrate_network_controller import SubstrateNetworkController
 from controllers.crasher import Crasher
 from datetime import datetime as dt
-from controllers.substrate_network_controller_resilience import ResilientSubstrateNetworkController
+from controllers.substrate_network_refactored import SubstrateNetworkControllerRefac
 from core.poisson_emitter import PoissonEmitter
 from controllers.sfc_queue import SFCQueue
 from controllers.sfc_generator import SFCGenerator
@@ -28,7 +28,7 @@ np.random.seed(seed)
 # command line arguments
 parser = argparse.ArgumentParser(description='Select MUAR arguments') 
 parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
-parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='msf')
+parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='goku')
 parser.add_argument('--n_players', type=int, help='(int) number of players', default=4)
 parser.add_argument('--sfc',   type=str, help='(str) on or off', default='on')
 parser.add_argument('--topology', type=str, help='(str) wich topology ex: luxembourg,small luxembourg ,paloalto', default='luxembourg')
@@ -40,7 +40,7 @@ parser.add_argument('--time',  type=int, help='(int) the total time for the simu
 parser.add_argument('--mobility',  type=str, help='(str) mobility', default='y')
 
 parser.add_argument('--shareband',  type=str, help='(str) whether to share sfs or not', default='y')
-parser.add_argument('--allow_delay', type=str, help='(str) whether to allow delay or not', default='y')
+parser.add_argument('--allow_delay', type=str, help='(str) whether to allow delay or not', default='n')
 
 parser.add_argument('--allow_crasher', type=str, help='(str) whether to allow delay or not', default='y')
 
@@ -49,7 +49,7 @@ parser.add_argument('--servers_to_crash', type=str, help='(str) whether to allow
 
 parser.add_argument('--costs_parameter',   type=str, help='cpu,cache,bandwidht,boot Ex: 1111', default='[1,1,1,1]')
 
-parser.add_argument('--verbose',   type=str, help='verbose log', default='n')
+parser.add_argument('--verbose',   type=str, help='verbose log', default='y')
 
 #Coleta dos parâmetros da simulação
 args = parser.parse_args()
@@ -90,7 +90,10 @@ servers_that_will_crash =  random.sample(processing_nodes, servers_to_crash)
 crasher_instance = Crasher(servers_to_crash=[28],operation_mode = 4, processing_nodes=processing_nodes)
 
 AVERAGE_TIME_SESSION_ARRIVAL = 20
+AVERAGE_TIME_SESSION_BACKUP_ARRIVAL = 35
 sfc_poisson_emitter = PoissonEmitter(AVERAGE_TIME_SESSION_ARRIVAL)
+sfc_poisson_backup_emitter = PoissonEmitter(AVERAGE_TIME_SESSION_BACKUP_ARRIVAL)
+
 
 player_counter = 0
 #sfc_queue = []
@@ -147,6 +150,8 @@ RE = int(RE/total*fator*100)
 EC_TC = int(EC_TC/total*fator*100)
 MONO = int(DET+FT+MA+UNI+RE+EC_TC)
 CA_size = CA_size/CA_size*fator*100
+resilient_algs = ['goku_backup']
+backup_activated = True if alg_name in resilient_algs else False
 
 def previous_sfc_setup (backup=False):
     # Função para calcular a distância entre dois nós
@@ -249,83 +254,9 @@ if alg_name == "goku_backup":
     sfc_destinations_and_routes = previous_sfc_setup(backup=True)
 else: 
     sfc_destinations_and_routes = previous_sfc_setup()
+
 tracer = tracer_instantiator.instantiate_tracer(top_name,user_manager,initial_routes=sfc_destinations_and_routes) if mobility_activated else 0
 
-session_counter = 0
-def generate_sfc_session(parameter) -> None:
-    global n_players
-    global session_counter
-    session_counter = session_counter + 1
-    counter = str(session_counter)
-    print("Total Number of MUAR SFCs in session: ", counter)
-    #dst_node = random.randint(0, number_of_nodes -1 )
-    #dst_node = sfc_destinations_and_routes[session_counter]['current_dst'][0]
-    # while(dst_node == SRC_NODE):
-    #     dst_node = random.randint(0, number_of_nodes - 1)
-        
-    players_cache_sf_list = []
-    players_unique_sf_list = []
-    for i in range(1,n_players+1):
-        dst_node = sfc_destinations_and_routes[session_counter]['current_dst'][i-1]
-        caching_sf_list = []
-        caching_sf_list.append({"type": 2, "name":"IA_DET_FT_" + counter, 
-            "CPU": IA_DET_FT, "cache": 0, "in_bw": IA_bw, "out_bw": IA_DET_FT_bw})
-        caching_sf_list.append({"type": 2, "name":"MA_region_" + str(dst_node),# + "_" + counter, 
-            "CPU": MA, "cache": CA_size, "in_bw": IA_DET_FT_bw, "out_bw": MA_bw})
-        caching_sf_list.append({"type": 2, "name":"RE_region_" + str(dst_node),# + "_" + counter, 
-            "CPU": RE*chr, "cache": 0, "in_bw": MA_bw, "out_bw": RE_bw*chr})
-        caching_sf_list.append({"type": 2, "name":"EC_TC_p" + str(i) + "_" + counter, 
-            "CPU": EC_TC*chr, "cache": 0, "in_bw": RE_bw*chr, "out_bw": EC_TC_bw*chr})
-        players_cache_sf_list.append(caching_sf_list)
-        unique_sf_list = []
-        unique_sf_list.append({"type": 2, "name":"IA_DET_FT_" + counter, 
-            "CPU": IA_DET_FT, "cache": 0, "in_bw": IA_bw, "out_bw": IA_DET_FT_bw})
-        unique_sf_list.append({"type": 2, "name":"UNI_p" + str(i) + "_" + counter, 
-            "CPU": UNI, "cache": 0, "in_bw": IA_DET_FT_bw, "out_bw": UNI_bw})
-        unique_sf_list.append({"type": 2, "name":"RE_p" + str(i) + "_"    + counter, 
-            "CPU": RE*(1-chr), "cache": 0, "in_bw": UNI_bw, "out_bw": RE_bw*(1-chr)})
-        unique_sf_list.append({"type": 2, "name":"EC_TC_p" + str(i) + "_" + counter, 
-            "CPU": EC_TC*(1-chr), "cache": 0, "in_bw": RE_bw*(1-chr), "out_bw": EC_TC_bw*(1-chr)})
-        players_unique_sf_list.append(unique_sf_list)
-    #lifetime = np.random.poisson(max_duration)
-    #lifetime = int(round(np.random.exponential(max_duration)))
-    #duration = lifetime
-    duration = sfc_destinations_and_routes[session_counter]['duration']
-    players_sfc_cache_dict_list = []
-    players_sfc_unique_dict_list = []
-    
-    for i in range(1,n_players+1):
-        dst_node = sfc_destinations_and_routes[session_counter]['current_dst'][i-1]
-        player_cache_dict = {}
-        player_cache_dict['name'] = 'sfc_cache_p' + str(i) + '_' + counter
-        player_cache_dict["vnf_list"] = players_cache_sf_list[i-1]
-        player_cache_dict["bandwidth"] = EC_TC_bw
-        player_cache_dict["src_node"] = SRC_NODE
-        player_cache_dict["dst_node"] = dst_node
-        player_cache_dict["duration"] = duration
-        player_cache_dict["latency"] = sfcs_latency
-        player_cache_dict["time"] = sfcs_latency
-        players_sfc_cache_dict_list.append(player_cache_dict)
-        player_unique_dict = {}
-        player_unique_dict['name'] = 'sfc_unique_p' + str(i) + '_' + counter
-        player_unique_dict["vnf_list"] = players_unique_sf_list[i-1]
-        player_unique_dict["bandwidth"] = EC_TC_bw
-        player_unique_dict["src_node"] = SRC_NODE
-        player_unique_dict["dst_node"] = dst_node
-        player_unique_dict["duration"] = duration
-        player_unique_dict["latency"] = sfcs_latency
-        players_sfc_unique_dict_list.append(player_unique_dict)
-    
-    players_sfc_list = []
-    for i in range(1,n_players+1):
-        players_sfc_list.append([SFCGenerator(players_sfc_cache_dict_list[i-1]).generate(),
-                                  SFCGenerator(players_sfc_unique_dict_list[i-1]).generate()])
-        
-        sfc_queue.put_sfc(players_sfc_list[i-1])
-        #heapq.heappush(sfc_queue, (1, counter, i, players_sfc_list[i-1]))
-    if session_counter >= n_sessions:
-        #print("SFC MUAR Session ## poisson stop  ##")
-        sfc_poisson_emitter.stop()
 
 def generate_mono_session(parameter):
     global n_players
@@ -367,17 +298,174 @@ def generate_mono_session(parameter):
         print("MONO MUAR Session ## poisson stop  ##")
         sfc_poisson_emitter.stop()
 
+session_counter = 0
+
+session_counter_normal = 0
+session_counter_backup = 0
+
+def generate_sfc_session(parameter) -> None:
+    """
+    Gera uma sessão de SFCs normais.
+    
+    :param parameter: Parâmetros adicionais (não utilizados diretamente aqui)
+    """
+    global n_players
+    global session_counter_normal
+    session_counter_normal += 1
+    counter_normal = str(session_counter_normal)
+    print("Total Number of MUAR SFCs in session: ", counter_normal)
+    
+    players_cache_sf_list = []
+    players_unique_sf_list = []
+
+    # Calcular os valores normais
+    for i in range(1, n_players + 1):
+        dst_node = sfc_destinations_and_routes[session_counter_normal]['current_dst'][i - 1]
+        
+        caching_sf_list = [
+            {"type": 2, "name": "IA_DET_FT_" + counter_normal, "CPU": IA_DET_FT, "cache": 0, "in_bw": IA_bw, "out_bw": IA_DET_FT_bw},
+            {"type": 2, "name": "MA_region_" + str(dst_node), "CPU": MA, "cache": CA_size, "in_bw": IA_DET_FT_bw, "out_bw": MA_bw},
+            {"type": 2, "name": "RE_region_" + str(dst_node), "CPU": RE * chr, "cache": 0, "in_bw": MA_bw, "out_bw": RE_bw * chr},
+            {"type": 2, "name": "EC_TC_p" + str(i) + "_" + counter_normal, "CPU": EC_TC * chr, "cache": 0, "in_bw": RE_bw * chr, "out_bw": EC_TC_bw * chr}
+        ]
+        players_cache_sf_list.append(caching_sf_list)
+        
+        unique_sf_list = [
+            {"type": 2, "name": "IA_DET_FT_" + counter_normal, "CPU": IA_DET_FT, "cache": 0, "in_bw": IA_bw, "out_bw": IA_DET_FT_bw},
+            {"type": 2, "name": "UNI_p" + str(i) + "_" + counter_normal, "CPU": UNI, "cache": 0, "in_bw": IA_DET_FT_bw, "out_bw": UNI_bw},
+            {"type": 2, "name": "RE_p" + str(i) + "_" + counter_normal, "CPU": RE * (1 - chr), "cache": 0, "in_bw": UNI_bw, "out_bw": RE_bw * (1 - chr)},
+            {"type": 2, "name": "EC_TC_p" + str(i) + "_" + counter_normal, "CPU": EC_TC * (1 - chr), "cache": 0, "in_bw": RE_bw * (1 - chr), "out_bw": EC_TC_bw * (1 - chr)}
+        ]
+        players_unique_sf_list.append(unique_sf_list)
+
+    duration = sfc_destinations_and_routes[session_counter_normal]['duration']
+    players_sfc_cache_dict_list = []
+    players_sfc_unique_dict_list = []
+    
+    for i in range(1, n_players + 1):
+        dst_node = sfc_destinations_and_routes[session_counter_normal]['current_dst'][i - 1]
+        
+        player_cache_dict = {
+            'name': 'sfc_cache_p' + str(i) + '_' + counter_normal,
+            "vnf_list": players_cache_sf_list[i - 1],
+            "bandwidth": EC_TC_bw,
+            "src_node": SRC_NODE,
+            "dst_node": dst_node,
+            "duration": duration,
+            "latency": sfcs_latency,
+            "time": sfcs_latency
+        }
+        players_sfc_cache_dict_list.append(player_cache_dict)
+        
+        player_unique_dict = {
+            'name': 'sfc_unique_p' + str(i) + '_' + counter_normal,
+            "vnf_list": players_unique_sf_list[i - 1],
+            "bandwidth": EC_TC_bw,
+            "src_node": SRC_NODE,
+            "dst_node": dst_node,
+            "duration": duration,
+            "latency": sfcs_latency
+        }
+        players_sfc_unique_dict_list.append(player_unique_dict)
+
+    players_sfc_list = []
+    for i in range(1, n_players + 1):
+        players_sfc_list.append([
+            SFCGenerator(players_sfc_cache_dict_list[i - 1]).generate(),
+            SFCGenerator(players_sfc_unique_dict_list[i - 1]).generate()])
+        sfc_queue.put_sfc(players_sfc_list[i - 1])
+    
+    if backup_activated == True:
+        session_counter_normal += 1
+    
+    if session_counter_normal >= n_sessions:
+        sfc_poisson_emitter.stop()
+
+def generate_backup_session(parameter) -> None:
+    """
+    Gera as SFCs de backup para a sessão atual, usando um fator de redução configurável.
+    
+    :param backup_reduction_factor: Fator de redução dos recursos das SFCs de backup (default: 0.1, ou seja, 10%)
+    """
+    global n_players
+    global session_counter_backup
+    session_counter_backup += 2
+    counter_backup = str(session_counter_backup)
+    print("Total Number of Backup MUAR SFCs in session: ", counter_backup)
+    
+    players_cache_sf_list_backup = []
+    players_unique_sf_list_backup = []
+    backup_reduction_factor=0.1
+    for i in range(1, n_players + 1):
+        dst_node_backup = sfc_destinations_and_routes[session_counter_backup]['current_dst'][i - 1]
+        
+        caching_sf_list_backup = [
+            {"type": 2, "name": "IA_DET_FT_" + counter_backup, "CPU": IA_DET_FT * backup_reduction_factor, "cache": 0, "in_bw": IA_bw * backup_reduction_factor, "out_bw": IA_DET_FT_bw * backup_reduction_factor},
+            {"type": 2, "name": "MA_region_" + str(dst_node_backup), "CPU": MA * backup_reduction_factor, "cache": CA_size * backup_reduction_factor, "in_bw": IA_DET_FT_bw * backup_reduction_factor, "out_bw": MA_bw * backup_reduction_factor},
+            {"type": 2, "name": "RE_region_" + str(dst_node_backup), "CPU": RE * chr * backup_reduction_factor, "cache": 0, "in_bw": MA_bw * backup_reduction_factor, "out_bw": RE_bw * chr * backup_reduction_factor},
+            {"type": 2, "name": "EC_TC_p" + str(i) + "_" + counter_backup, "CPU": EC_TC * chr * backup_reduction_factor, "cache": 0, "in_bw": RE_bw * chr * backup_reduction_factor, "out_bw": EC_TC_bw * chr * backup_reduction_factor}
+        ]
+        players_cache_sf_list_backup.append(caching_sf_list_backup)
+        
+        unique_sf_list_backup = [
+            {"type": 2, "name": "IA_DET_FT_" + counter_backup, "CPU": IA_DET_FT * backup_reduction_factor, "cache": 0, "in_bw": IA_bw * backup_reduction_factor, "out_bw": IA_DET_FT_bw * backup_reduction_factor},
+            {"type": 2, "name": "UNI_p" + str(i) + "_" + counter_backup, "CPU": UNI * backup_reduction_factor, "cache": 0, "in_bw": IA_DET_FT_bw * backup_reduction_factor, "out_bw": UNI_bw * backup_reduction_factor},
+            {"type": 2, "name": "RE_p" + str(i) + "_" + counter_backup, "CPU": RE * (1 - chr) * backup_reduction_factor, "cache": 0, "in_bw": UNI_bw * backup_reduction_factor, "out_bw": RE_bw * (1 - chr) * backup_reduction_factor},
+            {"type": 2, "name": "EC_TC_p" + str(i) + "_" + counter_backup, "CPU": EC_TC * (1 - chr) * backup_reduction_factor, "cache": 0, "in_bw": RE_bw * (1 - chr) * backup_reduction_factor, "out_bw": EC_TC_bw * (1 - chr) * backup_reduction_factor}
+        ]
+        players_unique_sf_list_backup.append(unique_sf_list_backup)
+
+    duration = sfc_destinations_and_routes[session_counter_backup]['duration']
+    players_sfc_cache_backup_dict_list = []
+    players_sfc_unique_backup_dict_list = []
+    
+    for i in range(1, n_players + 1):
+        dst_node_backup = sfc_destinations_and_routes[session_counter_backup]['current_dst'][i - 1]
+        
+        player_cache_backup_dict = {
+            'name': 'sfc_cache_p' + str(i) + '_' + counter_backup,
+            "vnf_list": players_cache_sf_list_backup[i - 1],
+            "bandwidth": EC_TC_bw,
+            "src_node": SRC_NODE,
+            "dst_node": dst_node_backup,
+            "duration": duration,
+            "latency": sfcs_latency,
+            "time": sfcs_latency
+        }
+        players_sfc_cache_backup_dict_list.append(player_cache_backup_dict)
+        
+        player_unique_backup_dict = {
+            'name': 'sfc_unique_p' + str(i) + '_' + counter_backup,
+            "vnf_list": players_unique_sf_list_backup[i - 1],
+            "bandwidth": EC_TC_bw,
+            "src_node": SRC_NODE,
+            "dst_node": dst_node_backup,
+            "duration": duration,
+            "latency": sfcs_latency
+        }
+        players_sfc_unique_backup_dict_list.append(player_unique_backup_dict)
+
+    players_sfc_list_backup = []
+    for i in range(1, n_players + 1):
+        players_sfc_list_backup.append([
+            SFCGenerator(players_sfc_cache_backup_dict_list[i - 1]).generate(),
+            SFCGenerator(players_sfc_unique_backup_dict_list[i - 1]).generate()])
+        sfc_queue.put_sfc(players_sfc_list_backup[i - 1])
+
+    if session_counter_backup >= n_sessions:
+        sfc_poisson_backup_emitter.stop()
+
 if args.sfc == 'off':
     print('sfc off')
     sfc_poisson_emitter.start(generate_mono_session, (None))
 if args.sfc == 'on':
     print('sfc on')
     sfc_poisson_emitter.start(generate_sfc_session, (None))
+    if backup_activated:
+        sfc_poisson_backup_emitter.start(generate_backup_session,(None))
 
 substrate_network.set_verbose(verbose=verbose)
 
-resilient_algs = ['goku_backup']
-backup_activated = True if alg_name in resilient_algs else False
 if backup_activated:
     n_sessions_folder = int(int(n_sessions)/2)
 else:
@@ -387,7 +475,7 @@ timestamp,file_paths = setup_directories_and_files(n_sessions_folder,n_players, 
 substrate_network.shareable_band = shareable_band
 substrate_network.shareable_node = shareable
 
-sbn_controller = SubstrateNetworkController(substrate_network)
+sbn_controller = SubstrateNetworkControllerRefac(substrate_network)
 
 sbn_controller.number_of_nodes = number_of_nodes
 sbn_controller.sfc_queue = sfc_queue

@@ -18,7 +18,7 @@ class OutputWritter:
         self.backup_activated = backup_activated
         self.sfcs_latency_dict = {}
 
-    def output_flows(self,substrate_network,wait_time,running_players_sessions,counter,remaining_time,current_time, sfc, latency, run_duration, is_success,bw_transcode,users_crashed,sfcs_crashed,crash_moment,backup_sfc_activated=0, latency_diff=None):
+    def output_flows(self,substrate_network,wait_time,running_players_sessions,counter,remaining_time,current_time, sfc, latency, run_duration, is_success,bw_transcode,users_crashed,sfcs_crashed,crash_moment,crashed_sfcs=None,backup_sfc_activated=0, latency_diff=None):
         """
         Outputs the flow information including various network utilization metrics.
 
@@ -57,7 +57,7 @@ class OutputWritter:
         # if sfc.id in sfcs_crashed:
         #     sfc_recovered =  0   
         #     sfc_recovery_time = None
-        
+        crashed_sfcs = []
         sfc_id = sfc.id
 
         if sfc_id in sfcs_crashed:
@@ -146,6 +146,7 @@ class OutputWritter:
                    str(crash_moment) + "," + \
                    str(sfc_recovery_time) + "," + \
                    str(sfc_recovered) + "," + \
+                   str(crashed_sfcs) + "," + \
                    str(cpu_saved) + "," + \
                    str(cache_saved) + "," + \
                    str(sfc.number_of_vnfs) + ',' + \

@@ -17,6 +17,7 @@ route info :=
 """
 import copy
 import logging
+import numpy as np
 import pandas as pd
 from config import ROOT_PATH
 import networkx as nx
@@ -68,7 +69,7 @@ class Goku(Algorithm):
         
         self.cpu_factor=2
         self.cache_factor=2
-        self.band_factor=0.5
+        self.band_factor=1
         self.boot_factor=0
         
         self.using_bit_rate = False
@@ -106,7 +107,7 @@ class Goku(Algorithm):
             prefixo, x = sfc_id.rsplit('_', 1)
             real_sfc_id = f"{prefixo}_{int(x) - 1}"
             route_info = self.substrate_network.sfc_route_info
-            
+
             if real_sfc_id in list(route_info.keys()):
                 route_info = route_info[real_sfc_id]
             else:
@@ -152,8 +153,24 @@ class Goku(Algorithm):
         sfs_dict = self.sfc.vnfs_dict
         net_info = substrate_network
         server_resources = net_info._node
-        shareable_sfs = shareable_sfs if shareable_sfs is not None else {node_id: [] for node_id in server_resources.keys()}
+        servers = list(server_resources.keys())
+        new_server_resources = {}
 
+        for server in servers:
+            cpu_used = round(self.substrate_network.get_node_cpu_used(server),3)
+            cache_used = round(self.substrate_network.get_node_cache_used(server),3)
+
+            cpu_free =  round(self.substrate_network.get_node_cpu_free(server),3) 
+            cache_free = round(self.substrate_network.get_node_cache_free(server),3)
+
+            new_server_resources[server]= {'cpu_capacity':100,'cache_capacity':100,
+                                           'cpu_used':cpu_used,'cache_used':cache_used,
+                                           'cpu_free':cpu_free,'cache_free':cache_free,'position':server_resources[server]['position']}
+
+        server_resources = new_server_resources
+
+        shareable_sfs = shareable_sfs if shareable_sfs is not None else {node_id: [] for node_id in server_resources.keys()}
+        
         # Parte 2: Obtenção dos VNFs de origem e destino
         src_vnf = sfc.get_src_vnf()
         dst_vnf = sfc.get_dst_vnf()
@@ -174,7 +191,6 @@ class Goku(Algorithm):
         # Parte 7: Configuração do uso compartilhado de funções de serviço (SFs)
         self.configure_shareable_sfs(server_resources, shareable_sfs)
 
-        
         # Parte 8: Encontrando a rota e calculando a latência
         bit_rate_trials = [1.0,0.95,0.75]
         is_success = False
@@ -330,10 +346,10 @@ class Goku(Algorithm):
 
         # Função para verificar disponibilidade de largura de banda e recursos do servidor
         def check_resources(server, path, bandwidth_requirement, cpu_required, cache_required):
-            if all(G[u][v]['bandwidth'] >= bandwidth_requirement for u, v in zip(path, path[1:])):
-                available_cpu = server_resources[server]['cpu_free']
-                available_cache = server_resources[server]['cache_free']
-                if available_cpu >= cpu_required and available_cache >= cache_required:
+            if all(G[u][v]['bandwidth'] > bandwidth_requirement for u, v in zip(path, path[1:])):
+                available_cpu = 100 - server_resources[server]['cpu_used']
+                available_cache = 100 - server_resources[server]['cache_used']
+                if available_cpu > cpu_required and available_cache > cache_required:
                     return True
             return False
 
@@ -375,7 +391,7 @@ class Goku(Algorithm):
                 boot_cost = 0
 
             # Ajustar o cálculo de node_resource_cost para evitar divisão por zero
-            available_cpu = server_resources[server]['cpu_free']
+            available_cpu = 100 - server_resources[server]['cpu_used']
             if available_cpu > 0:
                 node_resource_cost = cpu_required / available_cpu
             else:

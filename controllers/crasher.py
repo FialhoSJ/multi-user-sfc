@@ -17,6 +17,7 @@ class Crasher():
         self.crash_limit = crash_limit
         self.time_interval = time_interval
         self.processing_nodes = processing_nodes
+        self.processing_node_crashed = 0
         self.crashed_nodes = []
         self.trials = 0
         self.a_server_was_crashed = 0
@@ -29,30 +30,48 @@ class Crasher():
             return []
         
         network_nodes = self.processing_nodes
-        mais_usado = 0
-        servidor_mais_usado = 0
+        servidor_mais_usado = None
         nodes_resource = network._node
-        servers_that_use_cpu = []
-        for server,info in nodes_resource.items():
-            if server == 34:
-                continue
-            
-            if info['cpu_used'] >= mais_usado:
-                mais_usado = info['cpu_used']
-                servidor_mais_usado = server
 
-            if info['cpu_used'] >= 95:
-                servers_that_use_cpu.append(server)
-        
-        if len(servers_that_use_cpu) == 0:
-            server_choice = servidor_mais_usado # caso não haja nenhum servidor usando mais de x cpu
+        servidor_com_mais_cpu = None
+        max_cpu_usage = 0
+
+        for server, info in nodes_resource.items():
+            if server in [0, 34]:  # Ignora os servidores 0 e 34
+                continue
+            if server not in network_nodes:  # Ignora servidores que não estão na lista de nodes processados
+                continue
+
+            # Verifica o uso de CPU do servidor
+            cpu_usage = info['cpu_used']
+            if cpu_usage > max_cpu_usage:
+                max_cpu_usage = cpu_usage
+                servidor_com_mais_cpu = server
+
+        # Se encontrar um servidor com uso de CPU, o escolhe; caso contrário, escolhe o servidor com mais VNFs
+        if servidor_com_mais_cpu is not None:
+            server_choice = servidor_com_mais_cpu
         else:
-            server_choice = random.choice(servers_that_use_cpu)
-        
+            mais_vnfs = 0
+            for server, info in nodes_resource.items():
+                if server in [0, 34]:
+                    continue
+                if server not in network_nodes:
+                    continue
+
+                # Verifica o número de VNFs no servidor
+                num_vnfs = len(info.get('sfc_vnf_list', []))
+                if num_vnfs > mais_vnfs:
+                    mais_vnfs = num_vnfs
+                    servidor_mais_usado = server
+            
+            server_choice = servidor_mais_usado if servidor_mais_usado is not None else random.choice(network_nodes)
+                        
         edges = network.sfs_flux_info.keys()
         #servers_to_crash = [servidor_mais_usado]
 
         servers_to_crash = [server_choice]
+        self.processing_node_crashed = server_choice
         
         for edge in edges:
             if server_choice in edge:
