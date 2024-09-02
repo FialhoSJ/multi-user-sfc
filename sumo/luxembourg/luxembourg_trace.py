@@ -67,7 +67,7 @@ class Sumo_Luxembourg:
             print("Erro in updated coord")
             print(f"Simulation running status: {self.traci_connected}")
 
-    def get_closest_server(self, user_id, crashed_nodes, sfc_location, threshold_factor=0.75):
+    def get_closest_server(self, user_id, crashed_nodes, sfc_location, threshold_factor=0.5):
         """
         Determine the closest server to a given user based on their coordinates, considering a threshold factor.
         

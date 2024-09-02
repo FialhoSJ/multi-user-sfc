@@ -28,7 +28,7 @@ np.random.seed(seed)
 # command line arguments
 parser = argparse.ArgumentParser(description='Select MUAR arguments') 
 parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
-parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='goku')
+parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='goku_backup')
 parser.add_argument('--n_players', type=int, help='(int) number of players', default=4)
 parser.add_argument('--sfc',   type=str, help='(str) on or off', default='on')
 parser.add_argument('--topology', type=str, help='(str) wich topology ex: luxembourg,small luxembourg ,paloalto', default='luxembourg')
@@ -239,8 +239,9 @@ def previous_sfc_setup (backup=False):
                 sfc_destinations_and_routes[session] = {
                     "current_dst": last_normal_dst,
                     "route": new_routes,
-                    "duration": sfc_destinations_and_routes[session-1]['duration'],
+                    "duration": np.random.poisson(max_duration-20),
                     "locations": n_players*[last_normal_dst]}
+                    #"duration": sfc_destinations_and_routes[session-1]['duration'],
             else:
                 sfc_destinations_and_routes[session] = {
                 "current_dst": n_players*[session_dst],

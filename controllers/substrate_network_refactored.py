@@ -215,8 +215,6 @@ class SubstrateNetworkControllerRefac():
                         print("Mobilidade bloqueada devido ao crasher.")
                 # print("Mobilidade interval")
                 time.sleep(interval)  # Intervalo entre as verificações
-
-
         thread_check_mob = threading.Thread(target=task_mob)
         thread_check_mob.daemon = True
         thread_check_mob.start()
@@ -282,64 +280,83 @@ class SubstrateNetworkControllerRefac():
         if self.backup_activated:
             if dst_server_crashed and backup_sfc:
                 return sfc 
-        
+            
         if dst_server_crashed:
             topology = self.tracer.topology 
             current_server_id = old_loc
             excluded_servers = self.crasher.crashed_nodes
-            processing_nodes = self.crasher.processing_nodes
-            processing_node_crashed = self.crasher.processing_node_crashed
-            distances  = []
-            # Coordenadas do servidor que falhou
-            crashed_position = topology[processing_node_crashed]
+            # Coordenadas do servidor atual
+            current_position = topology[current_server_id]
 
             # Variáveis para armazenar o servidor mais próximo e a menor distância
             nearest_server_id = None
             nearest_distance = float('inf')
 
+            distances = []
+            # Coletar todas as distâncias e médias de consumo de banda para normalização
+            all_distances = []
+            all_bandwidths = []
+
             for server_id, position in topology.items():
-                if (server_id not in excluded_servers and 
-                    server_id in processing_nodes and 
-                    server_id != 0):
+                if server_id not in excluded_servers and server_id != current_server_id:
+                    # Calcular a distância euclidiana
+                    distance = math.sqrt((current_position[0] - position[0]) ** 2 + (current_position[1] - position[1]) ** 2)
+                    links = self.substrate_network._adj[server_id]
+                    average_bandwidth_used = sum(link['bandwidth_used'] for link in links.values()) / len(links)
                     
-                    # Calcular a distância euclidiana até o servidor que falhou
-                    distance = math.sqrt((crashed_position[0] - position[0]) ** 2 + 
-                                        (crashed_position[1] - position[1]) ** 2)
+                    all_distances.append(distance)
+                    all_bandwidths.append(average_bandwidth_used)
                     
-                    # Verifica se é a menor distância encontrada
-                    if distance < nearest_distance:
-                        nearest_distance = distance
-                        nearest_server_id = server_id
+                    distances.append((server_id, distance, average_bandwidth_used))
+    
+            # Pesos para distância e consumo de banda
+            peso_distancia = 0.5
+            peso_banda = 0.5
 
-            # nearest_server_id agora contém o ID do servidor mais próximo que atende aos critérios
+            # Lista de distâncias e custos
+            distances = []
+
+            for server_id, position in topology.items():
+                if server_id not in excluded_servers and server_id != current_server_id:
+                    # Calcular a distância euclidiana
+                    distance = math.sqrt((current_position[0] - position[0]) ** 2 + (current_position[1] - position[1]) ** 2)
+                    links = self.substrate_network._adj[server_id]
+                    average_bandwidth_used = sum(link['bandwidth_used'] for link in links.values()) / len(links)
+                    distances.append((server_id, distance, average_bandwidth_used))
+
             # Ordenar a lista de distâncias
-            #distances.sort(key=lambda x: x[1])
+            distances.sort(key=lambda x: x[1])
 
-            # Verifica se há pelo menos 7 servidores na lista
-            #num_servers = min(len(distances), 3)
+            # Obter os 10 servidores mais próximos
+            nearest_servers = distances[:8]
 
-            # Seleciona aleatoriamente entre os 7 primeiros
-            #random_server = random.choice(distances[:num_servers])
+            # Coletar todas as distâncias e médias de consumo de banda dos 10 mais próximos para normalização
+            all_distances = [entry[1] for entry in nearest_servers]
+            all_bandwidths = [entry[2] for entry in nearest_servers]
 
-            # Obter o servidor selecionado e a distância
-            #nearest_server_id, nearest_distance = random_server
+            # Normalizar as distâncias e os consumos de banda
+            max_distance = max(all_distances)
+            min_distance = min(all_distances)
+            max_bandwidth = max(all_bandwidths)
+            min_bandwidth = min(all_bandwidths)
 
-            options = []
-            location = nearest_server_id
-            edges = list(self.edges_vnf.keys())
-            processing_nodes = self.crasher.processing_nodes
+            normalized_distances = []
+            for server_id, distance, average_bandwidth_used in nearest_servers:
+                normalized_distance = (distance - min_distance) / (max_distance - min_distance) if max_distance != min_distance else 0
+                normalized_bandwidth = (average_bandwidth_used - min_bandwidth) / (max_bandwidth - min_bandwidth) if max_bandwidth != min_bandwidth else 0
+                
+                # Calcular o custo combinando distância e consumo de banda normalizados
+                custo = peso_distancia * normalized_distance + peso_banda * normalized_bandwidth
+                
+                normalized_distances.append((server_id, distance, average_bandwidth_used, custo))
 
-            for edge in edges:
-                # Verifica se o 'location' está na primeira ou segunda posição da tupla
-                if location in edge:
-                    # Determina qual o servidor que não é o 'location'
-                    connected_server = edge[0] if edge[1] == location else edge[1]
-                    
-                    # Verifica se o servidor conectado não está na lista de 'processing_nodes'
-                    if connected_server not in processing_nodes:
-                        options.append(connected_server)
+            # Ordenar a lista de servidores pelo custo
+            normalized_distances.sort(key=lambda x: x[3])
 
-            location = options[0]
+            # Obter o servidor com o menor custo
+            nearest_server_id, nearest_distance, _, nearest_custo = normalized_distances[0]
+
+            location  =  nearest_server_id
             new_vnfs_list_dict = copy.deepcopy(update_sfc.vnfs_dict)
 
             if re.search('cache', sfc_id) is not None:
@@ -391,6 +408,7 @@ class SubstrateNetworkControllerRefac():
             return new_sfc     
         else:
             return sfc
+
 
     def deploy_sfc(self, sfc: object) -> bool:
         """
@@ -472,9 +490,9 @@ class SubstrateNetworkControllerRefac():
         actual_session =  int(sfc.id.split("_")[3])
         actual_player  =  int(sfc.id.split("_")[2][1:])
         if self.alg_name == 'goku_backup':
-            session_break_crasher = 49 
+            session_break_crasher = 51 
         else:
-            session_break_crasher = 18
+            session_break_crasher = 25
 
         if actual_session >= session_break_crasher  and self.crasher_activate != 0 and self.crash_trials == 0 :
             self.crasher_thread_activated = True #flag for crasher thread start
@@ -559,9 +577,14 @@ class SubstrateNetworkControllerRefac():
                 self.undeploy_sfc(sfc.id)
 
             if server_com_cpu_alta:
+                is_success = 0
+
+            if server_com_cpu_alta:
                 cpu_nodes_util = np.array([np.nan if node in self.crasher.crashed_nodes else round(self.substrate_network.get_node_cpu_used(node), 2)for node in self.nodes])
                 if np.any(cpu_nodes_util >= 100.0):
                     print("Alerta:PERMANECE >= 100.0")
+                    self.is_stopped = True 
+
             return is_success
         else:
             return is_success
@@ -868,12 +891,13 @@ class SubstrateNetworkControllerRefac():
 
                                 self.send_back_to_qeue(self.substrate_network.get_sfc_by_id(sfc_id))
         
+        print(self.sfcs_that_crashed)
         if not self.backup_activated:
             for sfc in sfcs_to_crash:
+                print(f"Rerouting {sfc.id} ...")
+                print()
                 duration = self.sfcs_crashed[sfc.id]['duration']
                 self.send_back_to_qeue(sfc,without_undeploy=True,duration_sfc=duration)
-
-        print(self.sfcs_that_crashed)
 
     def check_user_position_thread(self):
         if len(self.players_sfc_list) != 0:

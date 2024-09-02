@@ -72,6 +72,7 @@ class OutputWritter:
             has_backup = sfcs_crashed[sfc_id]['has_backup']
             if has_backup:
                 sfc_id = sfcs_crashed[sfc_id]['backup_sfc']
+                sfc_recovery_time = 0
 
         # if sfc.id in sfcs_crashed and is_success == 1:
         #     sfc_recovery_time = time.time() - sfcs_crashed[sfc.id]
