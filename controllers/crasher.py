@@ -30,43 +30,25 @@ class Crasher():
             return []
         
         network_nodes = self.processing_nodes
-        servidor_mais_usado = None
         nodes_resource = network._node
 
-        servidor_com_mais_cpu = None
-        max_cpu_usage = 0
+        # Filtra os servidores válidos e coleta seu uso de CPU
+        servidores_validos = [
+            (server, info['cpu_used'])
+            for server, info in nodes_resource.items()
+            if server not in [0, 34] and server in network_nodes
+        ]
 
-        for server, info in nodes_resource.items():
-            if server in [0, 34]:  # Ignora os servidores 0 e 34
-                continue
-            if server not in network_nodes:  # Ignora servidores que não estão na lista de nodes processados
-                continue
+        # Ordena os servidores pelo uso de CPU (em ordem decrescente)
+        servidores_validos.sort(key=lambda x: x[1], reverse=True)
 
-            # Verifica o uso de CPU do servidor
-            cpu_usage = info['cpu_used']
-            if cpu_usage > max_cpu_usage:
-                max_cpu_usage = cpu_usage
-                servidor_com_mais_cpu = server
+        # Seleciona os 5 servidores mais usados
+        top_servidores = [server for server, _ in servidores_validos[1:4]]
 
-        # Se encontrar um servidor com uso de CPU, o escolhe; caso contrário, escolhe o servidor com mais VNFs
-        if servidor_com_mais_cpu is not None:
-            server_choice = servidor_com_mais_cpu
-        else:
-            mais_vnfs = 0
-            for server, info in nodes_resource.items():
-                if server in [0, 34]:
-                    continue
-                if server not in network_nodes:
-                    continue
 
-                # Verifica o número de VNFs no servidor
-                num_vnfs = len(info.get('sfc_vnf_list', []))
-                if num_vnfs > mais_vnfs:
-                    mais_vnfs = num_vnfs
-                    servidor_mais_usado = server
-            
-            server_choice = servidor_mais_usado if servidor_mais_usado is not None else random.choice(network_nodes)
-                        
+        # Derruba aleatoriamente um dos 5 servidores mais usados
+        server_choice = random.choice(top_servidores) if top_servidores else random.choice(network_nodes)
+
         edges = network.sfs_flux_info.keys()
         #servers_to_crash = [servidor_mais_usado]
 

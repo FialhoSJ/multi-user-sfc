@@ -105,7 +105,7 @@ class SubstrateNetworkControllerRefac():
         self.crash_trials = 0
         #self.lock = threading.Lock()  # Inicializa o lock
         self.sfcs_that_crashed = []
-
+        self.deploy_flag = True
         self.shareable_band = False # not being used
         #self.fail_resources = (1/3, 1/3, 1/3)
         self.costs_parameters = [1,1,1,1]
@@ -138,8 +138,8 @@ class SubstrateNetworkControllerRefac():
 
         _thread.start_new_thread(self.run, ()) # Thread Principal
         
-        # if self.allow_temporary_high_latency:
-        #     self.start_check_altered_sfc_thread(interval = 5)
+        if self.allow_temporary_high_latency:
+            self.start_check_altered_sfc_thread(interval = 5)
 
     def run(self) -> None:
         """Starts the simulation."""
@@ -158,8 +158,13 @@ class SubstrateNetworkControllerRefac():
 
     def submit_sfcs(self) -> None:
         """Submit the SFCs stored in the queue."""
-        last_sf_mono = 'sfc_unique_p4_' + str(self.flows)
-        last_sf_dec = 'sfc_mono_p4_' + str(self.flows)
+        session_running = None
+        if not self.backup_activated:
+            last_sf_mono = 'sfc_unique_p4_' + str(self.flows)
+            last_sf_dec = 'sfc_mono_p4_' + str(self.flows)
+        else:
+            last_sf_mono = 'sfc_unique_p4_' + str(self.flows-1)
+            last_sf_dec = 'sfc_mono_p4_' + str(self.flows-1)     
 
         while not self.is_stopped:
             sfc_list = self.sfc_queue.peek_sfc()    
@@ -187,7 +192,19 @@ class SubstrateNetworkControllerRefac():
                         print('Max queue size:', self.max_queue_size )
                         self.stop()
                         sys.exit()
+
+                    actual_session =  int(sfc.id.split("_")[3])
                 self.players_sfc_list.append(player_sfc_id_list)
+            
+            if self.alg_name == 'goku_backup':
+                session_break_crasher = 50 
+            else:
+                session_break_crasher = 25
+
+            if actual_session == session_break_crasher  and self.crasher_activate != 0 and self.crash_trials == 0 :
+                self.crasher_thread_activated = True #flag for crasher thread start
+                self.crasher_interruption()
+
 
     def start_check_altered_sfc_thread(self, interval):
         def task():
@@ -195,14 +212,13 @@ class SubstrateNetworkControllerRefac():
                 with self.lock:
                     self.check_altered_sfcs()
                     time.sleep(interval)
-
         thread_check_alt = threading.Thread(target=task)
         thread_check_alt.daemon = True
         thread_check_alt.start()
 
     def start_tracer_thread(self, interval):
         def task_mob():
-            while True:
+            while self.is_stopped == False:
                 # print("Mobilidade Reativada. Tentando obter lock")
                 with self.lock:
                     # print("Lock obtido")
@@ -215,6 +231,9 @@ class SubstrateNetworkControllerRefac():
                         print("Mobilidade bloqueada devido ao crasher.")
                 # print("Mobilidade interval")
                 time.sleep(interval)  # Intervalo entre as verificações
+            self.tracer.stop_sumo_simulation()
+
+        self.tracer.start_sumo_simulation()
         thread_check_mob = threading.Thread(target=task_mob)
         thread_check_mob.daemon = True
         thread_check_mob.start()
@@ -277,85 +296,51 @@ class SubstrateNetworkControllerRefac():
 
         dst_server_crashed = old_loc in self.crasher.crashed_nodes
         
-        if self.backup_activated:
-            if dst_server_crashed and backup_sfc:
-                return sfc 
+        # if self.backup_activated:
+        #     if dst_server_crashed and backup_sfc:
+        #         return sfc 
             
         if dst_server_crashed:
             topology = self.tracer.topology 
             current_server_id = old_loc
             excluded_servers = self.crasher.crashed_nodes
-            # Coordenadas do servidor atual
-            current_position = topology[current_server_id]
+            processing_nodes = self.crasher.processing_nodes
+            processing_node_crashed = self.crasher.processing_node_crashed
+            distances  = []
+            # Coordenadas do servidor que falhou
+            crashed_position = topology[processing_node_crashed]
 
             # Variáveis para armazenar o servidor mais próximo e a menor distância
             nearest_server_id = None
             nearest_distance = float('inf')
 
-            distances = []
-            # Coletar todas as distâncias e médias de consumo de banda para normalização
-            all_distances = []
-            all_bandwidths = []
-
             for server_id, position in topology.items():
-                if server_id not in excluded_servers and server_id != current_server_id:
-                    # Calcular a distância euclidiana
-                    distance = math.sqrt((current_position[0] - position[0]) ** 2 + (current_position[1] - position[1]) ** 2)
-                    links = self.substrate_network._adj[server_id]
-                    average_bandwidth_used = sum(link['bandwidth_used'] for link in links.values()) / len(links)
+                if (server_id not in excluded_servers and server_id in processing_nodes and server_id != 0):
                     
-                    all_distances.append(distance)
-                    all_bandwidths.append(average_bandwidth_used)
-                    
-                    distances.append((server_id, distance, average_bandwidth_used))
+                    # Calcular a distância euclidiana até o servidor que falhou
+                    distance = math.sqrt((crashed_position[0] - position[0]) ** 2 + 
+                                        (crashed_position[1] - position[1]) ** 2)
     
-            # Pesos para distância e consumo de banda
-            peso_distancia = 0.5
-            peso_banda = 0.5
+                    # Verifica se é a menor distância encontrada
+                    if distance < nearest_distance:
+                        nearest_distance = distance
+                        nearest_server_id = server_id
+            options = []
+            location = nearest_server_id
+            edges = list(self.edges_vnf.keys())
+            processing_nodes = self.crasher.processing_nodes
 
-            # Lista de distâncias e custos
-            distances = []
+            for edge in edges:
+                # Verifica se o 'location' está na primeira ou segunda posição da tupla
+                if location in edge:
+                    # Determina qual o servidor que não é o 'location'
+                    connected_server = edge[0] if edge[1] == location else edge[1]
 
-            for server_id, position in topology.items():
-                if server_id not in excluded_servers and server_id != current_server_id:
-                    # Calcular a distância euclidiana
-                    distance = math.sqrt((current_position[0] - position[0]) ** 2 + (current_position[1] - position[1]) ** 2)
-                    links = self.substrate_network._adj[server_id]
-                    average_bandwidth_used = sum(link['bandwidth_used'] for link in links.values()) / len(links)
-                    distances.append((server_id, distance, average_bandwidth_used))
+                    # Verifica se o servidor conectado não está na lista de 'processing_nodes'
+                    if connected_server not in processing_nodes:
+                        options.append(connected_server)
 
-            # Ordenar a lista de distâncias
-            distances.sort(key=lambda x: x[1])
-
-            # Obter os 10 servidores mais próximos
-            nearest_servers = distances[:8]
-
-            # Coletar todas as distâncias e médias de consumo de banda dos 10 mais próximos para normalização
-            all_distances = [entry[1] for entry in nearest_servers]
-            all_bandwidths = [entry[2] for entry in nearest_servers]
-
-            # Normalizar as distâncias e os consumos de banda
-            max_distance = max(all_distances)
-            min_distance = min(all_distances)
-            max_bandwidth = max(all_bandwidths)
-            min_bandwidth = min(all_bandwidths)
-
-            normalized_distances = []
-            for server_id, distance, average_bandwidth_used in nearest_servers:
-                normalized_distance = (distance - min_distance) / (max_distance - min_distance) if max_distance != min_distance else 0
-                normalized_bandwidth = (average_bandwidth_used - min_bandwidth) / (max_bandwidth - min_bandwidth) if max_bandwidth != min_bandwidth else 0
-                
-                # Calcular o custo combinando distância e consumo de banda normalizados
-                custo = peso_distancia * normalized_distance + peso_banda * normalized_bandwidth
-                
-                normalized_distances.append((server_id, distance, average_bandwidth_used, custo))
-
-            # Ordenar a lista de servidores pelo custo
-            normalized_distances.sort(key=lambda x: x[3])
-
-            # Obter o servidor com o menor custo
-            nearest_server_id, nearest_distance, _, nearest_custo = normalized_distances[0]
-
+            location = options[0]
             location  =  nearest_server_id
             new_vnfs_list_dict = copy.deepcopy(update_sfc.vnfs_dict)
 
@@ -408,8 +393,7 @@ class SubstrateNetworkControllerRefac():
             return new_sfc     
         else:
             return sfc
-
-
+    
     def deploy_sfc(self, sfc: object) -> bool:
         """
         Deploys an SFC in the substrate network.
@@ -426,6 +410,9 @@ class SubstrateNetworkControllerRefac():
             bool: Whether the instantiated occured
             succesfully or not.
         """
+        while self.deploy_flag == False:
+            time.sleep(1)
+
         if sfc.id in self.sfc_list:
             return
         
@@ -441,7 +428,7 @@ class SubstrateNetworkControllerRefac():
 
         match self.alg_name:
             case 'ga' | 'osfem' | 'goku': # algs with active reuse and cost method
-                alg.set_costs(self.costs_parameters)
+                alg.set_costs([1,1,1,1]) 
                 alg.start_algorithm(shareable_sfs=shareable_sfs)
             case _: # algs with passive reuse and no cost method
                 alg.start_algorithm() 
@@ -486,17 +473,6 @@ class SubstrateNetworkControllerRefac():
         # output of the simulation
         self.output_network_resources(deploy_time=current_time)
         self.output_flows(current_time,sfc,latency,run_duration,is_success,bw_transcode,latency_diff=None,backup_sfc_activated=0,wait_time=wait_time)
-
-        actual_session =  int(sfc.id.split("_")[3])
-        actual_player  =  int(sfc.id.split("_")[2][1:])
-        if self.alg_name == 'goku_backup':
-            session_break_crasher = 51 
-        else:
-            session_break_crasher = 25
-
-        if actual_session >= session_break_crasher  and self.crasher_activate != 0 and self.crash_trials == 0 :
-            self.crasher_thread_activated = True #flag for crasher thread start
-            self.crasher_interruption()
 
         self.success.append(is_success)
         if self.verbose == True:
@@ -680,8 +656,11 @@ class SubstrateNetworkControllerRefac():
         #         pass
         #     else:
         #         return False
-            
-        if route_info:
+        sfc_id = sfc.id
+        p_session = sfc_id.split("_")[3]
+        backup_sfc = True if int(p_session) % 2 == 0 else False 
+
+        if route_info: # Sucesso
             altered_sfc = False
             wait_time = None
 
@@ -694,28 +673,20 @@ class SubstrateNetworkControllerRefac():
             #     altered_sfc = True
 
             if altered_sfc == True:
+
+                if self.backup_activated and backup_sfc:
+                    return False, None
+                
                 if sfc.id not in list(self.altered_sfcs.keys()):
-                    self.altered_sfcs[sfc.id] = {'wait_time':0,'timestamp':time.time(),'flag':True} # Primeira tentativa de alocação sem delay alto
+                    self.altered_sfcs[sfc.id] = {'timestamp':time.time(),'flag':True} # Primeira tentativa de alocação sem delay alto
                     return True, None 
-                
-                else:
-                    allow_reroute = self.altered_sfcs[sfc.id]['flag']
-                    if allow_reroute:
-                        return True,None#self.altered_sfcs[sfc.id]['wait_time']
-                    else:
-                        return False,30
-            else:
-                # Caso não alterado
-                if sfc.id in self.altered_sfcs: # Nesse caso a sfc não está alterada agora, mas antes ela estava, o que quer dizer que ela saiu desse estado
-                    wait_time = self.altered_sfcs[sfc.id]['wait_time']
-                    self.altered_sfcs[sfc.id]
+                else: # Já estava, o que quer dizer que é a última tentativa
                     del self.altered_sfcs[sfc.id]
-                    return True, wait_time
-                else:   
-                    return True,None
-                
-        else:
-            if sfc.id in list(self.altered_sfcs.keys()): # Retira
+                    return False, 30
+            else: 
+                return True,None
+        else: # Erro
+            if sfc.id in list(self.altered_sfcs.keys()): # Verificação de segurança
                 del self.altered_sfcs[sfc.id]
             return False, None
         
@@ -739,18 +710,18 @@ class SubstrateNetworkControllerRefac():
         user_id = int(player + p_session)
         backup_sfc = True if int(p_session) % 2 == 0 else False 
 
-        if route_info:
+        if route_info: #routeinfo errado
             if (len(route_info.keys()) != 6 and sfc_mode == 'on') or (len(route_info.keys()) != 4 and sfc_mode == 'off'):
                 latency = None
                 route_info = False
 
-        if latency is not None:
+        if latency is not None: # Latencia maior que 6
             if isinstance(latency, (int, float)):
                 if latency > sfc.get_latency_request() or latency < 0:
                     route_info = False
                     latency = None
                 
-        if is_sfc_acceptable == False: #sfc's denied because is the 2nd time it could not fit
+        if is_sfc_acceptable == False: # latencia negado por latencia elevada repetida
             latency = None
             route_info = False   
             sfc_id = sfc.id
@@ -886,10 +857,12 @@ class SubstrateNetworkControllerRefac():
                             else:
                                 sfc_rf = network.sfc_route_info[sfc_id]
                                 latency_sfc= sum((len(value) - 1) for key, value in sfc_rf.items() if key not in ('src', 'dst'))
-                                self.sfcs_crashed[sfc_id] = {'fall_time':time.time(),'has_backup':False,'old_latency':latency_sfc}
+                                duration = self.sfc_id_duration[sfc_id]
+                                self.sfcs_crashed[sfc_id] = {'fall_time':time.time(),'has_backup':False,'old_latency':latency_sfc,'duration':duration}
                                 self.sfcs_back_to_qeue_latency_diff[sfc_id] = {'old_latency': latency_sfc}
-
-                                self.send_back_to_qeue(self.substrate_network.get_sfc_by_id(sfc_id))
+                                sfcs_to_crash.append(sfc)
+                                self.undeploy_sfc(sfc_id)
+                                #self.send_back_to_qeue(self.substrate_network.get_sfc_by_id(sfc_id))
         
         print(self.sfcs_that_crashed)
         if not self.backup_activated:
@@ -983,9 +956,11 @@ class SubstrateNetworkControllerRefac():
         #                             - (time2 - time1)), self.check_user_position_thread, ()).start()
 
     def check_altered_sfcs(self) -> None:
-        altered_sfcs = list(self.altered_sfcs.items())  # Create a list copy of the items
-
-        for sfc_id, value in altered_sfcs:
+        self.deploy_flag = False
+        time.sleep(1) # Espera o deploy
+        altered_sfcs = copy.deepcopy(self.altered_sfcs)  # Create a list copy of the items
+        to_remove = []
+        for sfc_id, value in altered_sfcs.items():
             try:
                 sfc = self.substrate_network.get_sfc_by_id(sfc_id)
             except:
@@ -994,28 +969,111 @@ class SubstrateNetworkControllerRefac():
             tempo_primeira_inicializacao = value['timestamp']
             tempo_agora = time.time()
             tempo_corrido = int(tempo_agora - tempo_primeira_inicializacao)
-            self.altered_sfcs[sfc_id]['wait_time'] = tempo_corrido # Tempo de espera aumenta
-
+            
             if tempo_corrido >= time_out:
-                self.altered_sfcs[sfc_id]['flag'] = False
                 self.send_back_to_qeue(sfc)
             else:
+                sucesso = False
                 # TODO essa lógica deve ser implementada
                 if self.backup_activated:
                     has_backup_running = False
                     sfc_id_backup = re.sub(r'\d+$', lambda x: str(int(x.group()) + 1),sfc_id)
-                    
                     if sfc_id_backup in self.sfc_list:
                         try:
+                            bw_transcode =  sfc.vnfs_dict[-1]['out_bw'] #if self.alg_name != 'osfem' else alg.get_transcode_bw()
                             sfc_backup = self.substrate_network.get_sfc_by_id(sfc_id_backup)
+                            sfc_backup_rf = self.substrate_network.sfc_route_info[sfc_id_backup]
+                            latency_backup = sum((len(value) - 1) for key, value in sfc_backup_rf.items() if key not in ('src', 'dst'))
+                            
+                            if (latency_backup <= self.latency_interval[0]):
+                                wait_time = time.time() - altered_sfcs[sfc_id]['timestamp']
+                                self.output_flows(current_time=time.time(),sfc=sfc,latency=latency_backup,latency_diff=None,run_duration=0,is_success=1,bw_transcode=bw_transcode,backup_sfc_activated=1,wait_time=wait_time)
+                                self.undeploy_sfc(sfc_id)
+                                to_remove.append(sfc_id)
+                                sucesso = True
                         except:
                             print("Não há de backup rodando")
-                    
-                    # metodo para pegar a latencia dessa de backup.
-                    # Se a de backup estiver rodando com latencia menor, usa a de backup
-                self.altered_sfcs[sfc_id]['flag'] = True
-                self.send_back_to_qeue(sfc)
 
+                if sucesso == False:        
+                    sucesso = self.fake_deploy_sfc(sfc=sfc)             
+                    if sucesso:
+                        to_remove.append(sfc_id)
+
+        for sfc_id in to_remove:
+            del altered_sfcs[sfc_id]
+        self.altered_sfcs = altered_sfcs
+        self.deploy_flag  = True
+
+    def fake_deploy_sfc(self, sfc: object) -> bool:
+        fake_network = copy.deepcopy(self.substrate_network)
+        fake_network.undeploy_sfc(sfc.id)
+
+        sfc = copy.deepcopy(self.check_sfc_dst_v2(sfc))
+        alg = copy.deepcopy(self.alg)
+        alg.clear_all()
+        alg.install_substrate_network(fake_network)
+        alg.install_SFC(sfc)
+        
+        s = time.time() # Start measuring how long it takes to the alg run
+
+        shareable_sfs = self.substrate_network.get_shareable_sfs()
+
+        match self.alg_name:
+            case 'ga' | 'osfem' | 'goku': # algs with active reuse and cost method
+                new_parameters = [1,0.5,2,0] #cpu,cache,banda,boot
+                alg.set_costs(new_parameters)
+                alg.start_algorithm(shareable_sfs=shareable_sfs)
+            case _: # algs with passive reuse and no cost method
+                alg.start_algorithm() 
+
+        s2 = time.time()
+        route_info = alg.get_route_info() # Routes choosen by the alg
+        latency = alg.get_latency() # latency of the solution
+        bit_rate_adjust =  1.0 if self.alg_name != 'osfem' else alg.get_bit_rate_used()
+        bw_transcode =  sfc.vnfs_dict[-1]['out_bw'] if self.alg_name != 'osfem' else alg.get_transcode_bw()
+
+        if (self.alg_name == 'musfico') and (sfc.id in self.sfcs_routing_info.keys()): # musfico exclusive methodology
+            latency,route_info = self.musfico_method(sfc)
+
+        cpu_nodes_util = np.array([np.nan if node in self.crasher.crashed_nodes else round(fake_network.get_node_cpu_used(node), 2)for node in self.nodes])
+        server_com_cpu_alta = False
+        if np.any(cpu_nodes_util >= 100.0):
+            server_com_cpu_alta=True
+        
+        is_success = 0
+
+        current_time = s2
+        run_duration = s2 - s
+        arrival_time = sfc.arrival_time
+        sfc.depart_time = s2
+        
+        if route_info==False or latency== None:
+            return False
+        
+        if (latency > self.latency_interval[0] and latency <= self.latency_interval[1]) or (server_com_cpu_alta) or (route_info == False)or (route_info == None):
+            return False # Se for uma situação de erro de novo, sai e continua tentando alocar posteriormente
+        
+        if route_info:
+            self.undeploy_sfc(sfc.id) # Faz o undeploy na rede real
+            self.substrate_network.deploy_sfc(sfc, route_info) # faz o deploy na rede verdadeira
+            self.sfc_list.append(sfc.id)
+            self.sfc_id_duration[sfc.id] = sfc.duration
+
+            is_success = 1
+            self.deploy_success(sfc)
+            if sfc not in self.sfcs_routing_info.keys():
+                self.sfcs_routing_info[sfc.id] = copy.deepcopy(route_info)
+            
+        self.update()
+        is_success = self.check_resources_exceed(is_success,sfc) # Check if any fees exceed %
+        self.counter += 1 # at this time all verifications are done. So we add 1 to counter of sfc
+
+        # output of the simulation
+        self.output_network_resources(deploy_time=current_time)
+        wait_time = time.time() - self.altered_sfcs[sfc.id]['timestamp']
+        self.output_flows(current_time,sfc,latency,run_duration,is_success,bw_transcode,latency_diff=None,backup_sfc_activated=0,wait_time=wait_time)
+        return True
+    
     def send_back_to_qeue(self,sfc,changed_location=False,new_location=False,without_undeploy=False,duration_sfc=-1):
         sfc_id = sfc.id
         new_sfc_list = []
@@ -1117,7 +1175,7 @@ class SubstrateNetworkControllerRefac():
             print(" deploy FAILED, sfc: ", sfc.id)
 
     def output_network_resources(self,deploy_time):
-        self.output_writter.output_cpu_utilization(self.substrate_network, self.crasher.crashed_nodes, deploy_time)
+        self.output_writter.output_cpu_utilization(self.substrate_network,self.crasher.crashed_nodes, deploy_time)
         self.output_writter.output_cache_utilization(self.substrate_network, self.crasher.crashed_nodes, deploy_time)
         self.output_writter.output_bandwidth_utilization(self.substrate_network, deploy_time)
         self.output_writter.output_nodes_sf_utilization(self.substrate_network, deploy_time)

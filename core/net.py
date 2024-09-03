@@ -83,7 +83,7 @@ class Net(nx.Graph):
         self.shareable_band = False
         self.shareable_node = False
         self.verbose = False
-        self.lock = threading.Lock()
+        #self.lock = threading.Lock()
 
     def set_verbose(self,verbose):
         self.verbose = verbose
@@ -377,29 +377,29 @@ class Net(nx.Graph):
         return single_source_minimum_latency_path
 
     def deploy_sfc(self, sfc, route_info):
-        with self.lock:
-            if not route_info:
-                print("route info is None")
-                return
-            if sfc.id not in self.sfc_dict:
-                self.sfc_dict[sfc.id] = sfc
-            if sfc.id not in self.sfc_route_info:
-                self.sfc_route_info[sfc.id] = route_info
-            for vnf_id, path in list(route_info.items()):
-                if vnf_id == 'dst':
-                    #self.nodes[sfc.dst.substrate_node]['sfc_vnf_list'].append((sfc.id, sfc.dst))
-                    tmp = self._get_node_attribute(sfc.dst.substrate_node,'sfc_vnf_list')
-                    tmp.append( (sfc.id, sfc.dst) ) 
-                    self._set_node_attribute(sfc.dst.substrate_node, sfc_vnf_list=tmp)
-                    
-                    continue
-                vnf = sfc.get_vnf_by_id(vnf_id)
-                # print path
-                #self.nodes[path[0]]['sfc_vnf_list'].append((sfc.id, vnf))
-                tmp = self._get_node_attribute(path[0],'sfc_vnf_list')
-                tmp.append((sfc.id, vnf))
-                self._set_node_attribute(path[0], sfc_vnf_list=tmp)
-            # sfc.start()
+        #with self.lock:
+        if not route_info:
+            print("route info is None")
+            return
+        if sfc.id not in self.sfc_dict:
+            self.sfc_dict[sfc.id] = sfc
+        if sfc.id not in self.sfc_route_info:
+            self.sfc_route_info[sfc.id] = route_info
+        for vnf_id, path in list(route_info.items()):
+            if vnf_id == 'dst':
+                #self.nodes[sfc.dst.substrate_node]['sfc_vnf_list'].append((sfc.id, sfc.dst))
+                tmp = self._get_node_attribute(sfc.dst.substrate_node,'sfc_vnf_list')
+                tmp.append( (sfc.id, sfc.dst) ) 
+                self._set_node_attribute(sfc.dst.substrate_node, sfc_vnf_list=tmp)
+                
+                continue
+            vnf = sfc.get_vnf_by_id(vnf_id)
+            # print path
+            #self.nodes[path[0]]['sfc_vnf_list'].append((sfc.id, vnf))
+            tmp = self._get_node_attribute(path[0],'sfc_vnf_list')
+            tmp.append((sfc.id, vnf))
+            self._set_node_attribute(path[0], sfc_vnf_list=tmp)
+        # sfc.start()
 
     def undeploy_sfc(self, sfc_id):
 
@@ -443,104 +443,102 @@ class Net(nx.Graph):
         self.update_bandwidth_state()
 
     def update_nodes_state(self):
-        with self.lock:
+        pattern = re.compile(r'_p')
+        self.reset_shared_sfs()
+        # Estruturas adicionadas
+        cpu_saved = 0
+        cache_saved = 0
+        shared_vnfs_count = 0
+        shared_vnfs_details = {}
+        all_vnfs_on_nodes = {}
 
-            pattern = re.compile(r'_p')
-            self.reset_shared_sfs()
-            # Estruturas adicionadas
-            cpu_saved = 0
-            cache_saved = 0
-            shared_vnfs_count = 0
-            shared_vnfs_details = {}
-            all_vnfs_on_nodes = {}
+        for node in self.nodes():
+            cpu_used = 0
+            cache_used = 0
+            cpu_capacity = self.get_node_cpu_capacity(node)
+            cache_capacity = self.get_node_cache_capacity(node)
 
-            for node in self.nodes():
-                cpu_used = 0
-                cache_used = 0
-                cpu_capacity = self.get_node_cpu_capacity(node)
-                cache_capacity = self.get_node_cache_capacity(node)
-
-                for sfc_vnf in self.get_node_sfc_vnf_list(node):
-                    vnf_id = sfc_vnf[1].id
-                    if self.shareable_node:
-                        if vnf_id not in list(map(lambda sf: sf.id, self.shared_sfs[node])):
-                            cpu_used += sfc_vnf[1].get_cpu_request()
-                            cache_used += sfc_vnf[1].get_cache_request()
-                            if re.search(pattern, vnf_id) is None and vnf_id not in ('src', 'dst'):
-                                self.shared_sfs[node].append(sfc_vnf[1])
-                        else:
-                            # Lógica para contabilizar recursos poupados e detalhes das VNFs compartilhadas
-                            cpu_request = sfc_vnf[1].get_cpu_request()
-                            cache_request = sfc_vnf[1].get_cache_request()
-                            cpu_saved += cpu_request
-                            cache_saved += cache_request
-                            shared_vnfs_count += 1
-                            if vnf_id in shared_vnfs_details:
-                                shared_vnfs_details[vnf_id].add(sfc_vnf[0])  # Adiciona SFC se já existe
-                            else:
-                                shared_vnfs_details[vnf_id] = {sfc_vnf[0]}
-                    else:
+            for sfc_vnf in self.get_node_sfc_vnf_list(node):
+                vnf_id = sfc_vnf[1].id
+                if self.shareable_node:
+                    if vnf_id not in list(map(lambda sf: sf.id, self.shared_sfs[node])):
                         cpu_used += sfc_vnf[1].get_cpu_request()
                         cache_used += sfc_vnf[1].get_cache_request()
-                    
-                    # Atualiza o dicionário de todas as VNFs nos nós
-                    if vnf_id not in all_vnfs_on_nodes:
-                        all_vnfs_on_nodes[vnf_id] = [node]
-                    elif node not in all_vnfs_on_nodes[vnf_id]:
-                        all_vnfs_on_nodes[vnf_id].append(node)
+                        if re.search(pattern, vnf_id) is None and vnf_id not in ('src', 'dst'):
+                            self.shared_sfs[node].append(sfc_vnf[1])
+                    else:
+                        # Lógica para contabilizar recursos poupados e detalhes das VNFs compartilhadas
+                        cpu_request = sfc_vnf[1].get_cpu_request()
+                        cache_request = sfc_vnf[1].get_cache_request()
+                        cpu_saved += cpu_request
+                        cache_saved += cache_request
+                        shared_vnfs_count += 1
+                        if vnf_id in shared_vnfs_details:
+                            shared_vnfs_details[vnf_id].add(sfc_vnf[0])  # Adiciona SFC se já existe
+                        else:
+                            shared_vnfs_details[vnf_id] = {sfc_vnf[0]}
+                else:
+                    cpu_used += sfc_vnf[1].get_cpu_request()
+                    cache_used += sfc_vnf[1].get_cache_request()
+                
+                # Atualiza o dicionário de todas as VNFs nos nós
+                if vnf_id not in all_vnfs_on_nodes:
+                    all_vnfs_on_nodes[vnf_id] = [node]
+                elif node not in all_vnfs_on_nodes[vnf_id]:
+                    all_vnfs_on_nodes[vnf_id].append(node)
 
-                self.set_node_cpu_used(node, cpu_used)
-                cpu_free = cpu_capacity - cpu_used
-                self.set_node_cpu_free(node, cpu_free)
-                self.set_node_cache_used(node, cache_used)
-                cache_free = cache_capacity - cache_used
-                self.set_node_cache_free(node, cache_free)
+            self.set_node_cpu_used(node, cpu_used)
+            cpu_free = cpu_capacity - cpu_used
+            self.set_node_cpu_free(node, cpu_free)
+            self.set_node_cache_used(node, cache_used)
+            cache_free = cache_capacity - cache_used
+            self.set_node_cache_free(node, cache_free)
 
-            self.cpu_saved = cpu_saved
-            self.cache_saved = cache_saved
-            self.shared_vnfs_count = shared_vnfs_count
-            # Após o loop, imprime os resultados adicionais
-            # print(f"CPU poupado: {}, Cache poupado: {cache_saved}")
-            # print(f"VNFs compartilhadas: {shared_vnfs_count}, Detalhes: {shared_vnfs_details}")
-            # print(f"IDs de todas as VNFs nos nós: {all_vnfs_on_nodes}")
-            
-            total_cpu_capacity = 0
-            total_cpu_used = 0
-            total_cache_capacity = 0
-            total_cache_used = 0
-            
-            practical_cpu_capacity = 0
-            practical_cpu_used = 0
-            practical_cache_capacity = 0
-            practical_cache_used = 0
-            
-            for node in self.nodes():
-                node_cpu_used = self.get_node_cpu_used(node)
-                node_cpu_capacity = self.get_node_cpu_capacity(node)
-                node_cache_used =  self.get_node_cache_used(node)
-                node_cache_capacity = self.get_node_cache_capacity(node)
+        self.cpu_saved = cpu_saved
+        self.cache_saved = cache_saved
+        self.shared_vnfs_count = shared_vnfs_count
+        # Após o loop, imprime os resultados adicionais
+        # print(f"CPU poupado: {}, Cache poupado: {cache_saved}")
+        # print(f"VNFs compartilhadas: {shared_vnfs_count}, Detalhes: {shared_vnfs_details}")
+        # print(f"IDs de todas as VNFs nos nós: {all_vnfs_on_nodes}")
+        
+        total_cpu_capacity = 0
+        total_cpu_used = 0
+        total_cache_capacity = 0
+        total_cache_used = 0
+        
+        practical_cpu_capacity = 0
+        practical_cpu_used = 0
+        practical_cache_capacity = 0
+        practical_cache_used = 0
+        
+        for node in self.nodes():
+            node_cpu_used = self.get_node_cpu_used(node)
+            node_cpu_capacity = self.get_node_cpu_capacity(node)
+            node_cache_used =  self.get_node_cache_used(node)
+            node_cache_capacity = self.get_node_cache_capacity(node)
 
-                total_cpu_used += node_cpu_used
-                total_cpu_capacity += node_cpu_capacity
-                total_cache_used += node_cache_used
-                total_cache_capacity += node_cache_capacity
+            total_cpu_used += node_cpu_used
+            total_cpu_capacity += node_cpu_capacity
+            total_cache_used += node_cache_used
+            total_cache_capacity += node_cache_capacity
 
-                if node_cpu_used != 0:
-                    practical_cpu_used += node_cpu_used
-                    practical_cpu_capacity += node_cpu_capacity
-                if node_cache_used != 0:
-                    practical_cache_used += node_cache_used
-                    practical_cache_capacity += node_cache_capacity
+            if node_cpu_used != 0:
+                practical_cpu_used += node_cpu_used
+                practical_cpu_capacity += node_cpu_capacity
+            if node_cache_used != 0:
+                practical_cache_used += node_cache_used
+                practical_cache_capacity += node_cache_capacity
 
-            self.total_cpu_used = total_cpu_used
-            self.total_cpu_capacity = total_cpu_capacity
-            self.total_cache_used = total_cache_used
-            self.total_cache_capacity = total_cache_capacity
+        self.total_cpu_used = total_cpu_used
+        self.total_cpu_capacity = total_cpu_capacity
+        self.total_cache_used = total_cache_used
+        self.total_cache_capacity = total_cache_capacity
 
-            self.practical_cpu_used = practical_cpu_used
-            self.practical_cpu_capacity = practical_cpu_capacity
-            self.practical_cache_used = practical_cache_used
-            self.practical_cache_capacity = practical_cache_capacity
+        self.practical_cpu_used = practical_cpu_used
+        self.practical_cpu_capacity = practical_cpu_capacity
+        self.practical_cache_used = practical_cache_used
+        self.practical_cache_capacity = practical_cache_capacity
 
 
 

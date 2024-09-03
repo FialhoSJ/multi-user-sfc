@@ -17,7 +17,7 @@ def create_directory_if_not_exists(path):
     if not os.path.exists(path):
         os.makedirs(path)
 
-def setup_directories_and_files(n_sessions,n_players, args, quantity_of_nodes_arranged, edges):
+def setup_directories_and_files(n_sessions,n_players, args, quantity_of_nodes_arranged,processing_nodes, edges):
     timestamp = datetime.now().strftime('%Y%m%d%H%M%S%f') + str(random.randint(0, 10000))
     base_dir = 'results/'
     #paths = ['cache', 'cpu', 'bandwidth', 'edges_vnf', 'sf']
@@ -35,14 +35,14 @@ def setup_directories_and_files(n_sessions,n_players, args, quantity_of_nodes_ar
     # Prepare file paths
     file_paths = {path: os.path.join(directories[path], timestamp + '.csv') for path in paths}
     
-    nodes_string = format_nodes_to_string(quantity_of_nodes_arranged)
+    nodes_string = format_nodes_to_string(np.array(sorted(processing_nodes)))
     edges_string = format_edges_to_string(edges)
     
     # Initialize files
     with open(file_paths['cache'], "a") as file:
         file.write(f'timestamp,{nodes_string[1:-1]}\n')
     with open(file_paths['cpu'], "a") as file:
-        file.write(f'timestamp,{nodes_string[1:-1]}\n')
+        file.write(f'{nodes_string[1:-1]}\n')
     with open(file_paths['sf'], "a") as file:
         file.write(f'timestamp,{nodes_string[1:-1]}\n')
     with open(file_paths['bandwidth'], "a") as file:
@@ -59,6 +59,6 @@ def setup_sbn_controller_directory_and_file(n_sessions,n_players, alg_name, numb
 
     file_name = os.path.join(directory_path, f'{timestamp}.csv')
     with open(file_name, "a") as f:
-        header = "No.,timestamp,time_seconds,cpu_utilization,bandwidth_utilization,cache_utilization,cpu_resilient,cache_resilient,bw_resilient,latency,latency_diff,wait_time,decision_time_ms,success,arrival_time,sfc_id,backup_sfc_activated,crash_moment,recovery_time,sfc_recovered,crashed_sfcs,cpu_saved,cache_saved,number_of_sfc,shared_vnfs,running_sfcs,running_players,running_sessions,trascode_bw,users_crashed\n"
+        header = "No.,timestamp,time_seconds,users,cpu_utilization,bandwidth_utilization,cache_utilization,cpu_resilient,cache_resilient,bw_resilient,latency,latency_diff,wait_time,decision_time_ms,success,arrival_time,sfc_id,backup_sfc_activated,crash_moment,recovery_time,sfc_recovered,crashed_sfcs,cpu_saved,cache_saved,number_of_sfc,shared_vnfs,running_sfcs,running_players,running_sessions,trascode_bw,users_crashed\n"
         f.write(header)
     return file_name

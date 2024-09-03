@@ -90,7 +90,7 @@ servers_that_will_crash =  random.sample(processing_nodes, servers_to_crash)
 crasher_instance = Crasher(servers_to_crash=[28],operation_mode = 4, processing_nodes=processing_nodes)
 
 AVERAGE_TIME_SESSION_ARRIVAL = 20
-AVERAGE_TIME_SESSION_BACKUP_ARRIVAL = 35
+AVERAGE_TIME_SESSION_BACKUP_ARRIVAL = 25
 sfc_poisson_emitter = PoissonEmitter(AVERAGE_TIME_SESSION_ARRIVAL)
 sfc_poisson_backup_emitter = PoissonEmitter(AVERAGE_TIME_SESSION_BACKUP_ARRIVAL)
 
@@ -105,7 +105,7 @@ max_duration = 120
 latency_interval = [6,10]
 sfcs_latency = latency_interval[1] if args.allow_delay == 'y' else latency_interval[0]
 
-fator = 0.4 # 1 players consumes fator*100 percentage of resources of an Edge Server
+fator = 0.33 # 1 players consumes fator*100 percentage of resources of an Edge Server
 #fator = 0.1 # 1 players consumes fator*100 percentage of resources of an Edge Server
 edges = substrate_network.edges
 #https://ieeexplore.ieee.org/document/9417376
@@ -354,7 +354,6 @@ def generate_sfc_session(parameter) -> None:
             "dst_node": dst_node,
             "duration": duration,
             "latency": sfcs_latency,
-            "time": sfcs_latency
         }
         players_sfc_cache_dict_list.append(player_cache_dict)
         
@@ -431,7 +430,6 @@ def generate_backup_session(parameter) -> None:
             "dst_node": dst_node_backup,
             "duration": duration,
             "latency": sfcs_latency,
-            "time": sfcs_latency
         }
         players_sfc_cache_backup_dict_list.append(player_cache_backup_dict)
         
@@ -471,7 +469,7 @@ if backup_activated:
     n_sessions_folder = int(int(n_sessions)/2)
 else:
     n_sessions_folder = n_sessions
-timestamp,file_paths = setup_directories_and_files(n_sessions_folder,n_players, args, quantity_of_nodes_arranged, edges)
+timestamp,file_paths = setup_directories_and_files(n_sessions_folder,n_players, args, quantity_of_nodes_arranged,processing_nodes, edges)
 
 substrate_network.shareable_band = shareable_band
 substrate_network.shareable_node = shareable
@@ -502,9 +500,10 @@ sbn_controller.allow_temporary_high_latency =  allow_delay
 
 sbn_controller.latency_interval = latency_interval
 
-sbn_controller.output_writter = OutputWritter(quantity_of_nodes_arranged, edges, file_paths['cpu'], file_paths['cache'], file_paths['bandwidth'], file_paths['sf'],setup_sbn_controller_directory_and_file(n_sessions_folder,n_players,alg_name, number_of_nodes, args, timestamp),backup_activated=backup_activated)
+sbn_controller.output_writter = OutputWritter(quantity_of_nodes_arranged, edges, file_paths['cpu'], file_paths['cache'], file_paths['bandwidth'], file_paths['sf'],processing_nodes,setup_sbn_controller_directory_and_file(n_sessions_folder,n_players,alg_name, number_of_nodes, args, timestamp),backup_activated=backup_activated)
 sbn_controller.shareable_band = shareable_band
 sbn_controller.costs_parameters = costs_parameters
 sbn_controller.flows = n_sessions
 sbn_controller.players = n_players
+
 sbn_controller.start()

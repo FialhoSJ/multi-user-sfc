@@ -6,9 +6,10 @@ from typing import Dict
 import pandas as pd
 
 class OutputWritter:
-    def __init__(self, nodes, edges, cpu_utilization_file, cache_utilization_file, bw_utilization_file, sf_utilization_file,flows_file,backup_activated=False):
+    def __init__(self, nodes, edges, cpu_utilization_file, cache_utilization_file, bw_utilization_file, sf_utilization_file,processing_nodes,flows_file,backup_activated=False):
         self.nodes = nodes
         self.edges = edges
+        self.processing_nodes = processing_nodes
         self.cpu_utilization_file = cpu_utilization_file
         self.cache_utilization_file = cache_utilization_file
         self.bw_utilization_file = bw_utilization_file
@@ -17,6 +18,7 @@ class OutputWritter:
         self.first_time = 0
         self.backup_activated = backup_activated
         self.sfcs_latency_dict = {}
+        self.counter_users = 0
 
     def output_flows(self,substrate_network,wait_time,running_players_sessions,counter,remaining_time,current_time, sfc, latency, run_duration, is_success,bw_transcode,users_crashed,sfcs_crashed,crash_moment,crashed_sfcs=None,backup_sfc_activated=0, latency_diff=None):
         """
@@ -58,8 +60,25 @@ class OutputWritter:
         #     sfc_recovered =  0   
         #     sfc_recovery_time = None
         crashed_sfcs = []
+
         sfc_id = sfc.id
 
+        player = int(sfc_id.split("_")[2][1])
+        p_session = int(sfc_id.split("_")[3])
+        backup_sfc = True if int(p_session) % 2 == 0 else False   
+        
+        if self.backup_activated:
+            if not backup_sfc:
+                p_session = (p_session+1)/2
+                users = player * (p_session)
+                if users > self.counter_users:
+                    self.counter_users = int(users) 
+
+        else:
+            users = player * p_session
+            if users > self.counter_users:
+                self.counter_users = users
+   
         if sfc_id in sfcs_crashed:
             if is_success == 1:
                 sfc_recovery_time = time.time() - sfcs_crashed[sfc.id]['fall_time']
@@ -86,8 +105,7 @@ class OutputWritter:
             time_value = 0
         else:        
             time_value = round(current_time - self.first_time,1)
-        
-        is_backup_sfc = int(sfc.id.split("_")[3]) % 2 
+    
 
         # if int(sfc.id.split("_")[3]) % 2  == 0 and self.backup_activated and backup_sfc_activated == 0:
         #     #is_success = np.nan
@@ -130,6 +148,7 @@ class OutputWritter:
             line = str(counter) + ',' + \
                    str(current_time) + ',' + \
                    str(time_value) + ',' + \
+                   str(self.counter_users) + ',' + \
                    str(cpu_utilization) + ',' + \
                    str(bw_utilization) + ',' + \
                    str(cache_utilization) + ',' + \
@@ -167,8 +186,9 @@ class OutputWritter:
         Args:
             deploy_time (float): The deployment time to record with the utilization data.
         """
+        processing_nodes = sorted(self.processing_nodes)
         cpu_nodes_util = np.array([np.nan if node in crashed_nodes else round(substrate_network.get_node_cpu_used(node), 2)
-                                   for node in self.nodes])
+                                   for node in processing_nodes])
 
         string_cpu_nodes_util = np.array2string(cpu_nodes_util, suppress_small=True,
                                                 precision=3, separator=',', formatter={'float_kind': lambda x: "%.2f" % x})
@@ -177,7 +197,7 @@ class OutputWritter:
         string_cpu_nodes_util = re.sub('\n', '', string_cpu_nodes_util)
 
         with open(self.cpu_utilization_file, "a") as file:
-            file.write(str(deploy_time) + ',' + string_cpu_nodes_util[1:-1] + '\n')
+            file.write(string_cpu_nodes_util[1:-1] + '\n')
 
     def output_cache_utilization(self, substrate_network, crashed_nodes, deploy_time: float) -> None:
         """
