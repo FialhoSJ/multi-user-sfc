@@ -21,15 +21,16 @@ from sumo.luxembourg.config_routes import topology_tracer_positions,positions
 from topology.instantiator import TopologyInstantiator
 from utils.directory_manager import setup_directories_and_files, setup_sbn_controller_directory_and_file
 from utils.resource_output_utils import OutputWritter
-seed = 42
-random.seed(seed)
-np.random.seed(seed)
+
+# seed = 42
+# random.seed(seed)
+# np.random.seed(seed)
 
 # command line arguments
 parser = argparse.ArgumentParser(description='Select MUAR arguments') 
 parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
 parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='goku')
-parser.add_argument('--n_players', type=int, help='(int) number of players', default=4)
+parser.add_argument('--n_players', type=int, help='(int) number of players', default=6)
 parser.add_argument('--sfc',   type=str, help='(str) on or off', default='on')
 parser.add_argument('--topology', type=str, help='(str) wich topology ex: luxembourg,small luxembourg ,paloalto', default='luxembourg')
 
@@ -86,11 +87,10 @@ edges_vnf = {key: [] for key in edges}
 processing_nodes = list(topology.processing_nodes)
 processing_nodes.remove(34)
 
-servers_that_will_crash =  random.sample(processing_nodes, servers_to_crash)
-crasher_instance = Crasher(servers_to_crash=[28],operation_mode = 4, processing_nodes=processing_nodes)
+crasher_instance = Crasher(servers_to_crash=[],operation_mode = 4, processing_nodes=processing_nodes)
 
 AVERAGE_TIME_SESSION_ARRIVAL = 20
-AVERAGE_TIME_SESSION_BACKUP_ARRIVAL = 25
+AVERAGE_TIME_SESSION_BACKUP_ARRIVAL = 22
 sfc_poisson_emitter = PoissonEmitter(AVERAGE_TIME_SESSION_ARRIVAL)
 sfc_poisson_backup_emitter = PoissonEmitter(AVERAGE_TIME_SESSION_BACKUP_ARRIVAL)
 
@@ -105,7 +105,7 @@ max_duration = 120
 latency_interval = [6,10]
 sfcs_latency = latency_interval[1] if args.allow_delay == 'y' else latency_interval[0]
 
-fator = 0.33 # 1 players consumes fator*100 percentage of resources of an Edge Server
+fator =0.4 # 1 players consumes fator*100 percentage of resources of an Edge Server
 #fator = 0.1 # 1 players consumes fator*100 percentage of resources of an Edge Server
 edges = substrate_network.edges
 #https://ieeexplore.ieee.org/document/9417376

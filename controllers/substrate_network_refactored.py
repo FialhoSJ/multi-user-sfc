@@ -57,10 +57,12 @@ class SubstrateNetworkControllerRefac():
         self.tracer = 0
         self.crasher = 0
         self.mobility_activated = None
+
         self.crasher_activate = 1
         self.backup_activated = False
         self.users_crashed = 0 
         self.servers_to_crash = []
+
 
         self.output_writter = 0
         
@@ -93,6 +95,7 @@ class SubstrateNetworkControllerRefac():
         self.alg_name = None
         self.players_sfc_list = []
         self.sfcs_crashed = {}
+        self.sfcs_that_crashed = []
         self.sfcs_back_to_qeue_latency_diff = {}
         self.crash_moment = 0
         self.crasher_thread_activated = False  # Variável de trigger
@@ -104,7 +107,6 @@ class SubstrateNetworkControllerRefac():
         self.success = []
         self.crash_trials = 0
         #self.lock = threading.Lock()  # Inicializa o lock
-        self.sfcs_that_crashed = []
         self.deploy_flag = True
         self.shareable_band = False # not being used
         #self.fail_resources = (1/3, 1/3, 1/3)
@@ -197,14 +199,48 @@ class SubstrateNetworkControllerRefac():
                 self.players_sfc_list.append(player_sfc_id_list)
             
             if self.alg_name == 'goku_backup':
-                session_break_crasher = 50
+                session_break_crasher = 32
             else:
-                session_break_crasher = 23
+                session_break_crasher = 10
+                
+            if self.alg_name == 'goku_backup':
+                session_recovery = 40
+            else:
+                session_recovery = 25
+
             print("Verificação de Crasher")
             if actual_session >= session_break_crasher  and self.crasher_activate != 0 and self.crash_trials == 0 :
                 self.crasher_thread_activated = True #flag for crasher thread start
                 self.crasher_interruption()
 
+            print("Verificação de Recovery")
+            if actual_session >= session_recovery and self.crasher_activate != 0 and len(self.crasher.servers_to_crash)>0:
+                self.servers_recovery()
+            
+            crashed_sfcs = list(self.sfcs_crashed.keys())
+            if len(crashed_sfcs) == 0:
+                self.crasher_thread_activated = False
+
+    def servers_recovery(self):
+        links_crashed = self.crasher.links_to_crash
+        servers_crashed = self.crasher.servers_to_crash
+
+        self.crasher.servers_to_crash = []
+        self.crasher.processing_node_crashed = -1
+        self.crasher.a_server_was_crashed = 0
+        self.crasher.server_to_reroute = None
+        self.crasher.links_to_crash = []
+        self.sfcs_crashed = {}
+        self.sfcs_that_crashed = []
+
+        for server in servers_crashed:
+            self.substrate_network.reset_node_cache_capacity(server, 100)
+            self.substrate_network.reset_node_cpu_capacity(server, 100)
+
+        for link in links_crashed:
+            self.substrate_network.reset_bandwidth_capacity(link[0], link[1], 1000)
+            self.substrate_network.set_link_latency(link[0], link[1], 1)
+        print("Servers Recovered")                
 
     def start_check_altered_sfc_thread(self, interval):
         def task():
@@ -243,7 +279,6 @@ class SubstrateNetworkControllerRefac():
             print("Lock adquirido pelo crasher, executando task...")
             #self.mobility_event.set()  # Interrompe a mobilidade
             self.start_crasher() 
-            self.crasher_thread_activated = False
         print("Crasher thread terminou.")
         #self.mobility_event.clear()  
    
@@ -291,9 +326,9 @@ class SubstrateNetworkControllerRefac():
         
         user_id = int(player + p_session)
 
-        dst_server_crashed = old_loc in self.crasher.crashed_nodes
+        dst_server_crashed = old_loc in self.crasher.servers_to_crash
         
-        if len(self.crasher.crashed_nodes) > 0:
+        if len(self.crasher.servers_to_crash) > 0:
             pass
         # if self.backup_activated:
         #     if dst_server_crashed and backup_sfc:
@@ -302,7 +337,7 @@ class SubstrateNetworkControllerRefac():
         if dst_server_crashed or sfc.id in crashed_sfcs:
             topology = self.tracer.topology 
             current_server_id = old_loc
-            excluded_servers = self.crasher.crashed_nodes
+            excluded_servers = self.crasher.servers_to_crash
             processing_nodes = self.crasher.processing_nodes
             processing_node_crashed = self.crasher.processing_node_crashed
             distances  = []
@@ -342,7 +377,7 @@ class SubstrateNetworkControllerRefac():
             location  =  nearest_server_id
 
             if sfc.id in crashed_sfcs:
-                location=  self.crasher.server_to_reroute
+                location=  random.choice(self.crasher.server_to_reroute)
             
             new_vnfs_list_dict = copy.deepcopy(update_sfc.vnfs_dict)
             if re.search('cache', sfc_id) is not None:
@@ -544,7 +579,7 @@ class SubstrateNetworkControllerRefac():
                 self.undeploy_sfc(sfc.id)
                 is_success = 0
 
-            cpu_nodes_util = np.array([np.nan if node in self.crasher.crashed_nodes else round(self.substrate_network.get_node_cpu_used(node), 2)for node in self.nodes])
+            cpu_nodes_util = np.array([np.nan if node in self.crasher.servers_to_crash else round(self.substrate_network.get_node_cpu_used(node), 2)for node in self.nodes])
             # Verificar se algum valor é >= 100.0
             server_com_cpu_alta = False
             if np.any(cpu_nodes_util >= 100.0):
@@ -557,7 +592,7 @@ class SubstrateNetworkControllerRefac():
                 is_success = 0
 
             if server_com_cpu_alta:
-                cpu_nodes_util = np.array([np.nan if node in self.crasher.crashed_nodes else round(self.substrate_network.get_node_cpu_used(node), 2)for node in self.nodes])
+                cpu_nodes_util = np.array([np.nan if node in self.crasher.servers_to_crash else round(self.substrate_network.get_node_cpu_used(node), 2)for node in self.nodes])
                 if np.any(cpu_nodes_util >= 100.0):
                     print("Alerta:PERMANECE >= 100.0")
                     self.is_stopped = True 
@@ -745,7 +780,7 @@ class SubstrateNetworkControllerRefac():
         if route_info:
             #print(route_info)
             servers_used = list(set([server for key, servers in route_info.items() if key not in ['src', 'dst'] for server in servers]))
-            crashed_nodes = self.crasher.crashed_nodes
+            crashed_nodes = self.crasher.servers_to_crash
             intersection = [x for x in servers_used if x in crashed_nodes]
 
             if len(intersection ) > 0 :
@@ -782,7 +817,7 @@ class SubstrateNetworkControllerRefac():
         self.sfcs_crashed = {}
         sfc_ids = []
         sfcs_to_crash = []
-        for server in self.crasher.crashed_nodes:
+        for server in self.crasher.servers_to_crash:
             server_info = self.substrate_network.get_node_sfc_vnf_list(server)
             filtered_edges = {key: value for key, value in self.edges_vnf.items() if server in key}
 
@@ -858,13 +893,14 @@ class SubstrateNetworkControllerRefac():
                                 self.undeploy_sfc(sfc_id)
                                 #self.send_back_to_qeue(self.substrate_network.get_sfc_by_id(sfc_id))
         
-        for server in self.crasher.crashed_nodes:
+        for server in self.crasher.servers_to_crash:
             self.substrate_network.reset_node_cache_capacity(server, 0)
             self.substrate_network.reset_node_cpu_capacity(server, 0)
 
-            for link, sfc_vnf in filtered_edges.items():
-                self.substrate_network.reset_bandwidth_capacity(link[0], link[1], 0)
-                self.substrate_network.set_link_latency(link[0], link[1], 0)
+        for link in self.crasher.links_to_crash:
+            self.substrate_network.reset_bandwidth_capacity(link[0], link[1], 0)
+            self.substrate_network.set_link_latency(link[0], link[1], 100)
+        
         self.update()   
 
         print(self.sfcs_that_crashed)
@@ -928,7 +964,7 @@ class SubstrateNetworkControllerRefac():
                                 break
                             player_location = self.tracer.gets_next_backup_server(int(player), int(p_session))
                         else:
-                            player_location = self.tracer.get_closest_server(user_id, self.crasher.crashed_nodes, sfc_location)
+                            player_location = self.tracer.get_closest_server(user_id, self.crasher.servers_to_crash, sfc_location)
 
                         # if self.crasher_thread_activated:  # Verifica se o crasher thread foi ativado
                         #     print("Crasher thread ativado, saindo de check_user_position_thread.")
@@ -1039,7 +1075,7 @@ class SubstrateNetworkControllerRefac():
         if (self.alg_name == 'musfico') and (sfc.id in self.sfcs_routing_info.keys()): # musfico exclusive methodology
             latency,route_info = self.musfico_method(sfc)
 
-        cpu_nodes_util = np.array([np.nan if node in self.crasher.crashed_nodes else round(fake_network.get_node_cpu_used(node), 2)for node in self.nodes])
+        cpu_nodes_util = np.array([np.nan if node in self.crasher.servers_to_crash else round(fake_network.get_node_cpu_used(node), 2)for node in self.nodes])
         server_com_cpu_alta = False
         if np.any(cpu_nodes_util >= 100.0):
             server_com_cpu_alta=True
@@ -1179,8 +1215,8 @@ class SubstrateNetworkControllerRefac():
             print(" deploy FAILED, sfc: ", sfc.id)
 
     def output_network_resources(self,deploy_time):
-        self.output_writter.output_cpu_utilization(self.substrate_network,self.crasher.crashed_nodes, deploy_time)
-        self.output_writter.output_cache_utilization(self.substrate_network, self.crasher.crashed_nodes, deploy_time)
+        self.output_writter.output_cpu_utilization(self.substrate_network,self.crasher.servers_to_crash, deploy_time)
+        self.output_writter.output_cache_utilization(self.substrate_network, self.crasher.servers_to_crash, deploy_time)
         self.output_writter.output_bandwidth_utilization(self.substrate_network, deploy_time)
         self.output_writter.output_nodes_sf_utilization(self.substrate_network, deploy_time)
         #self.output_utils.output_edges_sf_utilization(self.edges_vnf, self.existing_vnf, self.sfc_list, deploy_time, route_info, sfc)
