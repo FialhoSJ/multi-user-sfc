@@ -1,3 +1,4 @@
+import math
 import random
 
 class Crasher():
@@ -21,8 +22,8 @@ class Crasher():
         self.crashed_nodes = []
         self.trials = 0
         self.a_server_was_crashed = 0
-
-    def activate_crasher(self, network):
+        self.server_to_reroute = None
+    def activate_crasher(self, network,tracer_topology):
         """Activates the crasher on the given network, excluding specific nodes."""
         
         # Isso permite que no modo de operação 4 a queda seja feita somente na primeira tentativa
@@ -45,7 +46,6 @@ class Crasher():
         # Seleciona os 5 servidores mais usados
         top_servidores = [server for server, _ in servidores_validos[1:4]]
 
-
         # Derruba aleatoriamente um dos 5 servidores mais usados
         server_choice = random.choice(top_servidores) if top_servidores else random.choice(network_nodes)
 
@@ -62,6 +62,49 @@ class Crasher():
                     servers_to_crash.append(server_par)
 
         self.servers_to_crash = list(set(servers_to_crash))
+        
+
+
+        
+
+        server_to_reroute = 1
+        excluded_servers = self.servers_to_crash
+        crashed_position = tracer_topology[self.processing_node_crashed]
+        nearest_server_id = None
+        nearest_distance = float('inf')
+
+        
+
+        nearest_server_id = None
+        nearest_distance = float('inf')
+
+        for server_id, position in tracer_topology.items():
+            if (server_id not in excluded_servers and server_id in self.processing_nodes and server_id != 0):
+                
+                # Calcular a distância euclidiana até o servidor que falhou
+                distance = math.sqrt((crashed_position[0] - position[0]) ** 2 + 
+                                    (crashed_position[1] - position[1]) ** 2)
+
+                # Verifica se é a menor distância encontrada
+                if distance < nearest_distance:
+                    nearest_distance = distance
+                    nearest_server_id = server_id
+        options = []
+        location = nearest_server_id
+        edges = list(network.sfs_flux_info.keys())
+
+        for edge in edges:
+            # Verifica se o 'location' está na primeira ou segunda posição da tupla
+            if location in edge:
+                # Determina qual o servidor que não é o 'location'
+                connected_server = edge[0] if edge[1] == location else edge[1]
+                # Verifica se o servidor conectado não está na lista de 'processing_nodes'
+                if connected_server not in self.processing_nodes:
+                    options.append(connected_server)
+
+        location = options[0]
+        self.server_to_reroute = location
+
 
         # Só faz sentido verificar a quantidade de nós crashados se for no modo 1    
         # if len(self.crashed_nodes) >= self.crash_limit or (self.trials == 0 and self.operation_mode != 3):

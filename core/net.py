@@ -121,6 +121,10 @@ class Net(nx.Graph):
     def reset_node_cpu_capacity(self, node_id, cpu_capacity):
         self.set_node_cpu_capacity(node_id, cpu_capacity)
         self.set_node_cpu_used(node_id, 0)
+        try:
+            self.set_node_reuse(node_id,[])
+        except:
+            print("Nó não tem esse atributo")
         self.set_node_cpu_free(node_id, cpu_capacity)
         self._set_node_attribute(node_id, sfc_vnf_list=[])
         return
@@ -176,6 +180,9 @@ class Net(nx.Graph):
             
     def set_node_cpu_used(self, node_id, cpu_used):
         self._set_node_attribute(node_id, cpu_used = cpu_used)
+
+    def set_node_reuse(self, node_id, reuse=[]):
+        self._set_node_attribute(node_id, reuse = reuse)  
 
     def set_node_cpu_free(self, node_id, cpu_free):
         return self._set_node_attribute(node_id, cpu_free = cpu_free)
