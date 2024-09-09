@@ -194,26 +194,26 @@ class SubstrateNetworkControllerRefac():
                         print('Max queue size:', self.max_queue_size )
                         self.stop()
                         sys.exit()
-
+                        
                     actual_session =  int(sfc.id.split("_")[3])
                 self.players_sfc_list.append(player_sfc_id_list)
             
             if self.alg_name == 'goku_backup':
-                session_break_crasher = 32
-            else:
                 session_break_crasher = 10
+            else:
+                session_break_crasher = 20
                 
             if self.alg_name == 'goku_backup':
-                session_recovery = 40
+                session_recovery = 60
             else:
-                session_recovery = 25
+                session_recovery = 30
 
-            print("Verificação de Crasher")
+            #print("Verificação de Crasher")
             if actual_session >= session_break_crasher  and self.crasher_activate != 0 and self.crash_trials == 0 :
                 self.crasher_thread_activated = True #flag for crasher thread start
                 self.crasher_interruption()
 
-            print("Verificação de Recovery")
+            #print("Verificação de Recovery")
             if actual_session >= session_recovery and self.crasher_activate != 0 and len(self.crasher.servers_to_crash)>0:
                 self.servers_recovery()
             
@@ -232,7 +232,7 @@ class SubstrateNetworkControllerRefac():
         self.crasher.links_to_crash = []
         self.sfcs_crashed = {}
         self.sfcs_that_crashed = []
-
+        self.crasher_thread_activated = False
         for server in servers_crashed:
             self.substrate_network.reset_node_cache_capacity(server, 100)
             self.substrate_network.reset_node_cpu_capacity(server, 100)
@@ -464,7 +464,8 @@ class SubstrateNetworkControllerRefac():
 
         match self.alg_name:
             case 'ga' | 'osfem' | 'goku': # algs with active reuse and cost method
-                alg.set_costs([1,1,1,1]) 
+
+                alg.set_costs([2,2,1,0]) 
                 alg.start_algorithm(shareable_sfs=shareable_sfs)
             case _: # algs with passive reuse and no cost method
                 alg.start_algorithm() 

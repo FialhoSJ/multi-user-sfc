@@ -63,22 +63,8 @@ class OutputWritter:
 
         sfc_id = sfc.id
 
-        player = int(sfc_id.split("_")[2][1])
-        p_session = int(sfc_id.split("_")[3])
-        backup_sfc = True if int(p_session) % 2 == 0 else False   
+        self.update_user_count(sfc_id)
         
-        if self.backup_activated:
-            if not backup_sfc:
-                p_session = (p_session+1)/2
-                users = player * (p_session)
-                if users > self.counter_users:
-                    self.counter_users = int(users) 
-
-        else:
-            users = player * p_session
-            if users > self.counter_users:
-                self.counter_users = users
-   
         if sfc_id in sfcs_crashed:
             if is_success == 1:
                 sfc_recovery_time = time.time() - sfcs_crashed[sfc.id]['fall_time']
@@ -177,6 +163,28 @@ class OutputWritter:
                    str(bw_transcode) + "," + \
                    str(users_crashed) + "\n"
             file.write(line)
+
+    def update_user_count(self, sfc_id):
+        # Extrair o número do player e da sessão
+        player = int(sfc_id.split("_")[2][1])
+        session = int(sfc_id.split("_")[3])
+        
+        # Verificar se a sessão atual é um backup (sessões pares são backups)
+        backup_sfc = (session % 2 == 0)
+        users = self.counter_users
+        # Se backup está ativado
+        if self.backup_activated:
+            if not backup_sfc:
+                # Sessões reais são a metade das sessões não-backup
+                real_p_session = (session + 1) // 2
+                users = (real_p_session - 1) * 5 + player
+        else:
+            # Caso o backup não esteja ativado
+            users = (session - 1) * 5 + player
+        
+        # Atualiza o contador de usuários se o valor atual for maior
+        if users > self.counter_users:
+            self.counter_users = users
 
 
     def output_cpu_utilization(self, substrate_network, crashed_nodes, deploy_time: float) -> None:

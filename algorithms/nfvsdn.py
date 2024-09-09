@@ -120,10 +120,9 @@ class Goku(Algorithm):
             return sfc
     
     def set_costs(self,costs_parameters):
-        self.cpu_weight   =  costs_parameters[0]
-        self.cache_weight =  costs_parameters[1]
-        self.band_weight  =  costs_parameters[2]
-        self.boot_weight  =  costs_parameters[3]
+        self.cpu_factor   =  costs_parameters[0]
+        self.cache_factor =  costs_parameters[1]
+        self.band_factor =  costs_parameters[2]
     
     def get_latency(self):
         return self.latency
