@@ -280,7 +280,7 @@ class SubstrateNetworkController():
 
         match self.alg.name:
             case 'ga' | 'osfem' | 'goku': # algs with active reuse and cost method
-                alg.set_costs([1,1,1,1])
+                #alg.set_costs()
                 alg.start_algorithm(shareable_sfs=shareable_sfs)
             case _: # algs with passive reuse and no cost method
                 alg.start_algorithm() 
