@@ -15,7 +15,7 @@ cpu_capacity = 100
 cache_capacity = 100
 class SampleTopology:
     def __init__(self) -> None:
-        self.number_of_nodes = None
+        self.number_of_nodes = 15
         self.processing_nodes = None
     def generate_substrate_network(self):
 

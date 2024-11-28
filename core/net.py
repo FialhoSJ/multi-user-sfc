@@ -59,16 +59,14 @@ class Net(nx.Graph):
 
         self.practical_bw_used = 0
         self.practical_bw_capacity = 0
-        self.max_cpu_overload = 1
-
-        self.total_bandwidth_used = 0  
         
+        self.max_cpu_overload = 1
+        self.total_bandwidth_used = 0  
         self.max_cache_overload = 1
         
         self.cpu_saved = 0
         self.cache_saved = 0
         self.shared_vnfs_count = 0
-
         self.Graph = 0
         self.single_source_minimum_latency_path = None
         self.nodes_positions = 0

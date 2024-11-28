@@ -1,25 +1,22 @@
-from topology.luxembourg import Luxembourg
-from topology.paloalto import PaloAlto
-from topology.nsfnet import NSFNet
-from topology.santamonica import SantaMonica
-from topology.sample_topology import SampleTopology
-from topology.small_luxembourg import Small_Luxembourg
+from topology.predefined.luxembourg import Luxembourg
+from topology.predefined.paloalto import PaloAlto
+from topology.experimental.nsfnet import NSFNet
+from topology.predefined.santamonica import SantaMonica
+from topology.predefined.sample_topology import SampleTopology
 
 class TopologyInstantiator(object):
-    def instantiate_topology(self, type):
-        if type == 'nsfnet':
-            topology = NSFNet()
-        elif type == 'paloalto':
-            topology = PaloAlto()
-        elif type == 'santamonica':
-            topology = SantaMonica()
-        elif type == 'luxembourg':
-            topology = Luxembourg() 
-        elif type == 'small luxembourg':
-            topology = Small_Luxembourg()
-        elif type == 'test':
-            topology = SampleTopology()
-        else:
-            raise ValueError('topology not found')
+    def __init__(self):
+        self.topology_classes = {
+            'nsfnet': NSFNet,
+            'paloalto': PaloAlto,
+            'santamonica': SantaMonica,
+            'luxembourg': Luxembourg,
+            'test': SampleTopology
+        }
 
-        return topology
+    def instantiate_topology(self, type):
+        try:
+            topology_class = self.topology_classes[type]
+            return topology_class()
+        except KeyError:
+            raise ValueError(f"Topology '{type}' not found")

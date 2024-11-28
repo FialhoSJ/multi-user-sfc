@@ -1,3 +1,5 @@
+from scipy.spatial import KDTree
+
 # Dados estáticos de topologia e posições
 topology = {
     1: (2884, 6739), 2: (8081, 4302), 3: (8881, 4995), 4: (8956, 2900),
@@ -21,6 +23,12 @@ topology_tracer_positions= {
     29: (10433, 9612), 30: (10652, 9036), 31: (1690, 8623), 32: (8839, 4462),
     33: (1492, 7139), 34: (4500, 5500)
 }
+
+server_ids = list(topology.keys())
+server_coords = list(topology.values())
+server_tree = KDTree(server_coords)
+
+
 positions = {
     1: ['-34375#3', '-34937', '--34937', '-34375#2', '-34375#1'],
     2: ['--34253#34', '-34253#35', '-34646', '-34253#34', '--34130'],
