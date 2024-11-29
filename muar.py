@@ -18,7 +18,7 @@ from controllers.modules.mobility_manager import MobilityManager
 from sumo.tracer_instantiator import TracerInstantiator
 from sumo.luxembourg.config_routes import topology_tracer_positions,positions
 from topology.instantiator import TopologyInstantiator
-from utils.results_manager import create_output_dir, OutputWritter
+from utils.manager_results import create_output_dir, OutputWritter
 
 
 # seed = 42
@@ -28,7 +28,7 @@ from utils.results_manager import create_output_dir, OutputWritter
 parser = argparse.ArgumentParser(description='Select MUAR arguments') 
 parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
 parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='goku')
-parser.add_argument('--n_players', type=int, help='(int) number of players', default=5)
+parser.add_argument('--n_players', type=int, help='(int) number of players', default=4)
 #on: quebrar mais em funçoes
 #off: monolítico
 parser.add_argument('--sfc',   type=str, help='(str) on or off', default='on')
