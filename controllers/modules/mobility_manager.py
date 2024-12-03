@@ -79,11 +79,10 @@ class MobilityManager:
                     
                     # Coleta os SFCs associados ao veículo
                     sfc_ids = self.vehicle_to_service_map[vehicle_id]['sfcs']
-                    
+    
                     # Adiciona o veículo e os SFCs à lista de veículos que se moveram
                     moved_sfcs.append(sfc_ids)
                     new_locations.append(current_position)
-
             return moved_sfcs,new_locations
 
     def remove_sfc(self, sfc_id):
@@ -106,6 +105,7 @@ class MobilityManager:
                         if not self.vehicle_to_service_map[vehicle_id]['sfcs']:
                             self.remove_vehicle(vehicle_id)
                             self.running_sfcs.remove(sfc_id)
+                        break
 
     def remove_vehicle(self, vehicle_id):
         """

@@ -15,6 +15,7 @@ from controllers.sfc_generator import SFCGenerator
 
 from algorithms.instantiator import AlgorithmInstantiator
 from controllers.modules.mobility_manager import MobilityManager
+from controllers.modules.sfcs_manager import SFCManager
 from sumo.tracer_instantiator import TracerInstantiator
 from sumo.luxembourg.config_routes import topology_tracer_positions,positions
 from topology.instantiator import TopologyInstantiator
@@ -111,6 +112,9 @@ EC_TC_bw = int(IA_bw*0.9*0.9*0.8)
 EC_TC = EC_TC_bw * cpb  #
 
 total = IA+DET+FT+MA+UNI+RE+EC_TC
+total_inst = round(total*(1/fator)/ 1000000)
+servers_mips = 96_100 # MIPS SAP 96_100
+
 IA = int(IA/total*fator*100)
 DET = DET/total*fator*100
 FT = FT/total*fator*100
@@ -177,23 +181,23 @@ def generate_sfc_session(parameter) -> None:
     for i in range(1,n_players+1):
         caching_sf_list = []
         caching_sf_list.append({"type": 2, "name":"IA_DET_FT_" + counter, 
-            "CPU": IA_DET_FT, "cache": 0, "in_bw": IA_bw, "out_bw": IA_DET_FT_bw})
+            "CPU": IA_DET_FT, "cache": 0, "in_bw": IA_bw, "out_bw": IA_DET_FT_bw,"latency":round((IA_DET_FT*total_inst/servers_mips)*10,2)})
         caching_sf_list.append({"type": 2, "name":"MA_region_" + str(dst_node),# + "_" + counter, 
-            "CPU": MA, "cache": CA_size, "in_bw": IA_DET_FT_bw, "out_bw": MA_bw})
+            "CPU": MA, "cache": CA_size, "in_bw": IA_DET_FT_bw, "out_bw": MA_bw,"latency":round((MA*total_inst/servers_mips)*10,2)})
         caching_sf_list.append({"type": 2, "name":"RE_region_" + str(dst_node),# + "_" + counter, 
-            "CPU": RE*chr, "cache": 0, "in_bw": MA_bw, "out_bw": RE_bw*chr})
+            "CPU": RE*chr, "cache": 0, "in_bw": MA_bw, "out_bw": RE_bw*chr,"latency":round((RE*chr*total_inst/servers_mips)*10,2)})
         caching_sf_list.append({"type": 2, "name":"EC_TC_p" + str(i) + "_" + counter, 
-            "CPU": EC_TC*chr, "cache": 0, "in_bw": RE_bw*chr, "out_bw": EC_TC_bw*chr})
+            "CPU": EC_TC*chr, "cache": 0, "in_bw": RE_bw*chr, "out_bw": EC_TC_bw*chr,"latency":round((EC_TC*chr*total_inst/servers_mips)*10,2)})
         players_cache_sf_list.append(caching_sf_list)
         unique_sf_list = []
         unique_sf_list.append({"type": 2, "name":"IA_DET_FT_" + counter, 
-            "CPU": IA_DET_FT, "cache": 0, "in_bw": IA_bw, "out_bw": IA_DET_FT_bw})
+            "CPU": IA_DET_FT, "cache": 0, "in_bw": IA_bw, "out_bw": IA_DET_FT_bw,"latency":round((IA_DET_FT*total_inst/servers_mips)*10,2)})
         unique_sf_list.append({"type": 2, "name":"UNI_p" + str(i) + "_" + counter, 
-            "CPU": UNI, "cache": 0, "in_bw": IA_DET_FT_bw, "out_bw": UNI_bw})
+            "CPU": UNI, "cache": 0, "in_bw": IA_DET_FT_bw, "out_bw": UNI_bw,"latency":round((UNI*total_inst/servers_mips)*10,2)})
         unique_sf_list.append({"type": 2, "name":"RE_p" + str(i) + "_"    + counter, 
-            "CPU": RE*(1-chr), "cache": 0, "in_bw": UNI_bw, "out_bw": RE_bw*(1-chr)})
+            "CPU": RE*(1-chr), "cache": 0, "in_bw": UNI_bw, "out_bw": RE_bw*(1-chr),"latency":round((RE*(1-chr)*total_inst/servers_mips)*10,2)})
         unique_sf_list.append({"type": 2, "name":"EC_TC_p" + str(i) + "_" + counter, 
-            "CPU": EC_TC*(1-chr), "cache": 0, "in_bw": RE_bw*(1-chr), "out_bw": EC_TC_bw*(1-chr)})
+            "CPU": EC_TC*(1-chr), "cache": 0, "in_bw": RE_bw*(1-chr), "out_bw": EC_TC_bw*(1-chr),"latency":round((EC_TC*(1-chr)*total_inst/servers_mips)*10,2)})
         players_unique_sf_list.append(unique_sf_list)
     lifetime = np.random.poisson(max_duration)
     #lifetime = int(round(np.random.exponential(max_duration)))
@@ -251,12 +255,14 @@ sbn_controller.alg = SELECTED_ALG
 
 sbn_controller.crasher_activate = crasher_activated
 sbn_controller.mobility_manager = MobilityManager(tracer)
+sbn_controller.sfc_instatiator = SFCManager()
+
 sbn_controller.mobility_activated = mobility_activated
 
 sbn_controller.verbose = verbose
 sbn_controller.nodes = nodes
 sbn_controller.edges = edges
-sbn_controller.edges_vnf = {key: [] for key in edges}
+#sbn_controller.edges_vnf = {key: [] for key in edges}
 
 sbn_controller.allow_high_latency = allow_delay
 sbn_controller.latency_interval = latency

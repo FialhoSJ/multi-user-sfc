@@ -53,11 +53,10 @@ class SubstrateNetworkController():
         self.nodes = None
         self.node_info = {}
         self.number_of_nodes = None
-        self.edges_vnf = {}
 
         # Modules
         self.mobility_manager = None
-        self.instantiator = None
+        self.sfc_instatiator = None
         self.crasher = None
 
         # Status da Rede
@@ -143,7 +142,8 @@ class SubstrateNetworkController():
         self.output_writter.output_nodes_sf_utilization(self.substrate_network, deploy_time)
         #self.output_utils.output_edges_sf_utilization(self.edges_vnf, self.existing_vnf, self.sfc_list, deploy_time, route_info, sfc)
 
-    def output_flows(self,current_time, sfc, latency, run_duration, is_success,bw_transcode,latency_diff=None,wait_time=None):
+    def output_flows(self,current_time, sfc, latency, run_duration, is_success,latency_diff=None,wait_time=None):
+        bw_transcode=0
         self.output_writter.output_flows(self.substrate_network,
                                          wait_time,
                                          self.get_running_players_sessions(),
@@ -280,7 +280,7 @@ class SubstrateNetworkController():
 
         match self.alg.name:
             case 'ga' | 'osfem' | 'goku': # algs with active reuse and cost method
-                #alg.set_costs()
+                alg.set_costs()
                 alg.start_algorithm(shareable_sfs=shareable_sfs)
             case _: # algs with passive reuse and no cost method
                 alg.start_algorithm() 
@@ -289,14 +289,15 @@ class SubstrateNetworkController():
 
         route_info = alg.get_route_info() # Routes choosen by the alg
         latency = alg.get_latency() # latency of the solution
-        bit_rate_adjust =  1.0 if self.alg.name != 'osfem' else alg.get_bit_rate_used()
-        bw_transcode =  sfc.vnfs_dict[-1]['out_bw'] if self.alg.name != 'osfem' else alg.get_transcode_bw()
+        
+        # bit_rate_adjust =  1.0 if self.alg.name != 'osfem' else alg.get_bit_rate_used()
+        # bw_transcode =  sfc.vnfs_dict[-1]['out_bw'] if self.alg.name != 'osfem' else alg.get_transcode_bw()
 
         if (self.alg.name == 'musfico') and (sfc.id in self.sfcs_routing_info.keys()): # musfico exclusive methodology
             latency,route_info = self.musfico_method(sfc)
 
-        is_acceptable,wait_time  = self.check_latency_and_bitrate(sfc, route_info,latency,bit_rate_adjust) # for scenarios where high latency is acceptable
-        route_info, latency = self.validate_route_info_and_latency(route_info, latency, sfc, self.sfc,is_acceptable)
+        #is_acceptable,wait_time  = self.check_latency_and_bitrate(sfc, route_info,latency)
+        route_info, latency = self.validate_solution(route_info, latency, sfc, self.sfc)
 
         is_success = 0
         current_time = s2
@@ -308,14 +309,12 @@ class SubstrateNetworkController():
             self.substrate_network.deploy_sfc(sfc, route_info)
             self.sfc_list.append(sfc.id)
             self.sfc_id_duration[sfc.id] = sfc.duration
-            self.mobility_manager.add_vehicle(sfc)
-            is_success = 1
+            is_success = True
             self.deploy_success(sfc)
             if sfc not in self.sfcs_routing_info.keys():
                 self.sfcs_routing_info[sfc.id] = copy.deepcopy(route_info)
         else:
             self.deploy_failure = 1
-            self.mobility_manager.remove_sfc(sfc.id)
             self.deploy_failed(sfc)
             
         self.update()
@@ -324,7 +323,7 @@ class SubstrateNetworkController():
 
         # output of the simulation
         self.output_network_resources(deploy_time=current_time)
-        self.output_flows(current_time,sfc,latency,run_duration,is_success,bw_transcode,latency_diff=None,wait_time=wait_time)
+        self.output_flows(current_time,sfc,latency,run_duration,is_success,latency_diff=None,wait_time=None)
 
         self.success.append(is_success)
         if self.verbose == True:
@@ -333,10 +332,12 @@ class SubstrateNetworkController():
             print("") 
 
         if is_success == 1:
+            self.mobility_manager.add_vehicle(sfc)
             self.sfcs_that_deployed.append(sfc.id)
             return True
-        
-        return False
+        else:
+            self.mobility_manager.remove_sfc(sfc.id)
+            return False
 
     def get_route_info(self) -> Dict:
         """
@@ -382,17 +383,22 @@ class SubstrateNetworkController():
 
 
     def check_resources_exceed(self,is_success,sfc):
-        if is_success == 1:
-            cpu_utilization = round(self.substrate_network.get_cpu_utilization_rate(),4)
-            cache_utilization = round(self.substrate_network.get_cache_utilization_rate(),4)
-            bw_utilization = round(self.substrate_network.get_bandwidth_utilization_rate(),4)
+        if is_success == True:
+            # cpu_utilization = round(self.substrate_network.get_cpu_utilization_rate(),4)
+            # cache_utilization = round(self.substrate_network.get_cache_utilization_rate(),4)
+            # bw_utilization = round(self.substrate_network.get_bandwidth_utilization_rate(),4)
 
-            if cpu_utilization > 1 or cache_utilization > 1 or bw_utilization > 1: # Check if any fees exceed %
-                self.undeploy_sfc(sfc.id)
-                is_success = 0
-            return is_success
-        else:
-            return is_success
+            # if cpu_utilization > 1 or cache_utilization > 1 or bw_utilization > 1: # Check if any fees exceed %
+            #     self.undeploy_sfc(sfc.id)
+            #     is_success = False
+            for node in self.nodes:
+                cpu_used = self.substrate_network.get_node_cpu_used(node)
+                cache_used = self.substrate_network.get_node_cache_used(node)
+                if cpu_used > 100 or cache_used > 100:
+                    self.undeploy_sfc(sfc.id)
+                    is_success = False 
+                    return is_success
+        return is_success
 
     def run(self) -> None:
         """Starts the simulation."""
@@ -496,63 +502,63 @@ class SubstrateNetworkController():
                 self.timer = Timer((self.update_interval \
                                     - (time2 - time1)), self.check_sfc_duration, ()).start()
     
-    def check_latency_and_bitrate(self, sfc,route_info, latency: int,bitrate :int) -> bool:
-        """
-        Checks if the latency is within acceptable limits and handles high latency scenarios.
-        Checks if Trascoding bitrate was adjusted
+    # def check_latency_and_bitrate(self, sfc,route_info, latency: int,bitrate :int) -> bool:
+    #     """
+    #     Checks if the latency is within acceptable limits and handles high latency scenarios.
+    #     Checks if Trascoding bitrate was adjusted
 
-        Args:
-            sfc (object): The service function chain (SFC) object containing the SF details.
-            latency (int): The measured latency for the SFC.
-            bitrate (int): The bitrate factor used
-        Returns:
-            bool: True if the latency and bitrate are acceptable, False otherwise.
-        """
-        # if not isinstance(latency, int):
-        #     if isinstance(latency,float):
-        #         pass
-        #     else:
-        #         return False
+    #     Args:
+    #         sfc (object): The service function chain (SFC) object containing the SF details.
+    #         latency (int): The measured latency for the SFC.
+    #         bitrate (int): The bitrate factor used
+    #     Returns:
+    #         bool: True if the latency and bitrate are acceptable, False otherwise.
+    #     """
+    #     # if not isinstance(latency, int):
+    #     #     if isinstance(latency,float):
+    #     #         pass
+    #     #     else:
+    #     #         return False
             
-        if route_info:
-            altered_sfc = False
-            wait_time = None
+    #     if route_info:
+    #         altered_sfc = False
+    #         wait_time = None
 
-            if self.allow_high_latency:
-                if latency > self.latency_interval[0] and latency <= self.latency_interval[1]:  #latency bettwen 6 and  ms
-                    altered_sfc = True
+    #         if self.allow_high_latency:
+    #             if latency > self.latency_interval[0] and latency <= self.latency_interval[1]:  #latency bettwen 6 and  ms
+    #                 altered_sfc = True
 
-            # TODO bitrate implementation is not being done in this simulation
-            # if bitrate != 1.0:
-            #     altered_sfc = True
+    #         # TODO bitrate implementation is not being done in this simulation
+    #         # if bitrate != 1.0:
+    #         #     altered_sfc = True
 
-            if altered_sfc == True:
-                if sfc.id not in list(self.altered_sfcs.keys()):
-                    self.altered_sfcs[sfc.id] = {'wait_time':0,'timestamp':time.time(),'flag':True} # Primeira tentativa de alocação sem delay alto
-                    return True, None 
+    #         if altered_sfc == True:
+    #             if sfc.id not in list(self.altered_sfcs.keys()):
+    #                 self.altered_sfcs[sfc.id] = {'wait_time':0,'timestamp':time.time(),'flag':True} # Primeira tentativa de alocação sem delay alto
+    #                 return True, None 
                 
-                else:
-                    allow_reroute = self.altered_sfcs[sfc.id]['flag']
-                    if allow_reroute:
-                        return True,None#self.altered_sfcs[sfc.id]['wait_time']
-                    else:
-                        return False,30
-            else:
-                # Caso não alterado
-                if sfc.id in self.altered_sfcs: # Nesse caso a sfc não está alterada agora, mas antes ela estava, o que quer dizer que ela saiu desse estado
-                    wait_time = self.altered_sfcs[sfc.id]['wait_time']
-                    self.altered_sfcs[sfc.id]
-                    del self.altered_sfcs[sfc.id]
-                    return True, wait_time
-                else:   
-                    return True,None
+    #             else:
+    #                 allow_reroute = self.altered_sfcs[sfc.id]['flag']
+    #                 if allow_reroute:
+    #                     return True,None#self.altered_sfcs[sfc.id]['wait_time']
+    #                 else:
+    #                     return False,30
+    #         else:
+    #             # Caso não alterado
+    #             if sfc.id in self.altered_sfcs: # Nesse caso a sfc não está alterada agora, mas antes ela estava, o que quer dizer que ela saiu desse estado
+    #                 wait_time = self.altered_sfcs[sfc.id]['wait_time']
+    #                 self.altered_sfcs[sfc.id]
+    #                 del self.altered_sfcs[sfc.id]
+    #                 return True, wait_time
+    #             else:   
+    #                 return True,None
                 
-        else:
-            if sfc.id in list(self.altered_sfcs.keys()): # Retira
-                del self.altered_sfcs[sfc.id]
-            return False, None
+    #     else:
+    #         if sfc.id in list(self.altered_sfcs.keys()): # Retira
+    #             del self.altered_sfcs[sfc.id]
+    #         return False, None
         
-    def validate_route_info_and_latency(self,route_info, latency, sfc, sfc_mode,is_sfc_acceptable):
+    def validate_solution(self,route_info, latency, sfc, sfc_mode):
         # TODO otimizar essas verificações
         """
         Validates the route information and latency.
@@ -582,9 +588,9 @@ class SubstrateNetworkController():
                     route_info = False
                     latency = None
                 
-        if is_sfc_acceptable == False: #sfc's denied because is the 2nd time it could not fit
-            latency = None
-            route_info = False   
+        # if is_sfc_acceptable == False: #sfc's denied because is the 2nd time it could not fit
+        #     latency = None
+        #     route_info = False   
         return route_info, latency
 
     # def start_crasher(self):
