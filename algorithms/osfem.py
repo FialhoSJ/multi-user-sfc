@@ -135,11 +135,9 @@ class Osfem(Algorithm):
         server_resources = net_info._node
         shareable_sfs = shareable_sfs if shareable_sfs is not None else {node_id: [] for node_id in server_resources.keys()}
 
-        # Parte 2: Obtenção dos VNFs de origem e destino
         src_vnf = sfc.get_src_vnf()
         dst_vnf = sfc.get_dst_vnf()
 
-        # Parte 3: Obtenção dos nós de substrato para os VNFs de origem e destino
         src = sfc.get_substrate_node(src_vnf)
         dst = sfc.get_substrate_node(dst_vnf)
         
@@ -152,12 +150,10 @@ class Osfem(Algorithm):
         # Parte 6: Preparação dos requisitos de serviço
         services, service_requirements = self.prepare_service_requirements(sfs_dict)
 
-        # Parte 7: Configuração do uso compartilhado de funções de serviço (SFs)
         self.configure_shareable_sfs(server_resources, shareable_sfs)
 
-        
         # Parte 8: Encontrando a rota e calculando a latência
-        bit_rate_trials = [1.0,0.95,0.75]
+        bit_rate_trials = [1.0]
         is_success = False
 
         transcode_bw_used = 0
