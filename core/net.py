@@ -126,8 +126,13 @@ class Net(nx.Graph):
         self.set_node_cpu_free(node_id, cpu_capacity)
         self._set_node_attribute(node_id, sfc_vnf_list=[])
         return
+
     def init_node_cpu_capacity(self, node_id, cpu_capacity):
         self.reset_node_cpu_capacity(node_id, cpu_capacity)
+        return
+
+    def init_node_reliability(self, node_id, reliability):
+        self.set_node_reliability(node_id, reliability)
         return
 
     def set_node_position(self, node_id, position):
@@ -181,6 +186,13 @@ class Net(nx.Graph):
 
     def set_node_reuse(self, node_id, reuse=[]):
         self._set_node_attribute(node_id, reuse = reuse)  
+
+    def set_node_reliability(self,node_id,reliability):
+        self._set_node_attribute(node_id,reliability=reliability)
+        return
+    
+    def get_node_reliability(self, node_id):
+        return self._get_node_attribute(node_id, "reliability")
 
     def set_node_cpu_free(self, node_id, cpu_free):
         return self._set_node_attribute(node_id, cpu_free = cpu_free)

@@ -9,6 +9,8 @@ import datetime
 import random
 import math
 import numpy as np
+from scipy.spatial import KDTree
+
 from sumo.luxembourg.config_routes import topology,positions,server_ids,server_coords,server_tree
 # Tracer utilizando SUMO.
 # Autor: Rodrigo Flexa 
@@ -26,6 +28,9 @@ class Sumo_Luxembourg(AbstractTracer):
         self.vehicles_info = {}
         self.topology = topology
         self.positions = positions
+        self.crashed_servers = []
+        self.server_tree = None
+        self.available_server_ids = None
         self.lock = threading.Lock()
 
     def get_datetime(self):
@@ -50,6 +55,22 @@ class Sumo_Luxembourg(AbstractTracer):
         # Fecha o arquivo CSV
         #self.csv_file.close()
 
+
+    def build_kdtree(self):
+        """
+        Construa o KDTree com base nas coordenadas dos servidores disponíveis.
+        """
+        # Filtra os servidores disponíveis (não crashados)
+        available_server_ids = [server_id for server_id in server_ids if server_id not in self.crashed_servers]
+        
+        available_server_coords = [topology[server_id] for server_id in available_server_ids]
+        
+        server_tree = KDTree(available_server_coords)
+        
+        self.server_tree = server_tree
+        self.available_server_ids = available_server_ids  # Lista de servidores disponíveis
+        return server_tree
+
     def get_distance(self, server_i, server_j):
         """
         Calculate the Euclidean distance between two edges' coordinates.
@@ -70,14 +91,16 @@ class Sumo_Luxembourg(AbstractTracer):
 
         return server_start, server_end
 
-
     def get_closest_server(self, vehicle_id):
         # posição do veículo
         x, y = traci.vehicle.getPosition(vehicle_id)
-        distance, index = server_tree.query([x, y])
-        closest_server_id = server_ids[index]
+        
+        # Encontra o servidor mais próximo entre os disponíveis
+        distance, index = self.server_tree.query([x, y])
+        closest_server_id = self.available_server_ids[index]
         
         return closest_server_id
+
     
     # def vehicle_is_created(self,vehicle_id):
     #     #try:
@@ -129,18 +152,33 @@ class Sumo_Luxembourg(AbstractTracer):
         #     print(f"Error removing vehicle {vehicle_id}: {str(e)}")
 
 
+    # def reroute_vehicle(self, vehicle_id):
+    #     #try:
+    #         server_end = random.choice(server_ids)
+    #         current_server = self.vehicles_info[vehicle_id]['server_end']
+    #         current_server, server_end = self.check_route(current_server,server_end)
+    #         edge_end = random.choice(self.positions[server_end])
+
+    #         self.vehicles_info[vehicle_id]['end_edge'] = edge_end
+    #         self.vehicles_info[vehicle_id]['server_end'] = server_end
+
+    #         print(vehicle_id, " was rerouted")
+    #         traci.vehicle.changeTarget(vehicle_id, edge_end)
+
     def reroute_vehicle(self, vehicle_id):
-        #try:
-            server_end = random.choice(server_ids)
-            current_server = self.vehicles_info[vehicle_id]['server_end']
-            current_server, server_end = self.check_route(current_server,server_end)
-            edge_end = random.choice(self.positions[server_end])
+        # Filtra os servidores disponíveis, removendo os servidores que estão na lista de crashed_servers
+        available_servers = self.available_server_ids
 
-            self.vehicles_info[vehicle_id]['end_edge'] = edge_end
-            self.vehicles_info[vehicle_id]['server_end'] = server_end
+        server_end = random.choice(available_servers)  # Escolhe um servidor disponível
+        current_server = self.vehicles_info[vehicle_id]['server_end']
+        current_server, server_end = self.check_route(current_server, server_end)
+        edge_end = random.choice(self.positions[server_end])
 
-            print(vehicle_id, " was rerouted")
-            traci.vehicle.changeTarget(vehicle_id, edge_end)
+        self.vehicles_info[vehicle_id]['end_edge'] = edge_end
+        self.vehicles_info[vehicle_id]['server_end'] = server_end
+
+        print(vehicle_id, " was rerouted")
+        traci.vehicle.changeTarget(vehicle_id, edge_end)
 
     def check_arrival(self):
         vehicles = list(self.vehicles_info.keys())

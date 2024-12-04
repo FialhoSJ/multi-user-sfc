@@ -1,202 +1,105 @@
-import math
-import random
-
+import re 
+import time
 class Crasher():
     """Simulates network node failures based on specified modes and probabilities."""
     
-    def __init__(self):
-        """
-        Initializes the NetworkCrasher with configuration parameters.
-        
-        :param crash_probability: Probability of a crash happening in mode 1.
-        :param operation_mode: Mode of operation (1 or 2) dictating how crashes occur.
-        :param crash_limit: Optional limit to the number of nodes that can be crashed.
-        """
-        # self.crash_probability = crash_probability
-        # self.servers_to_crash =  servers_to_crash
-        # self.operation_mode = operation_mode
-        # self.crash_limit = crash_limit
-        # self.time_interval = time_interval
-        # self.processing_nodes = processing_nodes
-        self.processing_node_crashed = -1
+    def __init__(self,edge_servers,edges_vnf,time=30,crash_links=False):
+        self.time = time
+        self.ec_servers = edge_servers
+        self.edges_vnf = edges_vnf
+        self.crash_links = True
         self.trials = 0
-        self.a_server_was_crashed = 0
-        self.server_to_reroute = None
-        self.links_to_crash = []
-#     def activate_crasher(self, network,tracer_topology):
-#         """Activates the crasher on the given network, excluding specific nodes."""
+        #self.a_server_was_crashed = 0
+        #self.server_to_reroute = None
+        #self.links_to_crash = []
         
-#         # Isso permite que no modo de operação 4 a queda seja feita somente na primeira tentativa
-#         if self.operation_mode == 4 and self.trials >= 1:
-#             return []
+    def activate_crasher(self, network):
+        """Activates the crasher on the given network, excluding specific nodes."""
+        nodes_info = {}
         
-#         network_nodes = self.processing_nodes
-#         nodes_resource = network._node
-
-#         # Filtra os servidores válidos e coleta seu uso de CPU
-#         servidores_validos = [
-#             (server, info['cpu_used'])
-#             for server, info in nodes_resource.items()
-#             if server not in [0, 34] and server in network_nodes
-#         ]
-
-#         # Ordena os servidores pelo uso de CPU (em ordem decrescente)
-#         servidores_validos.sort(key=lambda x: x[1], reverse=True)
-
-#         # Seleciona os 5 servidores mais usados
-#         top_servidores = [server for server, _ in servidores_validos[1:4]]
-#         server_choice = servidores_validos[0][0] #random.choice(top_servidores) if top_servidores else random.choice(network_nodes)
-#         edges = network.sfs_flux_info.keys()
-
-#         servers_to_crash = [server_choice]
-#         self.processing_node_crashed = server_choice
+        node_choose = None
+        lowest_rel = 1
+        for node in self.ec_servers:
+            rel = network.get_node_reliability(node)
+            nodes_info[node] = rel
+            if rel < lowest_rel:
+                lowest_rel = rel
+                node_choose = node
         
-#         for edge in edges:
-#             if server_choice in edge:
-#                 server_par = edge[0] if server_choice != edge[0] else edge[1]
-#                 if server_par not in network_nodes and server_par != 0 and server_par != 34:
-#                     servers_to_crash.append(server_par)
-#         self.servers_to_crash = list(set(servers_to_crash))
-       
-#         servers_to_reroute = []
-
-#         excluded_servers = self.servers_to_crash
-#         crashed_position = tracer_topology[self.processing_node_crashed]
-
-#         # Dicionário para armazenar os 5 servidores mais próximos e suas distâncias
-#         nearest_servers = []
-
-#         # Calcula a distância de todos os servidores
-#         for server_id, position in tracer_topology.items():
-#             if (server_id not in excluded_servers and server_id in self.processing_nodes and server_id != 0 and server_id !=34):
-#                 distance = math.sqrt((crashed_position[0] - position[0]) ** 2 + 
-#                                     (crashed_position[1] - position[1]) ** 2)
-#                 nearest_servers.append((server_id, distance))
-
-#         # Ordena os servidores pela distância e pega os 5 mais próximos
-#         nearest_servers.sort(key=lambda x: x[1])
-#         nearest_servers = nearest_servers[:3]  # Pegue os 5 mais próximos
-
-#         edges = list(network.sfs_flux_info.keys())
-
-#         # Percorre os 5 servidores mais próximos
-#         for nearest_server_id, _ in nearest_servers:
-#             options = []
-#             location = nearest_server_id
-#             for edge in edges:
-#                 # Verifica se o 'location' está na primeira ou segunda posição da tupla
-#                 if location in edge:
-#                     connected_server = edge[0] if edge[1] == location else edge[1]
-#                     if connected_server not in self.processing_nodes and connected_server != 34:
-#                         options.append(connected_server)
-#             # Verifica se há opções de servidores edge conectados e pega o primeiro
-#             if options:
-#                 options = list(set(options))
-#                 servers_to_reroute.append(options[0])
-#         self.server_to_reroute = servers_to_reroute
-
-
-#         server_to_check = server_choice  # Servidor cujo os links serão buscados
-#         edges = list(network.sfs_flux_info.keys())  # Lista de todas as tuplas/links
-#         links_to_crash = []
-
-#         # Percorre a lista de edges para encontrar todos os links associados ao servidor
-#         for edge in edges:
-#             # Verifica se o servidor está em qualquer uma das posições da tupla
-#             if server_to_check in edge:
-#                 links_to_crash.append(edge)
-#         self.links_to_crash = links_to_crash
-#         # self.server_to_reroute = location
-
-
-#         # Só faz sentido verificar a quantidade de nós crashados se for no modo 1    
-#         # if len(self.crashed_nodes) >= self.crash_limit or (self.trials == 0 and self.operation_mode != 3):
-#         #if len(self.crashed_nodes) >= self.crash_limit or (self.trials == 0):
-#             # self.trials = self.trials + 1 
-#             # return []
-
-#         nodes_crashed = []
-#         # Execute crash simulation based on the configured operation mode.
-#         if self.operation_mode == 1:
-#             nodes_crashed = self._run_mode_1(network_nodes)
-#         elif self.operation_mode == 2:
-#             nodes_crashed = self._run_mode_2(network_nodes)
-#         elif self.operation_mode == 3:
-#             nodes_crashed = self._run_mode_3(network_nodes)
-#         elif self.operation_mode == 4:
-#             nodes_crashed = self._run_definitive_mode(network_nodes)
-
-#         self.trials = self.trials + 1
-#         return nodes_crashed
-
-#     def _run_mode_1(self, nodes):
-#         """Simulates crashes in mode 1 based on the crash probability."""
-#         nodes_crashed = []        
-
-        
-#         servers = list(nodes)
-#         crashed_servers = self.get_crashed_nodes()  
-#         # Servidores disponíveis
-#         available_servers =  list(set(servers) - set(crashed_servers))
-
-#         crashed_now = []  # Lista para armazenar servidores que falharam no intervalo atual
-
-#         for server in available_servers:  # Itera sobre uma cópia da lista de servidores disponíveis
-#             if random.random() < self.crash_probability:
-#                 if server not in crashed_servers:
-#                     crashed_now.append(server)
-#                     self._crash_node(server)
-#                     self.a_server_was_crashed = 1
-
-#         return crashed_now
-    
-#     def _run_mode_2(self, nodes):
-#         """Randomly selects and crashes a single node in mode 2."""
-#         chosen_node = random.choice(nodes)
-        
-#         while chosen_node in self.servers_to_crash:
-#             chosen_node = random.choice(nodes)
-#             print("tentando outro derrubar outro servidor, pois esse ja foi pra vala") # Para debug
+        if self.crash_links:
+            nodes_to_crash = [node_choose]
             
-#         self._crash_node(chosen_node)
-#         self.a_server_was_crashed = 1
-#         return [chosen_node]
-    
-#     def _run_mode_3(self, nodes):
-#         """Selects and crashes a single node in mode 3."""
-#         #if len(self.crashed_nodes) >1:
-#         for server in self.servers_to_crash:
-#             self._crash_node(server)
-#             self.a_server_was_crashed = 1
-#         return self.servers_to_crash
-    
-#     def _run_definitive_mode(self,nodes):
-#         """Selects and crashes a single node in mode 3."""
-#         #if len(self.crashed_nodes) >1:
-#         for server in self.servers_to_crash:
-#             self._crash_node(server)
-#             self.a_server_was_crashed = 1
-#         return self.servers_to_crash
-# #         chosen_node = -1
-# #         for server in self.servers_to_crash:
-# #             if server not in self.crashed_nodes:
-# #                 chosen_node = server
-# #                 break
-        
-# #         if chosen_node  != -1:
-# #             self._crash_node(chosen_node)
-# #             self.a_server_was_crashed = 1
-# #             return [chosen_node]
-# #         else:
-# #             return []
+            # Coleta todas as edges (conexões) da rede
+            edges = network.sfs_flux_info.keys()
+            
+            # Lista para armazenar as edges do servidor escolhido
+            edges_to_crash = []
+            
+            for edge in edges:
+                # Verifica se o node escolhido (node_choose) está na edge
+                if node_choose in edge:
+                    # Identifica o servidor parceiro na edge
+                    server_par = edge[0] if node_choose != edge[0] else edge[1]
+                    
+                    # Se o servidor parceiro não estiver na lista de servidores de edges ou for um valor específico, adicione-o
+                    if server_par not in self.ec_servers and server_par != 0 and server_par != 34:
+                        nodes_to_crash.append(server_par)
 
-#     def _crash_node(self, node):
-#         """Marks a node as crashed if it hasn't already been marked."""
-#         if node in self.servers_to_crash:
-#             # self.crashed_nodes.append(node)
-#             print(f"Node {node} has crashed.")
-#             print()
+                    edges_to_crash.append(edge)  # Armazena a edge na lista de edges a serem derrubadas
+            # Remove duplicatas da lista de nós a serem derrubados
+            nodes_to_crash = list(set(nodes_to_crash))
+            
+            return nodes_to_crash
+        else:
+            return [node_choose]
 
-#     def get_crashed_nodes(self):
-#         """Returns a list of crashed nodes."""
-#         return self.servers_to_crash
+    def implement_crash(self,nodes_crashed,network):
+        sfcs_crashed = {}
+        if len(nodes_crashed) != 0: 
+            print(f"Servidores Crashados: {nodes_crashed}")
+            self.sfcs_crashed = {}
+            sfc_ids = []
+            sfcs_to_crash = []
+
+            for server in nodes_crashed:
+                server_info = network.get_node_sfc_vnf_list(server)
+                filtered_edges = {key: value for key, value in self.edges_vnf.items() if server in key}
+
+                network.set_node_cache_capacity(server, -0.0000001)
+                network.set_node_cpu_capacity(server, -0.0000001)
+
+                if self.crash_links:
+                    for link, sfc_vnf in filtered_edges.items():
+                        network.set_link_bandwidth_capacity(link[0], link[1], -0.0000001)
+                        network.set_link_latency(link[0], link[1], 10000)
+                    
+                if server_info != []:
+                    sfc_ids = list(set([sfc[0] for sfc in server_info]))
+                    users_crashed = []
+                    pattern = re.compile(r'p\d+_\d+')
+
+                    for sfc_id in sfc_ids:
+                        # Popula o dicionário sfcs_crashed
+                        match = pattern.search(sfc_id)
+                        if match:
+                            users_crashed.append(match.group())
+                    users_crashed = list(set(users_crashed))
+                    #self.users_crashed = self.users_crashed + len(users_crashed)
+
+                    for sfc_id in sfc_ids:
+                        # if sfc_id in sfc_id_duration:
+                        #     # TODO: fazer alguma verificação pra garantir que aquela sfc está rodando
+                        #     pass
+                        #try:
+                        
+                        if sfc_id not in network.sfc_dict:
+                            continue
+                        
+                        sfc = network.get_sfc_by_id(sfc_id)
+                        sfc_rf = network.sfc_route_info[sfc_id]
+
+                        latency_sfc= sum((len(value) - 1) for key, value in sfc_rf.items() if key not in ('src', 'dst'))
+                        #duration = self.sfc_id_duration[sfc_id]
+
+                        sfcs_crashed[sfc_id] = {'fall_time':time.time(),'has_backup':False,'old_latency':latency_sfc}
+        return sfcs_crashed

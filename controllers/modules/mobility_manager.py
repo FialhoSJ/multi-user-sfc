@@ -10,7 +10,8 @@ class MobilityManager:
             tracer: Uma instância de um tracer (como Sumo_Luxembourg).
         """
         self.tracer = tracer
-        self.vehicle_to_service_map = {}  # Mapeia veículos para grupos de serviços
+        self.vehicle_to_service_map = {}
+        self.crashed_servers = []
         self.to_remove_vehicles = []
         self.running_sfcs = []
         self.lock = threading.Lock()
@@ -68,7 +69,9 @@ class MobilityManager:
         with self.lock:
             for vehicle_id, vehicle_info in self.tracer.vehicles_info.copy().items():  # Fazendo uma cópia dos itens
                 # Posição atual do veículo
-                current_position = vehicle_info['closest_server']
+                #current_position = vehicle_info['closest_server']
+                current_position = self.tracer.get_closest_server(vehicle_id)
+                
                 # Posição registrada do veículo no mapeamento
                 previous_position = self.vehicle_to_service_map[vehicle_id]['veh_location']
                 
@@ -106,6 +109,11 @@ class MobilityManager:
                         if not self.vehicle_to_service_map[vehicle_id]['sfcs']:
                             self.remove_vehicle(vehicle_id)
                             self.running_sfcs.remove(sfc_id)
+    
+    def set_crashed_servers(self,crashed_servers):
+        self.crashed_servers = crashed_servers
+        self.tracer.crashed_servers = crashed_servers
+        self.tracer.build_kdtree()
 
     def remove_vehicle(self, vehicle_id):
         """

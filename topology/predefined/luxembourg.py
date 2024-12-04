@@ -7,6 +7,7 @@ CLOUD_LATENCY = 1
 BANDWIDTH_CAPACITY = 10000
 CPU_CAPACITY = 100
 CACHE_CAPACITY = 100
+RELIABILITY_RANGE = [0.95,0.99]
 
 class Luxembourg(TopologyBase):
     def __init__(self) -> None:
@@ -48,10 +49,13 @@ class Luxembourg(TopologyBase):
             if node in self.edge_computing_servers:
                 substrate_network.init_node_cpu_capacity(node, self.cpu_capacity)
                 substrate_network.init_node_cache_capacity(node, self.cache_capacity)
+                reliability = np.random.uniform(RELIABILITY_RANGE[0], RELIABILITY_RANGE[1])
+                substrate_network.init_node_reliability(node, reliability)
             else:
                 substrate_network.init_node_cpu_capacity(node, 0)
                 substrate_network.init_node_cache_capacity(node, 0)
-
+                substrate_network.init_node_reliability(node, 1)
+                
         # Precomputar caminhos mínimos e atualizar a rede
         substrate_network.pre_get_single_source_minimum_latency_path()
         substrate_network.update()
@@ -67,5 +71,6 @@ class Luxembourg(TopologyBase):
         return {
             "nodes": nodes,
             "edges": edges,
-            "ec_servers": edge_computing_servers
+            "ec_servers": edge_computing_servers,
+            "routers":[node for node in nodes if node not in edge_computing_servers and node != 0]
         }

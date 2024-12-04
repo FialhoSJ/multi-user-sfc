@@ -7,7 +7,6 @@ import numpy as np
 import ast
 
 from controllers.substrate_network_controller import SubstrateNetworkController
-from controllers.modules.crasher import Crasher
 from datetime import datetime as dt
 from core.poisson_emitter import PoissonEmitter
 from controllers.sfc_queue import SFCQueue
@@ -15,6 +14,7 @@ from controllers.sfc_generator import SFCGenerator
 
 from algorithms.instantiator import AlgorithmInstantiator
 from controllers.modules.mobility_manager import MobilityManager
+from controllers.modules.crasher import Crasher
 from sumo.tracer_instantiator import TracerInstantiator
 from sumo.luxembourg.config_routes import topology_tracer_positions,positions
 from topology.instantiator import TopologyInstantiator
@@ -39,7 +39,7 @@ parser.add_argument('--time',  type=int, help='(int) the total time for the simu
 parser.add_argument('--mobility',  type=str, help='(str) mobility', default='y')
 
 parser.add_argument('--allow_delay', type=str, help='(str) whether to allow delay or not', default='n')
-parser.add_argument('--allow_crasher', type=str, help='(str) whether to allow delay or not', default='n')
+parser.add_argument('--allow_crasher', type=str, help='(str) whether to allow delay or not', default='y')
 
 #parser.add_argument('--costs_parameter',   type=str, help='cpu,cache,bandwidht,boot Ex: 1111', default='[1,1,1,1]')
 parser.add_argument('--verbose',   type=str, help='verbose log', default='y')
@@ -66,6 +66,7 @@ tracer = TracerInstantiator().instantiate_tracer(top_name) if mobility_activated
 substrate_network = topology.generate_substrate_network()
 ec_servers = topology.get_topology_info()['ec_servers']
 nodes = topology.get_topology_info()['nodes']
+routers = topology.get_topology_info()['routers']
 nodes_num = len(nodes)
 edges = topology.get_topology_info()['edges']
 
@@ -169,9 +170,8 @@ def generate_sfc_session(parameter) -> None:
     session_counter = session_counter + 1
     counter = str(session_counter)
     print("Total Number of MUAR SFCs in session: ", counter)
-    dst_node = random.randint(0, len(nodes) -1 )
-    while(dst_node == SRC_NODE):
-        dst_node = random.randint(0, len(nodes) - 1)
+    dst_node = random.choice(routers)
+
     players_cache_sf_list = []
     players_unique_sf_list = []
     for i in range(1,n_players+1):
@@ -250,13 +250,15 @@ sbn_controller.shareable = shareable
 sbn_controller.alg = SELECTED_ALG
 
 sbn_controller.crasher_activate = crasher_activated
+sbn_controller.crasher_manager = Crasher(edge_servers=ec_servers, edges_vnf={key: [] for key in edges})
 sbn_controller.mobility_manager = MobilityManager(tracer)
 sbn_controller.mobility_activated = mobility_activated
 
 sbn_controller.verbose = verbose
 sbn_controller.nodes = nodes
+sbn_controller.ec_servers = ec_servers
+sbn_controller.routers = routers
 sbn_controller.edges = edges
-sbn_controller.edges_vnf = {key: [] for key in edges}
 
 sbn_controller.allow_high_latency = allow_delay
 sbn_controller.latency_interval = latency
