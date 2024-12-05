@@ -6,6 +6,7 @@ import random
 import numpy as np
 import ast
 
+from controllers.modules.sfcs_manager import SFCManager
 from controllers.substrate_network_controller import SubstrateNetworkController
 from datetime import datetime as dt
 from core.poisson_emitter import PoissonEmitter
@@ -33,7 +34,7 @@ parser.add_argument('--n_players', type=int, help='(int) number of players', def
 parser.add_argument('--sfc',   type=str, help='(str) on or off', default='on')
 parser.add_argument('--topology', type=str, help='(str) wich topology ex: luxembourg,small luxembourg ,paloalto', default='luxembourg')
 parser.add_argument('--share',  type=str, help='(str) whether to share sfs or not', default='y')
-parser.add_argument('--shareband',  type=str, help='(str) whether to share sfs or not', default='y')
+# parser.add_argument('--shareband',  type=str, help='(str) whether to share sfs or not', default='n')
 parser.add_argument('--time',  type=int, help='(int) the total time for the simulation in seconds', default=120)
 parser.add_argument('--mobility',  type=str, help='(str) mobility', default='y')
 
@@ -55,7 +56,7 @@ verbose = (args.verbose == 'y')
 crasher_activated = (args.allow_crasher == 'y')
 allow_delay =  (args.share == 'y')
 shareable = (args.share == 'y')
-shareable_band = (args.shareband == 'y')
+# shareable_band = (args.shareband == 'y')
 
 #costs_parameters = ast.literal_eval(args.costs_parameter)
 SELECTED_ALG = AlgorithmInstantiator().instantiate_algorithm(alg_name)
@@ -242,10 +243,11 @@ if args.sfc == 'on':
 substrate_network.set_verbose(verbose=verbose)
 timestamp,file_paths,flows_path = create_output_dir(args, topology)
 
-substrate_network.shareable_band = shareable_band
+substrate_network.shareable_band = False
 substrate_network.shareable_node = shareable
 
-sbn_controller = SubstrateNetworkController(substrate_network)
+sbn_controller = SubstrateNetworkController()
+sbn_controller.substrate_network = substrate_network
 sbn_controller.sfc_queue = sfc_queue
 sbn_controller.sfc = args.sfc
 sbn_controller.shareable = shareable
@@ -254,7 +256,7 @@ sbn_controller.alg = SELECTED_ALG
 sbn_controller.crasher_activate = crasher_activated
 sbn_controller.crasher_manager = Crasher(edge_servers=ec_servers, edges_vnf={key: [] for key in edges})
 sbn_controller.mobility_manager = MobilityManager(tracer)
-#sbn_controller.sfc_instatiator = SFCManager()
+sbn_controller.sfc_manager = SFCManager()
 
 sbn_controller.mobility_activated = mobility_activated
 
@@ -275,7 +277,7 @@ sbn_controller.output_writter = OutputWritter(nodes,
                                                 file_paths['bandwidth'],
                                                 file_paths['sf'],
                                                 flows_path)
-sbn_controller.shareable_band = shareable_band
+sbn_controller.shareable_band = False
 sbn_controller.flows = n_sessions
 sbn_controller.players = n_players
 

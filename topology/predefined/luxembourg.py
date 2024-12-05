@@ -51,11 +51,18 @@ class Luxembourg(TopologyBase):
                 substrate_network.init_node_cache_capacity(node, self.cache_capacity)
                 reliability = np.random.uniform(RELIABILITY_RANGE[0], RELIABILITY_RANGE[1])
                 substrate_network.init_node_reliability(node, reliability)
+                substrate_network.nodes_reliability[node] = reliability
+
             else:
                 substrate_network.init_node_cpu_capacity(node, 0)
                 substrate_network.init_node_cache_capacity(node, 0)
                 substrate_network.init_node_reliability(node, 1)
+                substrate_network.nodes_reliability[node] = 1
                 
+        substrate_network.total_cpu_capacity = len(self.edge_computing_servers) * CPU_CAPACITY
+        substrate_network.total_cache_capacity = len(self.edge_computing_servers) * CACHE_CAPACITY
+        substrate_network.total_bandwidth_capacity = len(self.topology)* BANDWIDTH_CAPACITY
+
         # Precomputar caminhos mínimos e atualizar a rede
         substrate_network.pre_get_single_source_minimum_latency_path()
         substrate_network.update()

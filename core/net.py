@@ -1,3 +1,4 @@
+import math
 from platform import node
 import threading
 import networkx as nx
@@ -44,24 +45,28 @@ class Net(nx.Graph):
         nx.Graph.__init__(self)
         self.sfc_dict = {}
         self.sfc_route_info = {} # sfc_id, route_info
-        
+        self.nodes_reliability = {}
+
         self.total_cpu_used = 0
         self.total_cpu_capacity = 0
         
-        self.practical_cpu_used =  0 
-        self.practical_cpu_capacity =  0 
+        # self.practical_cpu_used =  0 
+        # self.practical_cpu_capacity =  0 
         
         self.total_cache_used = 0
         self.total_cache_capacity = 0
 
-        self.practical_cache_used =  0 
-        self.practical_cache_capacity = 0 
+        # self.practical_cache_used =  0 
+        # self.practical_cache_capacity = 0 
 
-        self.practical_bw_used = 0
-        self.practical_bw_capacity = 0
+        self.total_bandwidth_used = 0  
+        self.total_bandwidth_capacity = 0
+
+        
+        # self.practical_bw_used = 0
+        # self.practical_bw_capacity = 0
         
         self.max_cpu_overload = 1
-        self.total_bandwidth_used = 0  
         self.max_cache_overload = 1
         
         self.cpu_saved = 0
@@ -469,13 +474,17 @@ class Net(nx.Graph):
     def update_nodes_state(self):
         pattern = re.compile(r'_p')
         self.reset_shared_sfs()
+        
         # Estruturas adicionadas
+        total_cpu_used = 0
+        total_cache_used = 0
+
         cpu_saved = 0
         cache_saved = 0
         shared_vnfs_count = 0
         shared_vnfs_details = {}
         all_vnfs_on_nodes = {}
-
+    
         for node in self.nodes():
             cpu_used = 0
             cache_used = 0
@@ -510,17 +519,34 @@ class Net(nx.Graph):
                     all_vnfs_on_nodes[vnf_id] = [node]
                 elif node not in all_vnfs_on_nodes[vnf_id]:
                     all_vnfs_on_nodes[vnf_id].append(node)
+            
+            carga  = cpu_used + cache_used
+            #tempo = 1 # padrão para todos por simplificação
+            confiabilidade = self.get_node_reliability(node)
+            lambda_rate = (carga / 100) * (-math.log(confiabilidade))
+            #  probabilidade de falha após o tempo t
+            #p_falha = 1 - math.exp(-lambda_rate * tempo)
+            p_falha = 1 - math.exp(-lambda_rate * carga/3)
 
+            self.nodes_reliability[node] = p_falha
+            
             self.set_node_cpu_used(node, cpu_used)
             cpu_free = cpu_capacity - cpu_used
             self.set_node_cpu_free(node, cpu_free)
+            total_cpu_used = total_cpu_used + cpu_used
+    
             self.set_node_cache_used(node, cache_used)
             cache_free = cache_capacity - cache_used
+            total_cache_used = total_cache_used + cache_used
             self.set_node_cache_free(node, cache_free)
 
         self.cpu_saved = cpu_saved
         self.cache_saved = cache_saved
         self.shared_vnfs_count = shared_vnfs_count
+        self.total_cpu_used  = total_cpu_used
+        self.total_cache_used = total_cache_used
+
+
         # Após o loop, imprime os resultados adicionais
         # print(f"CPU poupado: {}, Cache poupado: {cache_saved}")
         # print(f"VNFs compartilhadas: {shared_vnfs_count}, Detalhes: {shared_vnfs_details}")
@@ -536,40 +562,39 @@ class Net(nx.Graph):
         practical_cache_capacity = 0
         practical_cache_used = 0
         
-        for node in self.nodes():
-            node_cpu_used = self.get_node_cpu_used(node)
-            node_cpu_capacity = self.get_node_cpu_capacity(node)
-            node_cache_used =  self.get_node_cache_used(node)
-            node_cache_capacity = self.get_node_cache_capacity(node)
+        # for node in self.nodes():
+        #     node_cpu_used = self.get_node_cpu_used(node)
+        #     node_cpu_capacity = self.get_node_cpu_capacity(node)
+        #     node_cache_used =  self.get_node_cache_used(node)
+        #     node_cache_capacity = self.get_node_cache_capacity(node)
 
-            total_cpu_used += node_cpu_used
-            total_cpu_capacity += node_cpu_capacity
-            total_cache_used += node_cache_used
-            total_cache_capacity += node_cache_capacity
+        #     total_cpu_used += node_cpu_used
+        #     total_cpu_capacity += node_cpu_capacity
+        #     total_cache_used += node_cache_used
+        #     total_cache_capacity += node_cache_capacity
 
-            if node_cpu_used != 0:
-                practical_cpu_used += node_cpu_used
-                practical_cpu_capacity += node_cpu_capacity
-            if node_cache_used != 0:
-                practical_cache_used += node_cache_used
-                practical_cache_capacity += node_cache_capacity
-
-        self.total_cpu_used = total_cpu_used
-        self.total_cpu_capacity = total_cpu_capacity
-        self.total_cache_used = total_cache_used
-        self.total_cache_capacity = total_cache_capacity
-
-        self.practical_cpu_used = practical_cpu_used
-        self.practical_cpu_capacity = practical_cpu_capacity
-        self.practical_cache_used = practical_cache_used
-        self.practical_cache_capacity = practical_cache_capacity
+        # self.total_cpu_used = total_cpu_used
+        # self.total_cpu_capacity = total_cpu_capacity
+        # self.total_cache_used = total_cache_used
+        # self.total_cache_capacity = total_cache_capacity
 
 
+            # if node_cpu_used != 0:
+            #     practical_cpu_used += node_cpu_used
+            #     practical_cpu_capacity += node_cpu_capacity
+            # if node_cache_used != 0:
+            #     practical_cache_used += node_cache_used
+            #     practical_cache_capacity += node_cache_capacity
+        # self.practical_cpu_used = practical_cpu_used
+        # self.practical_cpu_capacity = practical_cpu_capacity
+        # self.practical_cache_used = practical_cache_used
+        # self.practical_cache_capacity = practical_cache_capacity
 
     def update_bandwidth_state(self):
         pattern = re.compile(r'_p') 
         #print(self.sfs_flux_info)
         self.reset_sfs_flux_info()
+        total_bandwidth_used = 0
         for edge in self.edges():
             self.reset_bandwidth(edge[0], edge[1])
         for node in self.nodes():
@@ -592,39 +617,43 @@ class Net(nx.Graph):
                 if len(path) <= 1:
                     continue
                 for i in range(len(path) - 1):
-                    if self.shareable_band:
-                        link_sfs_info = self.sfs_flux_info[(path[i], path[i + 1])]
-                        flux_ids = [flux_vnf.id for flux_vnf in link_sfs_info]
-                        # if link does not contain a shareable flux then we allocate bandwidth
-                        if vnf.id not in flux_ids:
-                            self.allocate_bandwidth_resource(path[i], path[i + 1], 
-                                                             sfc.get_link_bandwidth_request(vnf.id, vnf.next_vnf.id))
-                            if re.search(pattern, vnf.id) is None and vnf.id != 'src':
-                                self.sfs_flux_info[(path[i], path[i + 1])].append(vnf)
-                        else:
-                            pass
-                    else:
-                        self.allocate_bandwidth_resource(path[i], path[i + 1], 
-                                                         sfc.get_link_bandwidth_request(vnf.id, vnf.next_vnf.id))
-        total_bandwidth_used = 0
-        total_bandwidth_capacity = 0
-
-        practical_bw_used = 0
-        practical_bw_capacity = 0
-
-        for edge in self.edges():
-            total_bandwidth_used += self.get_link_bandwidth_used(edge[0], edge[1])
-            total_bandwidth_capacity += self.get_link_bandwidth_capacity(edge[0], edge[1])
-            
-            if  self.get_link_bandwidth_used(edge[0], edge[1]) != 0:
-                practical_bw_used  += self.get_link_bandwidth_used(edge[0], edge[1])
-                practical_bw_capacity += self.get_link_bandwidth_capacity(edge[0], edge[1])
-
-        self.total_bandwidth_capacity = total_bandwidth_capacity
+                    # if self.shareable_band:
+                    #     link_sfs_info = self.sfs_flux_info[(path[i], path[i + 1])]
+                    #     flux_ids = [flux_vnf.id for flux_vnf in link_sfs_info]
+                    #     # if link does not contain a shareable flux then we allocate bandwidth
+                    #     if vnf.id not in flux_ids:
+                    #         self.allocate_bandwidth_resource(path[i], path[i + 1], 
+                    #                                          sfc.get_link_bandwidth_request(vnf.id, vnf.next_vnf.id))
+                    #         if re.search(pattern, vnf.id) is None and vnf.id != 'src':
+                    #             self.sfs_flux_info[(path[i], path[i + 1])].append(vnf)
+                    #     else:
+                    #         pass
+                    # else:
+                    bandwidth_required = sfc.get_link_bandwidth_request(vnf.id, vnf.next_vnf.id)
+                    total_bandwidth_used = total_bandwidth_used + bandwidth_required
+                    self.allocate_bandwidth_resource(path[i], 
+                                                     path[i + 1], 
+                                                     bandwidth_required)
         self.total_bandwidth_used = total_bandwidth_used
+        # total_bandwidth_used = 0
+        # # total_bandwidth_capacity = 0
 
-        self.practical_bw_capacity = practical_bw_capacity
-        self.practical_bw_used = practical_bw_used
+        # practical_bw_used = 0
+        # practical_bw_capacity = 0
+
+        # for edge in self.edges():
+        #     total_bandwidth_used += self.get_link_bandwidth_used(edge[0], edge[1])
+        #     total_bandwidth_capacity += self.get_link_bandwidth_capacity(edge[0], edge[1])
+            
+            # if  self.get_link_bandwidth_used(edge[0], edge[1]) != 0:
+            #     practical_bw_used  += self.get_link_bandwidth_used(edge[0], edge[1])
+            #     practical_bw_capacity += self.get_link_bandwidth_capacity(edge[0], edge[1])
+
+        # self.total_bandwidth_capacity = total_bandwidth_capacity
+        #self.total_bandwidth_used = total_bandwidth_used
+
+        # self.practical_bw_capacity = practical_bw_capacity
+        # self.practical_bw_used = practical_bw_used
 
     def print_out_nodes_information(self, failure_cpu=None, failure_cache=None):
         # for node in self.nodes():

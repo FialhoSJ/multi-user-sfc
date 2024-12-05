@@ -1,9 +1,11 @@
 import re 
 import time
+
+from numpy import copy
 class Crasher():
     """Simulates network node failures based on specified modes and probabilities."""
     
-    def __init__(self,edge_servers,edges_vnf,time=30,crash_links=False):
+    def __init__(self,edge_servers=None,edges_vnf=None,time=30,crash_links=False):
         self.time = time
         self.ec_servers = edge_servers
         self.edges_vnf = edges_vnf
@@ -19,14 +21,21 @@ class Crasher():
         nodes_info = {}
         
         node_choose = None
-        lowest_rel = 1
-        for node in self.ec_servers:
-            rel = network.get_node_reliability(node)
-            nodes_info[node] = rel
-            if rel < lowest_rel:
-                lowest_rel = rel
-                node_choose = node
+        h_rel = 0
+        # for node in self.ec_servers:
+        #     rel = network.get_node_reliability(node)
+        #     nodes_info[node] = rel
+        #     if rel < lowest_rel:
+        #         lowest_rel = rel
+        #         node_choose = node
+        import numpy as np
         
+        nodes_rel = np.copy(network.nodes_reliability)
+        for node,rel in nodes_rel.items():
+            if rel > h_rel:
+                h_rel = rel
+                node_choose = node
+
         if self.crash_links:
             nodes_to_crash = [node_choose]
             

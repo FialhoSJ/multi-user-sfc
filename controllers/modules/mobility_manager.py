@@ -1,15 +1,18 @@
 # MobilityManager.py
 import threading
+from typing import Optional
+
+from sumo.luxembourg.luxembourg_trace import Sumo_Luxembourg
 
 class MobilityManager:
-    def __init__(self,tracer):
+    def __init__(self,tracer=None):
         """
         Inicializa o MobilityManager com uma instância de tracer.
         
         Args:
             tracer: Uma instância de um tracer (como Sumo_Luxembourg).
         """
-        self.tracer = tracer
+        self.tracer : Optional[Sumo_Luxembourg] = tracer
         self.vehicle_to_service_map = {}
         self.to_remove_vehicles = []
         self.running_sfcs = []
@@ -45,7 +48,8 @@ class MobilityManager:
                     # Adiciona o veículo com o SFC na lista de serviços
                     self.vehicle_to_service_map[vehicle_id] = {
                         'sfcs': [sfc.id],         # Lista com o ID do SFC associado
-                        'veh_location': sfc.dst_node   # A localização inicial do veículo
+                        'veh_location': sfc.dst_node,   # A localização inicial do veículo
+                        'distance': self.tracer.get_server_distance_from_car(vehicle_id,server_start)
                     }
         except Exception as e:
             print(f"Erro ao adicionar veículo para o SFC {sfc.id}: {str(e)}")
@@ -63,18 +67,23 @@ class MobilityManager:
         with self.lock:
             for vehicle_id, vehicle_info in self.tracer.vehicles_info.copy().items():  # Fazendo uma cópia dos itens
                 if vehicle_info['connected'] == True:
-                    # Posição atual do veículo
-                    #current_position = vehicle_info['closest_server']
-                    current_position = self.tracer.get_closest_server(vehicle_id)
-                    
+                    current_position, current_distance = self.tracer.get_closest_server(vehicle_id)
+
                     # Posição registrada do veículo no mapeamento
                     previous_position = self.vehicle_to_service_map[vehicle_id]['veh_location']
-                    
-                    # Verificar se a posição mudou
+                    previous_distance = self.tracer.get_server_distance_from_car(vehicle_id,previous_position)  
+
+                    # Verificar se a posição mudou e a nova distância é pelo menos 70% menor
                     if current_position != previous_position:
-                        # Atualiza a posição do veículo
-                        self.vehicle_to_service_map[vehicle_id]['veh_location'] = current_position
-                        
+                        # Calcular a redução percentual da distância
+                        reduction_percentage = ((previous_distance - current_distance) / previous_distance) * 100
+
+                        # Verificar se a redução é de pelo menos 70%
+                        if reduction_percentage >= 70:
+                            # Atualiza a posição e a distância do veículo no mapeamento
+                            self.vehicle_to_service_map[vehicle_id]['veh_location'] = current_position
+                            #self.vehicle_to_service_map[vehicle_id]['distance'] = current_distance
+ 
                         # Coleta os SFCs associados ao veículo
                         sfc_ids = self.vehicle_to_service_map[vehicle_id]['sfcs']
         

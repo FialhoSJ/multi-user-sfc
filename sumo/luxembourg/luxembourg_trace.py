@@ -77,11 +77,26 @@ class Sumo_Luxembourg(AbstractTracer):
         x, y = traci.vehicle.getPosition(vehicle_id)
         # Encontra o servidor mais próximo entre os disponíveis
         distance, index = server_tree.query([x, y])
+
         # Recupera o ID do servidor mais próximo
         closest_server_id = server_ids[index]
-        return closest_server_id
+        return closest_server_id,distance
 
+
+    def get_server_distance_from_car(self, vehicle_id, server):
+        # Posição do veículo (x, y)
+        x, y = traci.vehicle.getPosition(vehicle_id)
         
+        # Coordenadas do servidor
+        server_coords = self.topology[server]  # Supondo que isso seja uma tupla (x, y)
+        
+        # Calculando a distância euclidiana
+        distance = math.sqrt((server_coords[0] - x)**2 + (server_coords[1] - y)**2)
+        
+        return distance
+
+        #distance, index = server_tree.query([x, y])
+
     # def vehicle_is_created(self,vehicle_id):
     #     #try:
     #     if vehicle_id in traci.vehicle.getIDList():
