@@ -11,7 +11,7 @@ import math
 import numpy as np
 from scipy.spatial import KDTree
 
-from sumo.luxembourg.config_routes import topology,positions,server_ids,server_coords,server_tree
+from sumo.luxembourg.config_routes import topology,positions,server_ids,server_tree,routers
 # Tracer utilizando SUMO.
 # Autor: Rodrigo Flexa 
 # Data: 17/09/2023
@@ -28,9 +28,6 @@ class Sumo_Luxembourg(AbstractTracer):
         self.vehicles_info = {}
         self.topology = topology
         self.positions = positions
-        self.crashed_servers = []
-        self.server_tree = None
-        self.available_server_ids = None
         self.lock = threading.Lock()
 
     def get_datetime(self):
@@ -55,22 +52,6 @@ class Sumo_Luxembourg(AbstractTracer):
         # Fecha o arquivo CSV
         #self.csv_file.close()
 
-
-    def build_kdtree(self):
-        """
-        Construa o KDTree com base nas coordenadas dos servidores disponíveis.
-        """
-        # Filtra os servidores disponíveis (não crashados)
-        available_server_ids = [server_id for server_id in server_ids if server_id not in self.crashed_servers]
-        
-        available_server_coords = [topology[server_id] for server_id in available_server_ids]
-        
-        server_tree = KDTree(available_server_coords)
-        
-        self.server_tree = server_tree
-        self.available_server_ids = available_server_ids  # Lista de servidores disponíveis
-        return server_tree
-
     def get_distance(self, server_i, server_j):
         """
         Calculate the Euclidean distance between two edges' coordinates.
@@ -79,7 +60,6 @@ class Sumo_Luxembourg(AbstractTracer):
         coord1 = self.topology[server_i]  # Coordinates of edge1
         coord2 = self.topology[server_j]  # Coordinates of edge2
         return np.linalg.norm(np.array(coord1) - np.array(coord2))  # Euclidean distance
-
 
     def check_route(self, server_start, server_end):
         distance = self.get_distance(server_start, server_end)
@@ -91,17 +71,17 @@ class Sumo_Luxembourg(AbstractTracer):
 
         return server_start, server_end
 
-    def get_closest_server(self, vehicle_id):
-        # posição do veículo
+    # Função para encontrar o servidor mais próximo
+    def get_closest_server(self,vehicle_id):
+        # Posição do veículo
         x, y = traci.vehicle.getPosition(vehicle_id)
-        
         # Encontra o servidor mais próximo entre os disponíveis
-        distance, index = self.server_tree.query([x, y])
-        closest_server_id = self.available_server_ids[index]
-        
+        distance, index = server_tree.query([x, y])
+        # Recupera o ID do servidor mais próximo
+        closest_server_id = server_ids[index]
         return closest_server_id
 
-    
+        
     # def vehicle_is_created(self,vehicle_id):
     #     #try:
     #     if vehicle_id in traci.vehicle.getIDList():
@@ -116,7 +96,7 @@ class Sumo_Luxembourg(AbstractTracer):
     def create_vehicle(self,vehicle_id,server_start):
         #try:
         with self.lock:
-            server_end = random.choice(list(self.positions.keys()))    
+            server_end = random.choice(routers)    
             server_start, server_end =  self.check_route(server_start,server_end)
 
             start_edge = random.choice(self.positions[server_start])
@@ -129,14 +109,15 @@ class Sumo_Luxembourg(AbstractTracer):
             x, y = traci.vehicle.getPosition(vehicle_id)
             self.vehicles_info[vehicle_id] = {  'closest_server': server_start,
                                                 'server_end':server_end,
-                                                'end_edge':end_edge}
+                                                'end_edge':end_edge,
+                                                'connected':True}
                                                 #'coord': (x,y)}
             traci.simulationStep()
                                                 
         # except Exception as e:
         #     print(f"Error in vehicle creation: {str(e)}")
 
-    def delete_vehicle(self, vehicle_id):
+    def disconnect_vehicle(self, vehicle_id):
         #try:
         # Check if the vehicle exists in the simulation
         #if self.vehicle_is_created(vehicle_id):
@@ -146,11 +127,16 @@ class Sumo_Luxembourg(AbstractTracer):
         # Remove the vehicle from the internal tracking dictionary
         with self.lock:
             if vehicle_id in list(self.vehicles_info.keys()):
-                del self.vehicles_info[vehicle_id]
+                self.vehicles_info[vehicle_id]['connected'] = False
             traci.simulationStep()
         # except Exception as e:
         #     print(f"Error removing vehicle {vehicle_id}: {str(e)}")
 
+    def connecte_vehicle(self,vehicle_id):
+        with self.lock:
+            if vehicle_id in list(self.vehicles_info.keys()):
+                self.vehicles_info[vehicle_id]['connected'] = True
+            traci.simulationStep()
 
     # def reroute_vehicle(self, vehicle_id):
     #     #try:
@@ -167,9 +153,7 @@ class Sumo_Luxembourg(AbstractTracer):
 
     def reroute_vehicle(self, vehicle_id):
         # Filtra os servidores disponíveis, removendo os servidores que estão na lista de crashed_servers
-        available_servers = self.available_server_ids
-
-        server_end = random.choice(available_servers)  # Escolhe um servidor disponível
+        server_end = random.choice(routers)  # Escolhe um servidor disponível
         current_server = self.vehicles_info[vehicle_id]['server_end']
         current_server, server_end = self.check_route(current_server, server_end)
         edge_end = random.choice(self.positions[server_end])
@@ -183,13 +167,14 @@ class Sumo_Luxembourg(AbstractTracer):
     def check_arrival(self):
         vehicles = list(self.vehicles_info.keys())
         for vehicle_id in vehicles:
-            # Check if vehicle has reached the last edge of its current route
-            current_route = traci.vehicle.getRoute(vehicle_id)
-            current_route_index = traci.vehicle.getRouteIndex(vehicle_id)
-            
-            # If the vehicle is at the last edge or close to it, reroute it
-            if current_route_index >= len(current_route) - 2:  # A bit before the last edge
-                self.reroute_vehicle(vehicle_id)
+            if self.vehicles_info[vehicle_id]['connected'] == True:
+                # Check if vehicle has reached the last edge of its current route
+                current_route = traci.vehicle.getRoute(vehicle_id)
+                current_route_index = traci.vehicle.getRouteIndex(vehicle_id)
+                
+                # If the vehicle is at the last edge or close to it, reroute it
+                if current_route_index >= len(current_route) - 2:  # A bit before the last edge
+                    self.reroute_vehicle(vehicle_id)
 
         # except:
         #     print("Erro in update vehicle")

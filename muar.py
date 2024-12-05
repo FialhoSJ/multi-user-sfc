@@ -16,7 +16,6 @@ from algorithms.instantiator import AlgorithmInstantiator
 from controllers.modules.mobility_manager import MobilityManager
 from controllers.modules.crasher import Crasher
 from sumo.tracer_instantiator import TracerInstantiator
-from sumo.luxembourg.config_routes import topology_tracer_positions,positions
 from topology.instantiator import TopologyInstantiator
 from utils.manager_results import create_output_dir, OutputWritter
 
@@ -79,7 +78,7 @@ max_duration = 120
 latency = [6,10]
 min_latency_acc = max(latency) if allow_delay else min(latency)
 
-fator = 0.25 # 1 players consumes fator*100 percentage of resources of an Edge Server
+fator = 0.33 # 1 players consumes fator*100 percentage of resources of an Edge Server
 #https://ieeexplore.ieee.org/document/9417376
 
 cpb = 10e6 #10 cycles per Mbit
@@ -255,7 +254,7 @@ sbn_controller.alg = SELECTED_ALG
 sbn_controller.crasher_activate = crasher_activated
 sbn_controller.crasher_manager = Crasher(edge_servers=ec_servers, edges_vnf={key: [] for key in edges})
 sbn_controller.mobility_manager = MobilityManager(tracer)
-sbn_controller.sfc_instatiator = SFCManager()
+#sbn_controller.sfc_instatiator = SFCManager()
 
 sbn_controller.mobility_activated = mobility_activated
 

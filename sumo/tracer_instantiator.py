@@ -6,7 +6,6 @@ class TracerInstantiator(object):
     def instantiate_tracer(self, type):
         if type == 'luxembourg':
             tracer = Sumo_Luxembourg()
-            tracer.build_kdtree()
         elif type == 'small luxembourg':
             tracer = Sumo_Small_Luxembourg()
         else:

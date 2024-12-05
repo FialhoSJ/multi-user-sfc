@@ -38,10 +38,9 @@ logger.addHandler(ch)
 
 from algorithms.algorithm import Algorithm
 
-
-class Goku(Algorithm):
+class Vegeta(Algorithm):
     def __init__(self):
-        self.name = "goku"
+        self.name = "gr"
         self.substrate_network = None
         self.sfc = None
         self.node_info = {}
@@ -66,13 +65,14 @@ class Goku(Algorithm):
         self.G = 0 
         self.services = 0
         
-        self.cpu_factor=2
-        self.cache_factor=2
-        self.band_factor=0.5
-        self.boot_factor=0
+        self.cpu_factor=1
+        self.cache_factor=1
+        self.band_factor=1
+        self.boot_factor=1
         
         self.using_bit_rate = False
         self.bitrate_cut = 1.0
+        self.bw_used = 0
 
     def clear_all(self):
         #logger.debug('clear all')
@@ -95,32 +95,13 @@ class Goku(Algorithm):
         self.latency_request = sfc.get_latency_request()
         self.using_bit_rate = False
         self.bitrate_cut = 1.0
-        return self.sfc 
-
-    # def check_sfc(self,sfc):
-    #     backup = False
-    #     sfc_id = sfc.id
-    #     is_backup = True if int(sfc_id.split("_")[-1]) % 2 == 0 else False
-
-    #     new_sfc = 0
-    #     if is_backup == True:
-    #         prefixo, x = sfc_id.rsplit('_', 1)
-    #         real_sfc_id = f"{prefixo}_{int(x) - 1}"
-    #         route_info = self.substrate_network.sfc_route_info
-            
-    #         if real_sfc_id in list(route_info.keys()):
-    #             route_info = route_info[real_sfc_id]
-    #         else:
-    #             return sfc
-    #         servers_used = list(set([item for chave, valor in route_info.items() if chave not in ['src', 'dst'] for item in valor])) 
-    #         return new_sfc 
-    #     else:
-    #         return sfc
+        return self.sfc
     
     def set_costs(self,costs_parameters):
-        self.cpu_factor   =  costs_parameters[0]
-        self.cache_factor =  costs_parameters[1]
-        self.band_factor =  costs_parameters[2]
+        self.cpu_weight   =  costs_parameters[0]
+        self.cache_weight =  costs_parameters[1]
+        self.band_weight  =  costs_parameters[2]
+        self.boot_weight  =  costs_parameters[3]
     
     def get_latency(self):
         return self.latency
@@ -134,6 +115,9 @@ class Goku(Algorithm):
     def is_using_bit_rate_cut(self):
         return self.using_bit_rate
 
+    def get_transcode_bw(self):
+        return self.bw_used
+
     def start_algorithm(self, shareable_sfs=None, **kwargs):
         substrate_network = self.substrate_network
         sfc = self.sfc
@@ -143,91 +127,77 @@ class Goku(Algorithm):
             return True
         #logger.info('Algorithm end, failed')
         return False
-
-    def set_nodes_resources(self, substrate_network, shareable_sfs):
-        net_info = substrate_network 
-        old_server_resources = net_info._node
-        servers = old_server_resources.keys()
         
-        # Inicializa o dicionário de recursos dos servidores
-        server_resources = {
-            server: {
-                'cpu_capacity': round(self.substrate_network.get_node_cpu_capacity(server), 3),
-                'cache_capacity': round(self.substrate_network.get_node_cache_capacity(server), 3),
-                'cpu_used': round(self.substrate_network.get_node_cpu_used(server), 3),
-                'cache_used': round(self.substrate_network.get_node_cache_used(server), 3),
-                'cpu_free': round(self.substrate_network.get_node_cpu_free(server), 3),
-                'cache_free': round(self.substrate_network.get_node_cache_free(server), 3),
-                'position': old_server_resources[server]['position'],
-                'reuse': []
-            }
-            for server in servers
-        }
-        
-        # Preenche o campo 'reuse' para os servidores com SFs compartilháveis
-        for node_id, node_info in server_resources.items():
-            if node_id in shareable_sfs:
-                node_info['reuse'] = [vnf.id for vnf in shareable_sfs[node_id]]
-        
-        return server_resources
-
-
-
-    def algorithm(self, substrate_network, sfc, shareable_sfs):
+    def algorithm(self, substrate_network, sfc, shareable_sfs=None):
+        # Parte 1: Preparação dos dados de entrada
+        sfs_dict = self.sfc.vnfs_dict
+        net_info = substrate_network
+        server_resources = net_info._node
+        shareable_sfs = shareable_sfs if shareable_sfs is not None else {node_id: [] for node_id in server_resources.keys()}
 
         src_vnf = sfc.get_src_vnf()
         dst_vnf = sfc.get_dst_vnf()
+
         src = sfc.get_substrate_node(src_vnf)
         dst = sfc.get_substrate_node(dst_vnf)
         
+        # Parte 4: Inicialização da topologia da rede
+        network_topology = net_info._adj
 
-        nodes_resource = self.set_nodes_resources(substrate_network,shareable_sfs)
-        network_links = copy.deepcopy(substrate_network._adj)
-
-        #G = self.create_network_graph(network_topology)
-        
-        sfs_dict = self.sfc.vnfs_dict
+        # Parte 5: Criação do grafo da rede
+        G = self.create_network_graph(network_topology)
+            
+        # Parte 6: Preparação dos requisitos de serviço
         services, service_requirements = self.prepare_service_requirements(sfs_dict)
+
+        self.configure_shareable_sfs(server_resources, shareable_sfs)
 
         # Parte 8: Encontrando a rota e calculando a latência
         bit_rate_trials = [1.0]
         is_success = False
 
-        # # Supondo que bit_rate_trials e outras variáveis estejam definidas
-        # for bitrate in bit_rate_trials:
-        #service_requirements_altered = copy.deepcopy(service_requirements)
-        
-        # Percorre o dicionário e altera o valor de out_bw para chaves que começam com "EC_TC"
-        # for chave in service_requirements_altered:
-        #     if chave.startswith('EC_TC'):
-        #         service_requirements_altered[chave]['out_bw'] = service_requirements_altered[chave]['out_bw'] * bitrate
+        transcode_bw_used = 0
 
-        route_info, latency = self.find_best_allocation_for_sfc(service_requirements, nodes_resource,network_links, services, dst)
+        # Supondo que bit_rate_trials e outras variáveis estejam definidas
+        for bitrate in bit_rate_trials:
+            service_requirements_altered = copy.deepcopy(service_requirements)
+            
+            # Percorre o dicionário e altera o valor de out_bw para chaves que começam com "EC_TC"
+            for chave in service_requirements_altered:
+                if chave.startswith('EC_TC'):
+                    transcode_bw_used = service_requirements_altered[chave]['out_bw'] * bitrate
+                    service_requirements_altered[chave]['out_bw'] = transcode_bw_used
 
+            route_info, latency = self.find_best_allocation_for_sfc(G, service_requirements_altered, server_resources, services, dst)
+
+            # Parte 9: Avaliação do resultado com base na latência
+            is_success = self.evaluate_result(latency, route_info)
+            
             # if bitrate == 0.3:
             #     print(bitrate)
 
-            # if is_success and bitrate != 1.0:
-            #     self.using_bit_rate = True
-            #     self.bitrate_cut = bitrate
+            if is_success and bitrate != 1.0:
+                self.using_bit_rate = True
+                self.bitrate_cut = bitrate
             # elif is_success and bitrate == 1.0:
             #     print(bitrate)
 
-        return self.evaluate_result(latency, route_info)
-            # self.bitrate_cut = bitrate
-            #return is_success
-        # else:
-        #     continue
+            self.bw_used =  transcode_bw_used
+            if is_success:
+                self.bitrate_cut = bitrate
+                return is_success
+            else:
+                continue
 
         return is_success
 
-    # def create_network_graph(self, network_topology):
-    #     import networkx as nx
-    #     G = nx.Graph()
-    #     for node, edges in network_topology.items():
-    #         for target, edge_attr in edges.items():
-    #             G.add_edge(node, target, bandwidth=edge_attr['bandwidth_free'], weight=1)
-    #     return G
+    def create_network_graph(self, network_topology):
+        import networkx as nx
+        G = nx.Graph()
+        for node, edges in network_topology.items():
+            for target, edge_attr in edges.items():
+                G.add_edge(node, target, bandwidth=edge_attr['bandwidth_free'], weight=1)
+        return G
 
     def prepare_service_requirements(self, sfs_dict):
         service_requirements = {}
@@ -240,12 +210,17 @@ class Goku(Algorithm):
                 'cache': item['cache'],
                 'out_bw': item['out_bw'],
                 'in_bw': item['in_bw'],
-                'latency':item['latency']
             }
         service_requirements['dst'] = {'CPU': 0, 'cache': 0, 'out_bw': 0, 'in_bw': 0}
         services = list(reversed(services))
         return services, service_requirements
 
+    def configure_shareable_sfs(self, server_resources, shareable_sfs):
+        for node_id, node_info in server_resources.items():
+            node_info['reuse'] = []  # Inicializa o campo 'reuse'
+            if node_id in shareable_sfs:
+                for vnf in shareable_sfs[node_id]:
+                    node_info['reuse'].append(vnf.id)
 
     def evaluate_result(self, latency, route_info):
         if latency > self.latency_request:
@@ -258,20 +233,31 @@ class Goku(Algorithm):
             return True
 
     # Modificando a função de alocação para usar a nova lógica de exploração
-    def find_best_allocation_for_sfc(self,service_requirements, server_resources, network_links, services, dst):
+    def find_best_allocation_for_sfc(self, G, service_requirements, server_resources, services, dst):
         allocation_results = {'dst': {'allocated_server': dst, 'path': [], 'cost': 0}}
         current_location = dst # começa a alocação de trás pra frente 
         success = True
 
         for i, service in enumerate(services):
-            # # Verifica se há um próximo serviço na lista
-            # if i + 1 < len(services):
-            #     next_service = services[i + 1]
-            # else:
-            #     next_service = None
+            # Verifica se há um próximo serviço na lista
+            if i + 1 < len(services):
+                next_service = services[i + 1]
+            else:
+                # Caso não exista, define o próximo serviço como None
+                next_service = None
             
-            best_server, best_path, cost_details = self.allocate_sf(service_requirements,server_resources,network_links, current_location, service, services)
-  
+            try:
+                # Chama a função com o serviço atual e o próximo serviço (ou None)
+                best_server, best_path, cost_details = self.find_best_server_for_service_with_exploration(
+                    G, server_resources, service_requirements, current_location, service, next_service)
+            except Exception as e:
+                print("***************************************************")
+                print("***************************************************")
+                print()
+                print(f"Erro na alocação do osfem: {e}")
+                print()
+                print("***************************************************")
+                print("***************************************************")
 
             allocation_results[service] = {
                 'allocated_server': best_server,
@@ -294,7 +280,7 @@ class Goku(Algorithm):
             return [],1000
 
         # ultima iteração para o src
-        path_to_src = nx.dijkstra_path(current_location, 0, weight='weight')
+        path_to_src = nx.dijkstra_path(G, current_location, 0, weight='weight')
 
         route_info = {key: list(reversed(value['path'])) for key, value in allocation_results.items()}
                     
@@ -310,23 +296,32 @@ class Goku(Algorithm):
         
         return route_info,total_latency
 
-    def allocate_sf(self, service_requirements, server_resources, network_links, current_location, service, services, exploration_margin=1):
 
+    def find_best_server_for_service_with_exploration(self, G, server_resources, service_requirements, current_location, service, next_service, exploration_margin=1):
+        best_cost, best_candidate, candidates = self.find_candidates_serves_for_sf(G, server_resources, service_requirements, current_location, service)
         
-        
-        best_cost, best_candidate, candidates = self.find_candidates_serves_for_sf(ser, server_resources, service_requirements, current_location, service)
-        
-
         if best_cost == float('inf') or best_candidate == float('inf') or candidates == None:
             return False, False, False
+        
+        exploration_threshold = best_cost * (1 + exploration_margin)
+        filtered_candidates = [candidate for candidate in candidates if candidate[2] <= exploration_threshold]
+
+        if next_service is not None:
+            best_c_cost = float('inf')
+            for candidato in filtered_candidates:
+                candidate_future_cost, _, _, = self.find_candidates_serves_for_sf(G, server_resources, service_requirements, candidato[0], next_service)
+                candidate_atual_cost = candidato[3]['total_cost']
+                custo_conjunto = candidate_atual_cost + candidate_future_cost
+                
+                if custo_conjunto < best_c_cost:
+                    best_c_cost = custo_conjunto
+                    best_candidate = candidato
 
         server_choose = best_candidate[0]
         path_to = best_candidate[1]
         min_cost = best_candidate[2]
 
         return server_choose, path_to, min_cost
-
-
 
     def find_candidates_serves_for_sf(self, G, server_resources, service_requirements, current_location, service):
         paths = dict(nx.single_source_shortest_path_length(G, current_location, cutoff=10))
@@ -337,40 +332,20 @@ class Goku(Algorithm):
 
         # Função para calcular o custo total
         def calculate_total_cost(node_resource_cost, boot_cost, bandwidth_cost, latency_cost):
-            boot_cost = 0
-            return (node_resource_cost * self.cpu_factor)/2 + (node_resource_cost * self.cache_factor)/2 + (boot_cost * self.boot_factor) + (bandwidth_cost * self.band_factor) + latency_cost
+            return (node_resource_cost*self.cpu_factor) + (node_resource_cost*self.cache_factor) + (boot_cost*self.boot_factor) + (bandwidth_cost*self.band_factor) + latency_cost
 
         # Função para verificar disponibilidade de largura de banda e recursos do servidor
         def check_resources(server, path, bandwidth_requirement, cpu_required, cache_required):
-            if all(G[u][v]['bandwidth'] > bandwidth_requirement for u, v in zip(path, path[1:])):
-                available_cpu = server_resources[server]['cpu_capacity'] - server_resources[server]['cpu_used']
-                available_cache = server_resources[server]['cache_capacity'] - server_resources[server]['cache_used']
-                if available_cpu > cpu_required and available_cache > cache_required:
+            if all(G[u][v]['bandwidth'] >= bandwidth_requirement for u, v in zip(path, path[1:])):
+                available_cpu = server_resources[server]['cpu_free']
+                available_cache = server_resources[server]['cache_free']
+                if available_cpu >= cpu_required and available_cache >= cache_required:
                     return True
             return False
 
-        # Função para calcular o custo robusto de largura de banda
-        def calculate_bandwidth_cost(path, bandwidth_requirement):
-            cost = 0
-            epsilon = 1e-6  # Pequeno valor para evitar divisão por zero
-            max_bandwidth = 1000  # Capacidade máxima disponível em um link
-
-            for u, v in zip(path, path[1:]):
-                available_bandwidth = G[u][v]['bandwidth']
-                if available_bandwidth >= bandwidth_requirement:
-                    cost += bandwidth_requirement / (available_bandwidth + epsilon)
-                else:
-                    return float('inf')  # Link não disponível
-
-            # Normalizar o custo acumulado para ficar entre 0 e 1
-            # normalized_cost = cost / (len(path) - 1)
-            # normalized_cost = normalized_cost / (bandwidth_requirement / max_bandwidth)
-            
-            return cost  # Garantir que o valor esteja entre 0 e 1
-
         bandwidth_requirement = service_requirements[service]['out_bw']
         for server, num_hops in paths.items():
-
+    
             path = nx.shortest_path(G, current_location, server, weight='weight')
             reuse = service in server_resources[server]['reuse']
             node_resource_cost = 0 if reuse else 1  # Assuming cpu_cost and cache_cost should always be the same
@@ -386,16 +361,8 @@ class Goku(Algorithm):
             else:
                 boot_cost = 0
 
-            # Ajustar o cálculo de node_resource_cost para evitar divisão por zero
-            available_cpu = server_resources[server]['cpu_free']
-            if available_cpu > 0:
-                node_resource_cost = cpu_required / available_cpu
-            else:
-                node_resource_cost = float('inf')  # Penalizar fortemente se não houver CPU disponível
-                
-            boot_cost = 0
             if check_resources(server, path, bandwidth_requirement, cpu_required, cache_required):
-                bandwidth_cost = calculate_bandwidth_cost(path, bandwidth_requirement)
+                bandwidth_cost = num_hops  # Custo de 1 por salto
                 latency_cost = self.calculate_latency_cost(num_hops)
                 total_cost = calculate_total_cost(node_resource_cost, boot_cost, bandwidth_cost, latency_cost)
 
@@ -408,20 +375,18 @@ class Goku(Algorithm):
                     'boot_cost': boot_cost,
                     'bandwidth_cost': bandwidth_cost,
                     'latency_cost': latency_cost,
-                    'total_cost': total_cost
-                }))
+                    'total_cost': total_cost}))
             else:
-                # Sem recurso disponível
+                #print("Sem recurso")
                 pass
-
             # Se encontrou candidatos viáveis, não tenta com bitrate menor
-            # if best_cost < float('inf'):
-            #     break
+            if best_cost < float('inf'):
+                break
 
         best_candidate = min(candidates, key=lambda x: x[2], default=(None, None, None, None))
+
         return best_cost, best_candidate, candidates
 
-    # latency as restriction
     def calculate_latency_cost(self,distance):
         if distance <= self.latency_request:
             return 0

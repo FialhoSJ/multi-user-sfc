@@ -434,13 +434,20 @@ class Net(nx.Graph):
                 if vnf_id == 'dst':
                     self.nodes[sfc.dst.substrate_node]['sfc_vnf_list'].remove((sfc_id, sfc.dst))
                     continue  
+                save_node = None
                 for node in self.nodes():
                     for sfc_vnfs in self.get_node_sfc_vnf_list(node):
                         for vnf in sfc_vnfs:
                             if vnf == sfc.get_vnf_by_id(vnf_id):
                                 save_node = node
-                                continue
-                self.nodes[save_node]['sfc_vnf_list'].remove((sfc_id, sfc.get_vnf_by_id(vnf_id)))
+                                break  # Para de procurar assim que encontra
+                    if save_node is not None:
+                        break  # Para de procurar em outros nós quando encontra
+                if save_node is not None:
+                    self.nodes[save_node]['sfc_vnf_list'].remove((sfc_id, sfc.get_vnf_by_id(vnf_id)))
+                else:
+                    print(f"VNF {vnf_id} não encontrado.")
+
                 #print('#########  sfc net.py  ###########')
                 #self.nodes[sfc.get_substrate_node(sfc.get_vnf_by_id(vnf_id))]['sfc_vnf_list'].remove((sfc_id, sfc.get_vnf_by_id(vnf_id)))
             self.sfc_route_info.pop(sfc_id, None)

@@ -7,8 +7,9 @@ class Crasher():
         self.time = time
         self.ec_servers = edge_servers
         self.edges_vnf = edges_vnf
-        self.crash_links = True
+        self.crash_links = False
         self.trials = 0
+        self.nodes_crashed = []
         #self.a_server_was_crashed = 0
         #self.server_to_reroute = None
         #self.links_to_crash = []
@@ -48,9 +49,10 @@ class Crasher():
                     edges_to_crash.append(edge)  # Armazena a edge na lista de edges a serem derrubadas
             # Remove duplicatas da lista de nós a serem derrubados
             nodes_to_crash = list(set(nodes_to_crash))
-            
+            self.nodes_crashed = nodes_to_crash
             return nodes_to_crash
         else:
+            self.nodes_crashed = [node_choose]
             return [node_choose]
 
     def implement_crash(self,nodes_crashed,network):

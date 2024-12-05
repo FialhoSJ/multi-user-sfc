@@ -12,6 +12,7 @@ from algorithms.new_alg import NewAlg
 from algorithms.bruno_alg import BrunoAlg
 from algorithms.bruno_alg_2 import BrunoAlgNew
 from algorithms.rodrigo_alg import Rodrigo
+from algorithms.vegeta import Vegeta
 
 class AlgorithmInstantiator:
     def instantiate_algorithm(self, type):
@@ -41,8 +42,8 @@ class AlgorithmInstantiator:
             alg = Osfem()
         elif type ==  'goku':
             alg = Goku()
-        elif type ==  'goku_backup':
-            alg = Goku()
+        elif type ==  'vegeta':
+            alg = Vegeta()
         else:
             raise ValueError('algorithm not found')
         return alg

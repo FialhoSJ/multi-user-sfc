@@ -41,7 +41,7 @@ class AbstractTracer(ABC):
         pass
 
     @abstractmethod
-    def delete_vehicle(self, vehicle_id):
+    def disconnect_vehicle(self, vehicle_id):
         """
         Delete a vehicle from the SUMO simulation.
         Must be implemented by subclasses.

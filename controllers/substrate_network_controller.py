@@ -134,7 +134,7 @@ class SubstrateNetworkController():
             self.start_check_altered_sfc_thread(interval = 5)
         
         if self.crasher_activate:
-            self.start_crasher(interval=25)
+            self.start_crasher(interval=200)
 
         #Run simulation
         _thread.start_new_thread(self.run, ())
@@ -194,50 +194,45 @@ class SubstrateNetworkController():
                     end_time = time.time()  # Marca o tempo de fim
                     elapsed_time = end_time - start_time
 
-                    # # Abre o arquivo de log em modo append para não sobrescrever os dados existentes
-                    # with open(self.log_file, "a") as log:
-                    #     log.write(f"Tempo total de execução: {elapsed_time:.2f} segundos\n")
+                    # Abre o arquivo de log em modo append para não sobrescrever os dados existentes
+                    with open(self.log_file, "a") as log:
+                        log.write(f"Tempo total de execução: {elapsed_time:.2f} segundos\n")
                     
-                    #     time.sleep(interval)  # Intervalo entre as verificações
+                        time.sleep(interval)  # Intervalo entre as verificações
 
-        # # Verifica se o arquivo já existe, caso contrário, cria um novo
-        # if not os.path.exists(self.log_file):
-        #     with open(self.log_file, "w") as log:
-        #         log.write("Log de Mobilidade\n")
-        #         log.write("====================\n")
+        # Verifica se o arquivo já existe e apaga se necessário, depois cria um novo
+        with open(self.log_file, "w") as log:
+            log.write("Log de Mobilidade\n")
+            log.write("====================\n")
 
         # Inicia a thread
         thread_mob = threading.Thread(target=task_mob)
         thread_mob.daemon = True 
         thread_mob.start()
 
-    def start_crasher(self,interval=2):
+    def start_crasher(self,interval=25):
         def task_crash():
             time.sleep(interval)
             if not self.is_stopped:
                 with self.lock:
                     nodes_to_crash = self.crasher_manager.activate_crasher(self.substrate_network)
-                    self.crasher_manager.implement_crash(nodes_to_crash,self.substrate_network)
+                    sfcs_affected = self.crasher_manager.implement_crash(nodes_to_crash,self.substrate_network)
                     
-                    self.mobility_manager.set_crashed_servers(nodes_to_crash)
-                    sfcs_moved, new_locations = self.mobility_manager.check_all_vehicles_position_changes()
-
-                    for sfc_list, new_location in zip(sfcs_moved, new_locations):
-                        for sfc_id in sfc_list:
-                            try:
-                                sfc = self.substrate_network.get_sfc_by_id(sfc_id)
-                            except:
-                                break  # Se não encontrar a SFC, interrompe o loop interno
-                            try:
-                                print(f"SFC {sfc.id} crashou e mudou de localização para {new_location}")
-                                self.send_back_to_qeue(sfc, changed_location=True, new_location=new_location)
-                            except:
-                                print("Erro na reinstanciação da SFC")
+                    #sfcs_moved, new_locations = self.mobility_manager.check_all_vehicles_position_changes()
+                    for sfc_id in sfcs_affected:
+                        try:
+                            sfc = self.substrate_network.get_sfc_by_id(sfc_id)
+                        except:
+                            break  # Se não encontrar a SFC, interrompe o loop interno
+                        try:
+                            print(f"SFC {sfc.id} crashou")
+                            self.send_back_to_qeue(sfc, changed_location=False)
+                        except:
+                            print("Erro na reinstanciação da SFC")
 
         thread_mob = threading.Thread(target=task_crash)
         thread_mob.daemon = True 
         thread_mob.start()
-
 
     def get_nodes_information(self) -> None:
         """Get information for each node in the network."""
@@ -286,6 +281,7 @@ class SubstrateNetworkController():
         if sfc.id in self.sfc_list:
             return
         
+    
         alg = copy.deepcopy(self.alg)
         alg.clear_all()
         alg.install_substrate_network(self.substrate_network)
@@ -297,7 +293,7 @@ class SubstrateNetworkController():
 
         match self.alg.name:
             case 'ga' | 'osfem' | 'goku': # algs with active reuse and cost method
-                alg.set_costs()
+                #alg.set_costs([1,1,1,1])
                 alg.start_algorithm(shareable_sfs=shareable_sfs)
             case _: # algs with passive reuse and no cost method
                 alg.start_algorithm() 
