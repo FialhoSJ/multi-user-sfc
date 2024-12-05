@@ -191,19 +191,18 @@ class SubstrateNetworkController():
                                 except:
                                     print("Erro na reinstanciação da SFC")
 
-                    end_time = time.time()  # Marca o tempo de fim
-                    elapsed_time = end_time - start_time
+                    # end_time = time.time()  # Marca o tempo de fim
+                    # elapsed_time = end_time - start_time
 
-                    # Abre o arquivo de log em modo append para não sobrescrever os dados existentes
-                    with open(self.log_file, "a") as log:
-                        log.write(f"Tempo total de execução: {elapsed_time:.2f} segundos\n")
-                    
-                        time.sleep(interval)  # Intervalo entre as verificações
+                    # # Abre o arquivo de log em modo append para não sobrescrever os dados existentes
+                    # with open(self.log_file, "a") as log:
+                    #     log.write(f"Tempo total de execução: {elapsed_time:.2f} segundos\n")
+                time.sleep(interval)  # Intervalo entre as verificações
 
-        # Verifica se o arquivo já existe e apaga se necessário, depois cria um novo
-        with open(self.log_file, "w") as log:
-            log.write("Log de Mobilidade\n")
-            log.write("====================\n")
+        # # Verifica se o arquivo já existe e apaga se necessário, depois cria um novo
+        # with open(self.log_file, "w") as log:
+        #     log.write("Log de Mobilidade\n")
+        #     log.write("====================\n")
 
         # Inicia a thread
         thread_mob = threading.Thread(target=task_mob)
@@ -233,6 +232,45 @@ class SubstrateNetworkController():
         thread_mob = threading.Thread(target=task_crash)
         thread_mob.daemon = True 
         thread_mob.start()
+
+    def start_backup_manager(self, interval=10):
+        def task_backup():
+            while not self.is_stopped:
+                with self.lock:
+                    # start_time = time.time()  # Marca o tempo de início
+                    if len(self.players_sfc_list) != 0:
+                        sfcs_moved, new_locations = self.mobility_manager.check_all_vehicles_position_changes()
+
+                        for sfc_list, new_location in zip(sfcs_moved, new_locations):
+                            for sfc_id in sfc_list:
+                                try:
+                                    sfc = self.substrate_network.get_sfc_by_id(sfc_id)
+                                except:
+                                    break
+                                try:
+                                    print(f"SFC {sfc.id} mudou de localização para {new_location}")
+                                    self.send_back_to_qeue(sfc, changed_location=True, new_location=new_location)
+                                except:
+                                    print("Erro na reinstanciação da SFC")
+
+                    # end_time = time.time()  # Marca o tempo de fim
+                    # elapsed_time = end_time - start_time
+
+                    # # Abre o arquivo de log em modo append para não sobrescrever os dados existentes
+                    # with open(self.log_file, "a") as log:
+                    #     log.write(f"Tempo total de execução: {elapsed_time:.2f} segundos\n")
+                time.sleep(interval)  # Intervalo entre as verificações
+
+        # # Verifica se o arquivo já existe e apaga se necessário, depois cria um novo
+        # with open(self.log_file, "w") as log:
+        #     log.write("Log de Mobilidade\n")
+        #     log.write("====================\n")
+
+        # Inicia a thread
+        thread_mob = threading.Thread(target=task_backup)
+        thread_mob.daemon = True 
+        thread_mob.start()
+
 
     def get_nodes_information(self) -> None:
         """Get information for each node in the network."""
