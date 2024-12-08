@@ -16,6 +16,7 @@ import _thread
 from threading import Timer
 from queue import Queue
 import numpy as np
+from controllers.modules.sfcs_manager import SFCManager
 from controllers.sfc_generator import SFCGenerator
 
 from controllers.modules.mobility_manager import MobilityManager
@@ -55,12 +56,14 @@ class SubstrateNetworkController():
         self.nodes = None
         self.ec_servers = None
         self.routers = None
+        self.risk_servers = []
         self.node_info = {}
         self.number_of_nodes = None
+        
 
         # Modules
         self.mobility_manager = MobilityManager()
-        self.sfc_manager = None
+        self.sfc_manager = SFCManager()
         self.crasher_manager = Crasher()
 
         # Status da Rede
@@ -136,6 +139,10 @@ class SubstrateNetworkController():
         
         if self.crasher_activate:
             self.start_crasher(interval=200)
+
+        if self.crasher_activate:
+            self.start_backup_manager(interval=50)
+
 
         #Run simulation
         _thread.start_new_thread(self.run, ())
@@ -234,15 +241,19 @@ class SubstrateNetworkController():
         thread_mob.daemon = True 
         thread_mob.start()
 
-    def start_backup_manager(self, interval=10,threshold=0.7):
+    def start_backup_manager(self, interval=10,threshold=0.6):
         def task_backup():
             while not self.is_stopped:
                 risk_servers = []
-                with self.lock:
-                    nodes_rel = copy.copy(self.substrate_network.nodes_reliability)
-                    for node, rel in nodes_rel:
-                        if rel > threshold:
-                            risk_servers.append()
+                with self.lock:                
+                    nodes_rel = self.substrate_network.nodes_reliability.copy()
+
+                    # Filtrando os nós com 'rel' maior que o 'threshold'
+                    filtered_nodes = {node: rel for node, rel in nodes_rel.items() if rel > threshold}
+                    top_2_nodes = dict(sorted(filtered_nodes.items(), key=lambda item: item[1], reverse=True)[:2])
+
+                    self.risk_servers = list(top_2_nodes.keys())
+                    self.sfc_manager.set_risk_sfcs(top_2_nodes,self.substrate_network)
                 time.sleep(interval) 
 
         # Inicia a thread
@@ -309,7 +320,7 @@ class SubstrateNetworkController():
         shareable_sfs = self.substrate_network.get_shareable_sfs()
 
         match self.alg.name:
-            case 'ga' | 'osfem' | 'goku': # algs with active reuse and cost method
+            case 'ga' | 'osfem' | 'goku'  |'vegeta': # algs with active reuse and cost method
                 #alg.set_costs([1,1,1,1])
                 alg.start_algorithm(shareable_sfs=shareable_sfs)
             case _: # algs with passive reuse and no cost method

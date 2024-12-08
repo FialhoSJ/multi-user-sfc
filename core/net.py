@@ -83,8 +83,8 @@ class Net(nx.Graph):
         self.sf_route_info = {}
         self.sfs_flux_info = {}
         self.shared_sfs = {}
-        self.shareable_band = False
-        self.shareable_node = False
+        self.shareable_band = True
+        self.shareable_node = True
         self.verbose = False
         #self.lock = threading.Lock()
 
@@ -526,7 +526,7 @@ class Net(nx.Graph):
             lambda_rate = (carga / 100) * (-math.log(confiabilidade))
             #  probabilidade de falha após o tempo t
             #p_falha = 1 - math.exp(-lambda_rate * tempo)
-            p_falha = 1 - math.exp(-lambda_rate * carga/3)
+            p_falha = 1 - math.exp(-lambda_rate * carga/2)
 
             self.nodes_reliability[node] = p_falha
             
@@ -617,23 +617,23 @@ class Net(nx.Graph):
                 if len(path) <= 1:
                     continue
                 for i in range(len(path) - 1):
-                    # if self.shareable_band:
-                    #     link_sfs_info = self.sfs_flux_info[(path[i], path[i + 1])]
-                    #     flux_ids = [flux_vnf.id for flux_vnf in link_sfs_info]
-                    #     # if link does not contain a shareable flux then we allocate bandwidth
-                    #     if vnf.id not in flux_ids:
-                    #         self.allocate_bandwidth_resource(path[i], path[i + 1], 
-                    #                                          sfc.get_link_bandwidth_request(vnf.id, vnf.next_vnf.id))
-                    #         if re.search(pattern, vnf.id) is None and vnf.id != 'src':
-                    #             self.sfs_flux_info[(path[i], path[i + 1])].append(vnf)
-                    #     else:
-                    #         pass
-                    # else:
-                    bandwidth_required = sfc.get_link_bandwidth_request(vnf.id, vnf.next_vnf.id)
-                    total_bandwidth_used = total_bandwidth_used + bandwidth_required
-                    self.allocate_bandwidth_resource(path[i], 
-                                                     path[i + 1], 
-                                                     bandwidth_required)
+                    if self.shareable_band:
+                        link_sfs_info = self.sfs_flux_info[(path[i], path[i + 1])]
+                        flux_ids = [flux_vnf.id for flux_vnf in link_sfs_info]
+                        # if link does not contain a shareable flux then we allocate bandwidth
+                        if vnf.id not in flux_ids:
+                            self.allocate_bandwidth_resource(path[i], path[i + 1], 
+                                                             sfc.get_link_bandwidth_request(vnf.id, vnf.next_vnf.id))
+                            if re.search(pattern, vnf.id) is None and vnf.id != 'src':
+                                self.sfs_flux_info[(path[i], path[i + 1])].append(vnf)
+                        else:
+                            pass
+                    else:
+                        bandwidth_required = sfc.get_link_bandwidth_request(vnf.id, vnf.next_vnf.id)
+                        total_bandwidth_used = total_bandwidth_used + bandwidth_required
+                        self.allocate_bandwidth_resource(path[i], 
+                                                        path[i + 1], 
+                                                        bandwidth_required)
         self.total_bandwidth_used = total_bandwidth_used
         # total_bandwidth_used = 0
         # # total_bandwidth_capacity = 0

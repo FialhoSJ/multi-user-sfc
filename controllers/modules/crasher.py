@@ -28,9 +28,8 @@ class Crasher():
         #     if rel < lowest_rel:
         #         lowest_rel = rel
         #         node_choose = node
-        import numpy as np
-        
-        nodes_rel = np.copy(network.nodes_reliability)
+
+        nodes_rel = network.nodes_reliability.copy()
         for node,rel in nodes_rel.items():
             if rel > h_rel:
                 h_rel = rel

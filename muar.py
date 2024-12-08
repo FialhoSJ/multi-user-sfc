@@ -27,14 +27,14 @@ from utils.manager_results import create_output_dir, OutputWritter
 # command line arguments
 parser = argparse.ArgumentParser(description='Select MUAR arguments') 
 parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
-parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='goku')
+parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='vegeta')
 parser.add_argument('--n_players', type=int, help='(int) number of players', default=4)
 #on: quebrar mais em funçoes
 #off: monolítico
 parser.add_argument('--sfc',   type=str, help='(str) on or off', default='on')
 parser.add_argument('--topology', type=str, help='(str) wich topology ex: luxembourg,small luxembourg ,paloalto', default='luxembourg')
 parser.add_argument('--share',  type=str, help='(str) whether to share sfs or not', default='y')
-# parser.add_argument('--shareband',  type=str, help='(str) whether to share sfs or not', default='n')
+parser.add_argument('--shareband',  type=str, help='(str) whether to share sfs or not', default='n')
 parser.add_argument('--time',  type=int, help='(int) the total time for the simulation in seconds', default=120)
 parser.add_argument('--mobility',  type=str, help='(str) mobility', default='y')
 
@@ -56,7 +56,7 @@ verbose = (args.verbose == 'y')
 crasher_activated = (args.allow_crasher == 'y')
 allow_delay =  (args.share == 'y')
 shareable = (args.share == 'y')
-# shareable_band = (args.shareband == 'y')
+shareable_band = (args.shareband == 'y')
 
 #costs_parameters = ast.literal_eval(args.costs_parameter)
 SELECTED_ALG = AlgorithmInstantiator().instantiate_algorithm(alg_name)
@@ -243,7 +243,7 @@ if args.sfc == 'on':
 substrate_network.set_verbose(verbose=verbose)
 timestamp,file_paths,flows_path = create_output_dir(args, topology)
 
-substrate_network.shareable_band = False
+substrate_network.shareable_band = shareable_band
 substrate_network.shareable_node = shareable
 
 sbn_controller = SubstrateNetworkController()
