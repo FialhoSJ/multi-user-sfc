@@ -2,6 +2,8 @@ import sys
 import time
 import re
 import copy
+from controllers.sfc_generator import SFCGenerator
+
 
 class SFCManager:
     def __init__(self):
@@ -181,15 +183,37 @@ class SFCManager:
                             dst = value[-1]
                             i = i + 1
                     
+                    new_sfc_list = []
 
-                    self.backup_sfs[info[0]] = {'sf':vnf,
-                                                'src': {'location': src,'cpu':0  ,'cache':0    ,'in_bw':src_in ,'out_bw':src_out},
-                                                'vnf': {'location': 0  ,'cpu':cpu,'cache':cache,'in_bw':src_out,'out_bw':dst_in},
-                                                'dst': {'location':dst ,'cpu':0  ,'cache':0    ,'in_bw':dst_in ,'out_bw':dst_out},
-                                                'restrictions':location
-                                                }  
-                    print()
+                    backup_sf_list = []
+                    backup_sf_list.append({"type": 2, "name":"src","CPU": 0, "cache": 0, "in_bw": 0, "out_bw":src_out ,"latency":0})
+                    backup_sf_list.append({"type": 2, "name":vnf_id,"CPU": cpu, "cache": cache, "in_bw": src_out, "out_bw": dst_in,"latency":"depois"})
+                    backup_sf_list.append({"type": 2, "name":"dst","CPU": 0, "cache": 0, "in_bw": dst_in, "out_bw":0 ,"latency":0})
+
+                    new_sfc_dict = {}
+                    new_sfc_dict["name"] = sfc_id + 'backup'
+                    new_sfc_dict["vnf_list"] = backup_sf_list
+                    new_sfc_dict["bandwidth"] = sfc.input_throughput
+                    new_sfc_dict["src_node"] = src
+                    new_sfc_dict["dst_node"] = dst
+                    new_sfc_dict["duration"] = 50 # TODO 
+                    new_sfc_dict["latency"] = sfc.latency_request # TODO deve ter aqui  um cálculo para não passar da latencia da original se implementada
+
+                    new_sfc = SFCGenerator(new_sfc_dict).generate()
+                    new_sfc_list.append(new_sfc)
+
+
+                    self.sfc_queue.put_begin(new_sfc_list)
+
+                    # self.backup_sfs[info[0]] = {'sf':vnf,
+                    #                             'src': {'location': src,'cpu':0  ,'cache':0    ,'in_bw':src_in ,'out_bw':src_out},
+                    #                             'vnf': {'location': 0  ,'cpu':cpu,'cache':cache,'in_bw':src_out,'out_bw':dst_in},
+                    #                             'dst': {'location':dst ,'cpu':0  ,'cache':0    ,'in_bw':dst_in ,'out_bw':dst_out},
+                    #                             'restrictions':location
+                    #                             }  
+                    # print()
     # def create_backup_sfc(self):
+    
         
     #     return sfcs_list
     def get_sfc_by_id(self, sfc_id):
