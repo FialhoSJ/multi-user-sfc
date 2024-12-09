@@ -135,13 +135,14 @@ class SFCManager:
             self.mobility_manager.remove_sfc(sfc.id)
             return False
 
-    def set_risk_sfcs(self,servers,network):
+    def set_risk_sfcs(self,servers,network,dict_sfc_id_duration):
         if len(servers) == 0:
-            return
+            return []
         #self.risk_servers = servers
         #server_infos = []
+        backups_mount = []
+        sfc_id_duration = copy.deepcopy(dict_sfc_id_duration)
         for server in servers:
-            comecou = time.time()
             server_info = network.get_node_sfc_vnf_list(server)
             sfcs_l = []
             server_infos = []
@@ -152,7 +153,7 @@ class SFCManager:
                     sfc_id = info[0]
                     vnf = info[1]
                     vnf_id = vnf.id
-                    if sfc_id not in network.sfc_dict:
+                    if sfc_id not in network.sfc_dict and not sfc_id in sfc_id_duration:
                         continue    
                     
                     sfc = network.get_sfc_by_id(sfc_id)
@@ -164,46 +165,58 @@ class SFCManager:
                     location = None
                     dst = None
                     
-                    src_in = 0 
+                    #src_in = 0 
                     src_out = resources_info['in_bw']
                     
                     dst_in = resources_info['out_bw']
-                    dst_out = 0
+                    #dst_out = 0
 
                     cpu = resources_info['CPU']
                     cache = resources_info['cache']
 
                     i = 0
+                    latency_dismiss = 0
                     for key,value in sfc_rf.items():        
                         if i == 1:
                             src = value[0]
+                            if src == 0: # SF IA 
+                                src = value[-1]
+                            else:
+                                src = value[0]
+                                latency_dismiss = latency_dismiss + len(value)-1
+                                print()
                             break
                         if key == vnf_id:
                             location = value[0]
                             dst = value[-1]
+                            latency_dismiss = latency_dismiss + len(value)-1
                             i = i + 1
                     
                     new_sfc_list = []
 
                     backup_sf_list = []
-                    backup_sf_list.append({"type": 2, "name":"src","CPU": 0, "cache": 0, "in_bw": 0, "out_bw":src_out ,"latency":0})
-                    backup_sf_list.append({"type": 2, "name":vnf_id,"CPU": cpu, "cache": cache, "in_bw": src_out, "out_bw": dst_in,"latency":"depois"})
-                    backup_sf_list.append({"type": 2, "name":"dst","CPU": 0, "cache": 0, "in_bw": dst_in, "out_bw":0 ,"latency":0})
+                    split = sfc_id.split("_")
+                    name = split[0] + "_" + split[1] + '_backup_' + split[2] + "_" +split[3]
+                    src_name = "src_" + name
+                    dst_name = "dst_" + name
+                    backup_sf_list.append({"type": 2, "name":src_name,"CPU": 0, "cache": 0, "in_bw": 0, "out_bw":src_out ,"latency":0,"location":src})
+                    backup_sf_list.append({"type": 2, "name":vnf_id,"CPU": cpu, "cache": cache, "in_bw": src_out, "out_bw": dst_in,"latency":0,"restriction":location})
+                    backup_sf_list.append({"type": 2, "name":dst_name,"CPU": 0, "cache": 0, "in_bw": dst_in, "out_bw":0 ,"latency":0,"location":dst})
 
                     new_sfc_dict = {}
-                    new_sfc_dict["name"] = sfc_id + 'backup'
+                    new_sfc_dict["name"] = name
                     new_sfc_dict["vnf_list"] = backup_sf_list
                     new_sfc_dict["bandwidth"] = sfc.input_throughput
                     new_sfc_dict["src_node"] = src
                     new_sfc_dict["dst_node"] = dst
-                    new_sfc_dict["duration"] = 50 # TODO 
-                    new_sfc_dict["latency"] = sfc.latency_request # TODO deve ter aqui  um cálculo para não passar da latencia da original se implementada
-
+                    new_sfc_dict["duration"] = sfc_id_duration[sfc_id] # TODO 
+                    new_sfc_dict["latency"] =  sfc.latency_request - self.calculate_latency(sfc_rf) + latency_dismiss  # TODO deve ter aqui  um cálculo para não passar da latencia da original se implementada
+                    # new_sfc_dict["original_sfc"] = sfc_rf
+                    # new_sfc_dict["restrictions"] = [location]
                     new_sfc = SFCGenerator(new_sfc_dict).generate()
                     new_sfc_list.append(new_sfc)
-
-
-                    self.sfc_queue.put_begin(new_sfc_list)
+                    backups_mount.append(new_sfc_list)
+                    #self.sfc_queue.put_begin(new_sfc_list)
 
                     # self.backup_sfs[info[0]] = {'sf':vnf,
                     #                             'src': {'location': src,'cpu':0  ,'cache':0    ,'in_bw':src_in ,'out_bw':src_out},
@@ -212,6 +225,8 @@ class SFCManager:
                     #                             'restrictions':location
                     #                             }  
                     # print()
+        return backups_mount
+    
     # def create_backup_sfc(self):
     
         
@@ -221,6 +236,12 @@ class SFCManager:
             if sfc["id"] == sfc_id:
                 return sfc
         return None
+
+    def calculate_latency(self, route_info):
+        total_latency = sum(
+            len(path) - 1 for key, path in route_info.items() if path and key not in ["src", "dst"]
+        )
+        return total_latency
 
 
     # def find_predecessor(self,dictionary, key):

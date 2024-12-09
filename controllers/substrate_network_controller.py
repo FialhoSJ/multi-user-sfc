@@ -86,7 +86,7 @@ class SubstrateNetworkController():
         self.shareable_list = []
 
         # Implementações extras
-        self.log_file = "mobilidade_log.txt"
+        self.log_file = "backup_log.txt"
         self.crasher_activate = False
         self.mobility_activated = None
         self.latency_interval = [6, 10]
@@ -246,20 +246,34 @@ class SubstrateNetworkController():
             while not self.is_stopped:
                 risk_servers = []
                 with self.lock:                
+                    start_time = time.time()  # Marca o tempo de início
                     nodes_rel = self.substrate_network.nodes_reliability.copy()
 
                     # Filtrando os nós com 'rel' maior que o 'threshold'
                     filtered_nodes = {node: rel for node, rel in nodes_rel.items() if rel > threshold}
-                    top_2_nodes = dict(sorted(filtered_nodes.items(), key=lambda item: item[1], reverse=True)[:2])
+                    top_2_nodes = dict(sorted(filtered_nodes.items(), key=lambda item: item[1], reverse=True)[:1])
 
                     self.risk_servers = list(top_2_nodes.keys())
-                    self.sfc_manager.set_risk_sfcs(top_2_nodes,self.substrate_network)
+                    backups = self.sfc_manager.set_risk_sfcs(top_2_nodes,self.substrate_network,self.sfc_id_duration)
+                    if backups != []:
+                        for backup in backups:
+                            self.sfc_queue.put_begin(backup)
+                                    
+                    end_time = time.time()  # Marca o tempo de fim
+                    elapsed_time = end_time - start_time
+                    print(elapsed_time)
+                    with open(self.log_file, "a") as log:
+                        log.write(f"Tempo total de execução: {elapsed_time:.2f} segundos\n")
                 time.sleep(interval) 
 
+        with open(self.log_file, "w") as log:
+            log.write("Log de Backup\n")
+            log.write("====================\n")
+
         # Inicia a thread
-        thread_mob = threading.Thread(target=task_backup)
-        thread_mob.daemon = True 
-        thread_mob.start()
+        backup_t = threading.Thread(target=task_backup)
+        backup_t.daemon = True 
+        backup_t.start()
 
 
     def get_nodes_information(self) -> None:
@@ -274,7 +288,7 @@ class SubstrateNetworkController():
         sessions = set()
 
         for key in list(running_sfcs.keys()):
-            player = key.split('_')[2][-1]
+            player = key.split('_')[-2][-1]
             session = key.split('_')[-1]
             sessions.add(session)
             if player not in players:
@@ -309,7 +323,8 @@ class SubstrateNetworkController():
         if sfc.id in self.sfc_list:
             return
         
-    
+        backup = True if sfc.id.split("_")[2] == 'backup' else False
+
         alg = copy.deepcopy(self.alg)
         alg.clear_all()
         alg.install_substrate_network(self.substrate_network)
@@ -320,9 +335,11 @@ class SubstrateNetworkController():
         shareable_sfs = self.substrate_network.get_shareable_sfs()
 
         match self.alg.name:
-            case 'ga' | 'osfem' | 'goku'  |'vegeta': # algs with active reuse and cost method
+            case 'ga' | 'osfem' | 'goku': # algs with active reuse and cost method
                 #alg.set_costs([1,1,1,1])
                 alg.start_algorithm(shareable_sfs=shareable_sfs)
+            case 'vegeta':
+                alg.start_algorithm(shareable_sfs=shareable_sfs,backup=backup)
             case _: # algs with passive reuse and no cost method
                 alg.start_algorithm() 
 
@@ -626,14 +643,14 @@ class SubstrateNetworkController():
             tuple: A tuple containing the validated route_info and latency.
         """
         sfc_id = sfc.id
-        player = sfc_id.split("_")[2][1]
-        p_session = sfc_id.split("_")[3]
-        user_id = int(player + p_session)
+        # player = sfc_id.split("_")[2][1]
+        # p_session = sfc_id.split("_")[3]
+        # user_id = int(player + p_session)
 
-        if route_info:
-            if (len(route_info.keys()) != 6 and sfc_mode == 'on') or (len(route_info.keys()) != 4 and sfc_mode == 'off'):
-                latency = None
-                route_info = False
+        # if route_info:
+        #     if (len(route_info.keys()) != 6 and sfc_mode == 'on') or (len(route_info.keys()) != 4 and sfc_mode == 'off'):
+        #         latency = None
+        #         route_info = False
 
         if latency is not None:
             if isinstance(latency, (int, float)):

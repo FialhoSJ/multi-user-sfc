@@ -54,7 +54,7 @@ n_players = int(args.n_players)
 mobility_activated = (args.mobility == 'y')
 verbose = (args.verbose == 'y')
 crasher_activated = (args.allow_crasher == 'y')
-allow_delay =  (args.share == 'y')
+allow_delay =  (args.allow_delay == 'y')
 shareable = (args.share == 'y')
 shareable_band = (args.shareband == 'y')
 

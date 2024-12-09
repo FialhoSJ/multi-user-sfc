@@ -136,17 +136,23 @@ class Vegeta(Algorithm):
     def is_using_bit_rate_cut(self):
         return self.using_bit_rate
 
-    def start_algorithm(self, shareable_sfs=None, **kwargs):
+    def start_algorithm(self, shareable_sfs=None,backup=False, **kwargs):
         substrate_network = self.substrate_network
         sfc = self.sfc
         #logger.info('Algorithm start')
+        if backup == True:
+            if self.backup_algorithm(substrate_network,sfc):
+                return True
+            else: 
+                return False
+
         if self.algorithm(substrate_network, sfc, shareable_sfs):
             #logger.info('Algorithm end, success')
             return True
         #logger.info('Algorithm end, failed')
         return False
 
-    def set_nodes_resources(self, substrate_network, shareable_sfs):
+    def set_nodes_resources(self, substrate_network, shareable_sfs=[]):
         net_info = substrate_network 
         old_server_resources = net_info._node
         servers = old_server_resources.keys()
@@ -172,6 +178,238 @@ class Vegeta(Algorithm):
                 node_info['reuse'] = [vnf.id for vnf in shareable_sfs[node_id]]
         
         return server_resources
+
+    def backup_algorithm(self, substrate_network, sfc):
+        self.servers_used = []
+        src_vnf = sfc.get_src_vnf()
+        dst_vnf = sfc.get_dst_vnf()
+
+        sfs_dict = self.sfc.vnfs_dict
+
+        src = sfs_dict[0]['location']
+        dst = sfs_dict[-1]['location'] 
+        
+        nodes_resource = self.set_nodes_resources(substrate_network)
+        network_links = copy.deepcopy(substrate_network._adj)
+
+        G = self.create_network_graph(network_links)
+        
+        route_info = []
+
+        is_success = False
+
+        services, service_requirements = self.prepare_service_requirements(sfs_dict)
+        allocation_results = {'dst': {'allocated_server': dst, 'path': [], 'cost': 0}}
+        current_location = dst # começa a alocação de trás pra frente 
+        restriction = [sfs_dict[1]['restriction']]
+
+        success = True
+        solution = {'dst':dst,'src':src}
+        for i, service in enumerate(services):
+            best_server, best_path, min_cost, cost_details = self.allocate_sf(G,
+                                                                    service_requirements,
+                                                                    nodes_resource,
+                                                                    network_links, 
+                                                                    current_location,
+                                                                    service,
+                                                                    services,
+                                                                    restriction,solution)
+            allocation_results[service] = {
+                'allocated_server': best_server,
+                'path': best_path,
+                'cost': min_cost
+            }
+
+            current_location = best_server
+
+            if best_server:
+                if cost_details['reuse']:
+                    nodes_resource[best_server]['cpu_used'] += service_requirements[service]['CPU']
+                    nodes_resource[best_server]['cache_used'] += service_requirements[service]['cache']
+                    nodes_resource[best_server]['cpu_free'] -= service_requirements[service]['CPU']
+                    nodes_resource[best_server]['cache_free'] -= service_requirements[service]['cache']
+            else:
+                #print(f"Falha.")
+                success =  False
+                break
+
+        if success == False:
+            return [],1000
+
+        # ultima iteração para o src
+        path_to_src = nx.dijkstra_path(G,current_location, 0, weight='weight')
+
+        route_info = {key: list(reversed(value['path'])) for key, value in allocation_results.items()}
+                    
+        #calculo da latencia antes do src
+        total_latency = sum(len(path) - 1 for path in route_info.values() if path)
+
+        route_info['src'] = list(reversed(path_to_src))
+
+        #colocando o dst no final
+        first_key, first_value = next(iter(route_info.items()))
+        del route_info[first_key]
+        route_info[first_key] = first_value
+        return self.evaluate_result(total_latency, route_info)
+    
+    def allocate_sf(self,G,service_requirements, server_resources, network_links, current_location, service, services, restrictions=[],solution=[]):
+        best_cost, best_candidate, candidates = self.find_candidates_serves_for_sf(G,
+                                                                                    service_requirements,
+                                                                                    server_resources,
+                                                                                    current_location,
+                                                                                    service,restrictions,solution)
+        
+        if best_cost == float('inf') or best_candidate == float('inf') or candidates == None:
+            return False, False, False, False
+
+        server_choose = best_candidate[0]
+        
+        if restrictions == []:
+            self.servers_used.append(server_choose)
+            path_to = best_candidate[1]
+            min_cost = best_candidate[2]
+            cost_details = best_candidate[3]
+        else:
+            if service.startswith("dst"):
+                server_choose = current_location 
+                path_to = [current_location]
+                min_cost = 0
+                cost_details = best_candidate[3]
+            else:
+                path_to = best_candidate[1]
+                min_cost = best_candidate[2]
+                cost_details = best_candidate[3]       
+        return server_choose, path_to, min_cost,cost_details
+
+
+    def find_candidates_serves_for_sf(self,G,service_requirements, server_resources, current_location, service,restriction=[],solutions=[]):
+        #service_requirements = copy.deepcopy(service_requirements)
+        paths = dict(nx.single_source_shortest_path_length(G, current_location, cutoff=8))
+        paths[current_location] = 0  # Custo de 'mover' para o mesmo servidor é 0
+        
+        if restriction == []:
+            del paths[current_location]
+            for server in self.servers_used:
+                if server in list(paths.keys()):
+                    del paths[server]
+        else:
+            if service.startswith("src"):
+                paths = {solutions["src"] :  paths[solutions['src']]}
+            else:
+                for server in restriction:
+                    if server in restriction:
+                        del paths[server]
+
+
+        candidates = []
+        best_cost = float('inf')
+
+        # Função para calcular o custo total
+        def calculate_total_cost(node_resource_cost, boot_cost, bandwidth_cost, latency_cost):
+            boot_cost = 0
+            return (node_resource_cost * self.cpu_factor)/2 + (node_resource_cost * self.cache_factor)/2 + (boot_cost * self.boot_factor) + (bandwidth_cost * self.band_factor) + latency_cost
+
+        # Função para verificar disponibilidade de largura de banda e recursos do servidor
+        def check_resources(server, path, bandwidth_requirement, cpu_required, cache_required,restriction):
+            if all(G[u][v]['bandwidth'] > bandwidth_requirement for u, v in zip(path, path[1:])):
+                available_cpu = server_resources[server]['cpu_capacity'] - server_resources[server]['cpu_used']
+                available_cache = server_resources[server]['cache_capacity'] - server_resources[server]['cache_used']
+               
+                if restriction == []:
+                    if available_cpu > cpu_required and available_cache > cache_required:
+                        return True
+                else:
+                    if available_cpu >= cpu_required and available_cache >= cache_required:
+                        return True
+                
+            
+            return False
+
+        def calculate_bandwidth_cost(path, bandwidth_requirement):
+            cost = 0
+            epsilon = 1e-6  # Pequeno valor para evitar divisão por zero
+            max_bandwidth = 1000  # Capacidade máxima disponível em um link
+
+            for u, v in zip(path, path[1:]):
+                available_bandwidth = G[u][v]['bandwidth']
+                if available_bandwidth >= bandwidth_requirement:
+                    cost += bandwidth_requirement / (available_bandwidth + epsilon)
+                else:
+                    return float('inf')  # Link não disponível
+
+            # Normalizar o custo acumulado para ficar entre 0 e 1
+            # normalized_cost = cost / (len(path) - 1)
+            # normalized_cost = normalized_cost / (bandwidth_requirement / max_bandwidth)
+            
+            return cost  # Garantir que o valor esteja entre 0 e 1
+
+        bandwidth_requirement = service_requirements[service]['out_bw']
+        
+        for server, num_hops in paths.items():
+            if current_location == server:
+                continue
+
+            path = nx.shortest_path(G, current_location, server, weight='weight')
+            reuse = service in server_resources[server]['reuse']
+            node_resource_cost = 0 if reuse else 1  # Assuming cpu_cost and cache_cost should always be the same
+
+            boot_cost = 0
+            cpu_required = 0 if reuse else service_requirements[service]['CPU']
+            cache_required = 0 if reuse else service_requirements[service]['cache']
+
+            # if server_resources[server]['cpu_used'] >= 17.27 or reuse: 
+            #     boot_cost = 0 
+            # elif (server_resources[server]['cpu_used'] + cpu_required) >= 17.27:
+            #     boot_cost = 1
+            # else:
+            #     boot_cost = 0
+
+            # Ajustar o cálculo de node_resource_cost para evitar divisão por zero
+            available_cpu = server_resources[server]['cpu_free']
+            if available_cpu > 0:
+                node_resource_cost = cpu_required / available_cpu #
+            else:
+                node_resource_cost = float('inf')  # Penalizar fortemente se não houver CPU disponível
+                
+            boot_cost = 0
+            if check_resources(server, path, bandwidth_requirement, cpu_required, cache_required,restriction):
+                bandwidth_cost = calculate_bandwidth_cost(path, bandwidth_requirement)
+                latency_cost = self.calculate_latency_cost(num_hops)
+                total_cost = calculate_total_cost(node_resource_cost, boot_cost, bandwidth_cost, latency_cost)
+
+                if total_cost < best_cost:
+                    best_cost = total_cost
+
+                candidates.append((server, path, total_cost, {
+                    'cpu_cost': node_resource_cost,
+                    'cache_cost': node_resource_cost,
+                    'boot_cost': boot_cost,
+                    'bandwidth_cost': bandwidth_cost,
+                    'latency_cost': latency_cost,
+                    'total_cost': total_cost,
+                    'reuse':reuse
+                }))
+            else:
+                # Sem recurso disponível
+                pass
+
+            # Se encontrou candidatos viáveis, não tenta com bitrate menor
+            # if best_cost < float('inf'):
+            #     break
+
+        best_candidate = min(candidates, key=lambda x: x[2], default=(None, None, None, None))
+        return best_cost, best_candidate, candidates
+
+    # latency as restriction
+    def calculate_latency_cost(self,distance):
+        if distance <= self.latency_request:
+            return 0
+        else:
+            return 1000
+        
+
+
+
 
     def algorithm(self, substrate_network, sfc, shareable_sfs):
         self.servers_used = []
@@ -319,132 +557,3 @@ class Vegeta(Algorithm):
         route_info[first_key] = first_value
         
         return route_info,total_latency
-
-    def allocate_sf(self,G,service_requirements, server_resources, network_links, current_location, service, services, exploration_margin=1):
-        best_cost, best_candidate, candidates = self.find_candidates_serves_for_sf(G,
-                                                                                   service_requirements,
-                                                                                    server_resources,
-                                                                                    current_location,
-                                                                                    service)
-        
-        if best_cost == float('inf') or best_candidate == float('inf') or candidates == None:
-            return False, False, False, False
-
-        server_choose = best_candidate[0]
-        self.servers_used.append(server_choose)
-        path_to = best_candidate[1]
-        min_cost = best_candidate[2]
-        cost_details = best_candidate[3]
-        return server_choose, path_to, min_cost,cost_details
-
-
-    def find_candidates_serves_for_sf(self,G,service_requirements, server_resources, current_location, service):
-        #service_requirements = copy.deepcopy(service_requirements)
-        
-        paths = dict(nx.single_source_shortest_path_length(G, current_location, cutoff=8))
-        paths[current_location] = 0  # Custo de 'mover' para o mesmo servidor é 0
-        del paths[current_location]
-        
-        for server in self.servers_used:
-            if server in list(paths.keys()):
-                del paths[server]
-
-        candidates = []
-        best_cost = float('inf')
-
-        # Função para calcular o custo total
-        def calculate_total_cost(node_resource_cost, boot_cost, bandwidth_cost, latency_cost):
-            boot_cost = 0
-            return (node_resource_cost * self.cpu_factor)/2 + (node_resource_cost * self.cache_factor)/2 + (boot_cost * self.boot_factor) + (bandwidth_cost * self.band_factor) + latency_cost
-
-        # Função para verificar disponibilidade de largura de banda e recursos do servidor
-        def check_resources(server, path, bandwidth_requirement, cpu_required, cache_required):
-            if all(G[u][v]['bandwidth'] > bandwidth_requirement for u, v in zip(path, path[1:])):
-                available_cpu = server_resources[server]['cpu_capacity'] - server_resources[server]['cpu_used']
-                available_cache = server_resources[server]['cache_capacity'] - server_resources[server]['cache_used']
-                if available_cpu > cpu_required and available_cache > cache_required:
-                    return True
-            return False
-
-        def calculate_bandwidth_cost(path, bandwidth_requirement):
-            cost = 0
-            epsilon = 1e-6  # Pequeno valor para evitar divisão por zero
-            max_bandwidth = 1000  # Capacidade máxima disponível em um link
-
-            for u, v in zip(path, path[1:]):
-                available_bandwidth = G[u][v]['bandwidth']
-                if available_bandwidth >= bandwidth_requirement:
-                    cost += bandwidth_requirement / (available_bandwidth + epsilon)
-                else:
-                    return float('inf')  # Link não disponível
-
-            # Normalizar o custo acumulado para ficar entre 0 e 1
-            # normalized_cost = cost / (len(path) - 1)
-            # normalized_cost = normalized_cost / (bandwidth_requirement / max_bandwidth)
-            
-            return cost  # Garantir que o valor esteja entre 0 e 1
-
-        bandwidth_requirement = service_requirements[service]['out_bw']
-        
-        for server, num_hops in paths.items():
-            if current_location == server:
-                continue
-
-            path = nx.shortest_path(G, current_location, server, weight='weight')
-            reuse = service in server_resources[server]['reuse']
-            node_resource_cost = 0 if reuse else 1  # Assuming cpu_cost and cache_cost should always be the same
-
-            boot_cost = 0
-            cpu_required = 0 if reuse else service_requirements[service]['CPU']
-            cache_required = 0 if reuse else service_requirements[service]['cache']
-
-            # if server_resources[server]['cpu_used'] >= 17.27 or reuse: 
-            #     boot_cost = 0 
-            # elif (server_resources[server]['cpu_used'] + cpu_required) >= 17.27:
-            #     boot_cost = 1
-            # else:
-            #     boot_cost = 0
-
-            # Ajustar o cálculo de node_resource_cost para evitar divisão por zero
-            available_cpu = server_resources[server]['cpu_free']
-            if available_cpu > 0:
-                node_resource_cost = cpu_required / available_cpu #
-            else:
-                node_resource_cost = float('inf')  # Penalizar fortemente se não houver CPU disponível
-                
-            boot_cost = 0
-            if check_resources(server, path, bandwidth_requirement, cpu_required, cache_required):
-                bandwidth_cost = calculate_bandwidth_cost(path, bandwidth_requirement)
-                latency_cost = self.calculate_latency_cost(num_hops)
-                total_cost = calculate_total_cost(node_resource_cost, boot_cost, bandwidth_cost, latency_cost)
-
-                if total_cost < best_cost:
-                    best_cost = total_cost
-
-                candidates.append((server, path, total_cost, {
-                    'cpu_cost': node_resource_cost,
-                    'cache_cost': node_resource_cost,
-                    'boot_cost': boot_cost,
-                    'bandwidth_cost': bandwidth_cost,
-                    'latency_cost': latency_cost,
-                    'total_cost': total_cost,
-                    'reuse':reuse
-                }))
-            else:
-                # Sem recurso disponível
-                pass
-
-            # Se encontrou candidatos viáveis, não tenta com bitrate menor
-            # if best_cost < float('inf'):
-            #     break
-
-        best_candidate = min(candidates, key=lambda x: x[2], default=(None, None, None, None))
-        return best_cost, best_candidate, candidates
-
-    # latency as restriction
-    def calculate_latency_cost(self,distance):
-        if distance <= self.latency_request:
-            return 0
-        else:
-            return 1000
-        

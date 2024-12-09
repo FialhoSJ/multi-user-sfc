@@ -186,8 +186,8 @@ class OutputWritter:
 
     def update_user_count(self, sfc_id):
         # Extrair o número do player e da sessão
-        player = int(sfc_id.split("_")[2][1])
-        session = int(sfc_id.split("_")[3])
+        player = int(sfc_id.split("_")[-2][1])
+        session = int(sfc_id.split("_")[-1])
         
         # Verificar se a sessão atual é um backup (sessões pares são backups)
         users = self.counter_users

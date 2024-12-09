@@ -26,8 +26,8 @@ class MobilityManager:
     def add_vehicle(self, sfc):
         try:
             with self.lock:
-                player = sfc.id.split("_")[2][1]
-                p_session = sfc.id.split("_")[3]
+                player = sfc.id.split("_")[-2][1]
+                p_session = sfc.id.split("_")[-1]
                 player_id = int(player + p_session)
                 vehicle_id = f"veh_{player_id}"
                 
