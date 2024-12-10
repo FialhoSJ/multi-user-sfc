@@ -193,58 +193,62 @@ class Vegeta(Algorithm):
         network_links = copy.deepcopy(substrate_network._adj)
 
         G = self.create_network_graph(network_links)
-        
+        # k = 10
+        # paths = list(nx.shortest_simple_paths(G, source=src, target=dst, weight='weight'))
+        # caminhos = paths[:k]
         route_info = []
 
-        is_success = False
+        # is_success = False
 
         services, service_requirements = self.prepare_service_requirements(sfs_dict)
         allocation_results = {'dst': {'allocated_server': dst, 'path': [], 'cost': 0}}
-        current_location = dst # começa a alocação de trás pra frente 
-        restriction = [sfs_dict[1]['restriction']]
+        
+        backup_sf = service_requirements[services[1]]
+        cpu_required   = backup_sf['CPU']
+        cache_required = backup_sf['cache']
+        #bw_in = 0 ##
+        #bw_out= 0 ##
 
-        success = True
-        solution = {'dst':dst,'src':src}
-        for i, service in enumerate(services):
-            best_server, best_path, min_cost, cost_details = self.allocate_sf(G,
-                                                                    service_requirements,
-                                                                    nodes_resource,
-                                                                    network_links, 
-                                                                    current_location,
-                                                                    service,
-                                                                    services,
-                                                                    restriction,solution)
-            allocation_results[service] = {
-                'allocated_server': best_server,
-                'path': best_path,
-                'cost': min_cost
-            }
-
-            current_location = best_server
-
-            if best_server:
-                if cost_details['reuse']:
-                    nodes_resource[best_server]['cpu_used'] += service_requirements[service]['CPU']
-                    nodes_resource[best_server]['cache_used'] += service_requirements[service]['cache']
-                    nodes_resource[best_server]['cpu_free'] -= service_requirements[service]['CPU']
-                    nodes_resource[best_server]['cache_free'] -= service_requirements[service]['cache']
+        location_result = False
+        node_choose = 0
+        for node in [src,dst]:
+            cpu_free = nodes_resource[node]['cpu_free']
+            cache_free = nodes_resource[node]['cpu_free']
+            cpu_capacity = nodes_resource[node]['cpu_capacity']
+            if cpu_required <= cpu_free and cache_required <= cache_free and cpu_capacity > 0:
+                node_choose = node
+                location_result = True
+            break
+        if location_result:
+            my_paths = []        
+            if node_choose == src:
+                my_paths.append([node_choose])
             else:
-                #print(f"Falha.")
-                success =  False
-                break
+                my_paths.append(nx.shortest_path(G, source=src, target=node_choose, weight='weight'))
+            
+            if node_choose == dst:
+                my_paths.append([node_choose])
+            else:
+                my_paths.append(nx.shortest_path(G, source=node_choose, target=dst, weight='weight'))
+            
+            allocation_results[services[0]] = {'allocated_server': dst, 'path': [dst], 'cost': 0}
+            allocation_results[services[1]] = {'allocated_server': node_choose, 'path': my_paths[1], 'cost': 0}
+            allocation_results[services[2]] = {'allocated_server': src, 'path': my_paths[0], 'cost': 0}
 
-        if success == False:
-            return [],1000
+            print(allocation_results)
+        else:
+            return False
 
         # ultima iteração para o src
-        path_to_src = nx.dijkstra_path(G,current_location, 0, weight='weight')
+        path_to_src = nx.dijkstra_path(G,0,src, weight='weight')
 
-        route_info = {key: list(reversed(value['path'])) for key, value in allocation_results.items()}
-                    
+        #route_info = {key: list(reversed(value['path'])) for key, value in allocation_results.items()}
+        route_info = {key: list(value['path']) for key, value in allocation_results.items()}
+
         #calculo da latencia antes do src
         total_latency = sum(len(path) - 1 for path in route_info.values() if path)
 
-        route_info['src'] = list(reversed(path_to_src))
+        route_info['src'] = list(path_to_src)
 
         #colocando o dst no final
         first_key, first_value = next(iter(route_info.items()))
@@ -407,10 +411,6 @@ class Vegeta(Algorithm):
         else:
             return 1000
         
-
-
-
-
     def algorithm(self, substrate_network, sfc, shareable_sfs):
         self.servers_used = []
         src_vnf = sfc.get_src_vnf()
@@ -460,7 +460,6 @@ class Vegeta(Algorithm):
         return is_success
 
     def create_network_graph(self, network_topology):
-        import networkx as nx
         G = nx.Graph()
         for node, edges in network_topology.items():
             for target, edge_attr in edges.items():
