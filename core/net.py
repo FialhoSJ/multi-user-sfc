@@ -488,15 +488,22 @@ class Net(nx.Graph):
         for node in self.nodes():
             cpu_used = 0
             cache_used = 0
+            reliability_consume = cpu_used + cache_used
             cpu_capacity = self.get_node_cpu_capacity(node)
             cache_capacity = self.get_node_cache_capacity(node)
-
+            sfc_backup = 0
+            node_vnf_list = self.get_node_sfc_vnf_list(node)
             for sfc_vnf in self.get_node_sfc_vnf_list(node):
+                sfc_id = sfc_vnf[0]
+                is_backup = True if (sfc_id.split("_")[2]) == 'backup' else False
                 vnf_id = sfc_vnf[1].id
+
                 if self.shareable_node:
                     if vnf_id not in list(map(lambda sf: sf.id, self.shared_sfs[node])):
                         cpu_used += sfc_vnf[1].get_cpu_request()
                         cache_used += sfc_vnf[1].get_cache_request()
+                        if not is_backup:
+                            reliability_consume = cpu_used + cache_used
                         if re.search(pattern, vnf_id) is None and vnf_id not in ('src', 'dst'):
                             self.shared_sfs[node].append(sfc_vnf[1])
                     else:
@@ -513,14 +520,15 @@ class Net(nx.Graph):
                 else:
                     cpu_used += sfc_vnf[1].get_cpu_request()
                     cache_used += sfc_vnf[1].get_cache_request()
-                
+                    if not is_backup:
+                        reliability_consume = cpu_used + cache_used
                 # Atualiza o dicionário de todas as VNFs nos nós
                 if vnf_id not in all_vnfs_on_nodes:
                     all_vnfs_on_nodes[vnf_id] = [node]
                 elif node not in all_vnfs_on_nodes[vnf_id]:
                     all_vnfs_on_nodes[vnf_id].append(node)
             
-            carga  = cpu_used + cache_used
+            carga  = reliability_consume
             #tempo = 1 # padrão para todos por simplificação
             confiabilidade = self.get_node_reliability(node)
             lambda_rate = (carga / 100) * (-math.log(confiabilidade))

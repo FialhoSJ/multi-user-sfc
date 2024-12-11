@@ -16,6 +16,7 @@ import _thread
 from threading import Timer
 from queue import Queue
 import numpy as np
+from typing import Optional
 from controllers.modules.sfcs_manager import SFCManager
 from controllers.sfc_generator import SFCGenerator
 
@@ -25,6 +26,7 @@ from controllers.modules.resource_manager import ResourceManager
 
 from controllers.sfc_queue import SFCQueue
 from core.net import Net
+from utils.manager_results import OutputWritter
 
 # create logger
 logger = logging.getLogger(__name__)
@@ -49,16 +51,10 @@ logger.critical('critical message')
 
 class SubstrateNetworkController():
     def __init__(self):
-        # Rede Substrato
+        # Rede
         self.substrate_network = Net()
         self.node_info = {}
-        #self.edges = []
-        #self.nodes = None
-        #self.ec_servers = None
-        #self.routers = None
-        #self.risk_servers = []
-        #self.number_of_nodes = None
-        
+
         # Modules
         self.mobility_manager = MobilityManager()
         self.sfc_manager = SFCManager()
@@ -70,8 +66,8 @@ class SubstrateNetworkController():
         self.is_stopped = True
         
         # SFC (Service Function Chains)
+        self.players_sfc_list = []
         self.sfc_queue = None
-        self.sfc = None
 
         # Implementações extras
         self.verbose = False
@@ -84,17 +80,15 @@ class SubstrateNetworkController():
 
         # Estatísticas
         self.success = []
+        self.counter = 0
         # self.deploy_failure = 0
 
         # Outros
         self.lock = threading.Lock()
-        # self.players = 0
         self.flows = 0
-        self.players_sfc_list = []
         self.alg = None
         self.timer = None
-        self.counter = 0
-        self.output_writter = False
+        self.output_writter : Optional[OutputWritter] = None
         self.max_queue_size = 0
 
     def simulation_timer(self) -> int:
@@ -123,14 +117,15 @@ class SubstrateNetworkController():
             self.mobility_manager.start_simulation()
             self.start_tracer(interval = 5)
 
+        if self.alg.name in ['vegeta']:
+            self.start_backup_manager(interval=20,threshold=0.5)
+        
+        if self.crasher_activate:
+            self.start_crasher(interval=200)
+
+
         # if self.allow_high_latency:
         #     self.start_check_altered_sfc_thread(interval = 5)
-        
-        # if self.crasher_activate:
-        #     self.start_crasher(interval=200)
-
-        # if self.alg:
-        #     self.start_backup_manager(interval=50)
 
         #Run simulation
         _thread.start_new_thread(self.run, ())
@@ -220,13 +215,14 @@ class SubstrateNetworkController():
                 with self.lock:
                     nodes_to_crash = self.crasher_manager.activate_crasher(self.substrate_network)
                     sfcs_affected = self.crasher_manager.implement_crash(nodes_to_crash,self.substrate_network)
-                    
+                    self.recover_sfcs(sfcs_affected)
+
                     #sfcs_moved, new_locations = self.mobility_manager.check_all_vehicles_position_changes()
                     for sfc_id in sfcs_affected:
-                        #try:
-                        sfc = self.substrate_network.get_sfc_by_id(sfc_id)
-                        # except:
-                        #     break  # Se não encontrar a SFC, interrompe o loop interno
+                        try:
+                            sfc = self.substrate_network.get_sfc_by_id(sfc_id)
+                        except:
+                            continue
                         # try:
                         print(f"SFC {sfc.id} crashou")
                         self.send_back_to_qeue(sfc, changed_location=False)
@@ -237,7 +233,18 @@ class SubstrateNetworkController():
         thread_mob.daemon = True 
         thread_mob.start()
 
-    def start_backup_manager(self, interval=10,threshold=1):
+    def recover_sfcs(self,sfc_affected):
+        for sfc_id in sfc_affected:
+            self.mobility_manager.remove_sfc(sfc_id) # TODO sfcs que foram afetadas pelo crasher não de movimentam mais por comodidade de código 
+            sfc = self.substrate_network.get_sfc_by_id(sfc_id)
+            sfcs_with_backup = list(self.sfc_manager.sfs_backup.keys())
+            if sfc.id in sfcs_with_backup:
+                self.sfc_manager.trigger_sfc_backup(sfc.id,self.substrate_network)
+                self.update()
+            else:
+                self.send_back_to_qeue(sfc, changed_location=False,punishment=10)
+
+    def start_backup_manager(self, interval=10,threshold=0.6):
         def task_backup():
             while not self.is_stopped:
                 risk_servers = []
@@ -247,10 +254,10 @@ class SubstrateNetworkController():
 
                     # Filtrando os nós com 'rel' maior que o 'threshold'
                     filtered_nodes = {node: rel for node, rel in nodes_rel.items() if rel > threshold}
-                    top_2_nodes = dict(sorted(filtered_nodes.items(), key=lambda item: item[1], reverse=True)[:1])
+                    top_1_node = dict(sorted(filtered_nodes.items(), key=lambda item: item[1], reverse=True)[:2])
 
-                    self.risk_servers = list(top_2_nodes.keys())
-                    backups = self.sfc_manager.set_risk_sfcs(top_2_nodes,self.substrate_network)
+                    self.risk_servers = list(top_1_node.keys())
+                    backups = self.sfc_manager.set_risk_sfcs(top_1_node,self.substrate_network)
                     if backups != []:
                         for backup in backups:
                             self.sfc_queue.put_begin(backup)
@@ -271,10 +278,6 @@ class SubstrateNetworkController():
         backup_t.daemon = True 
         backup_t.start()
 
-    def update(self) -> None:
-        """Updates the network state and check for resource overhead."""
-        self.substrate_network.update()
-
     def deploy_sfc(self, sfc: object) -> bool:
         """
         Deploys an SFC in the substrate network.
@@ -294,14 +297,16 @@ class SubstrateNetworkController():
         # with self.lock:
         results_dict = self.sfc_manager.deploy_sfc(sfc,self.substrate_network,self.alg)
         self.output_results(results_dict,sfc)
-        if results_dict['is_success'] == 1:
-            self.mobility_manager.add_vehicle(sfc)
-            return True
-        else:
-            self.mobility_manager.remove_sfc(sfc.id)
-            return False
+        if results_dict:
+            if not results_dict['backup_sfc']: # Give mobility to that sfc
+                if results_dict['is_success'] == 1:
+                    self.mobility_manager.add_vehicle(sfc)
+                    return True
+                else:
+                    self.mobility_manager.remove_sfc(sfc.id)
+                    return False
 
-    def send_back_to_qeue(self,sfc,changed_location=False,new_location=False):
+    def send_back_to_qeue(self,sfc,changed_location=False,new_location=False,punishment=10):
         sfc_id = sfc.id
         new_sfc_list = []
         location = sfc.dst.substrate_node if new_location == False else new_location
@@ -380,6 +385,16 @@ class SubstrateNetworkController():
                 total_cpu_capacity, cache_used, cache_free, cache_capacity, \
                     total_cache_used, total_cache_capacity)
 
+    def update(self) -> None:
+        """Updates the network state and check for resource overhead."""
+        self.substrate_network.update()
+
+    def get_nodes_information(self) -> None:
+        """Get information for each node in the network."""
+    
+        for node in self.substrate_network.nodes():
+            self.node_info[node] = self.get_node_information(node)
+
     def output_results(self, results_dict, sfc) -> None:
         def output_network_resources(deploy_time):
             self.output_writter.output_cpu_utilization(self.substrate_network, deploy_time)
@@ -388,7 +403,7 @@ class SubstrateNetworkController():
             self.output_writter.output_nodes_sf_utilization(self.substrate_network, deploy_time)
             #self.output_utils.output_edges_sf_utilization(self.edges_vnf, self.existing_vnf, self.sfc_list, deploy_time, route_info, sfc)
 
-        def output_flows(current_time, sfc, latency, run_duration, is_success, latency_diff=None, wait_time=None):
+        def output_flows(current_time, sfc, latency, run_duration, is_success,backup_sfc,latency_diff=None, wait_time=None):
             bw_transcode = 0
             self.output_writter.output_flows(
                 self.substrate_network,
@@ -401,29 +416,30 @@ class SubstrateNetworkController():
                 latency,
                 run_duration,
                 is_success,
+                backup_sfc,
                 bw_transcode,
                 latency_diff
             )
 
         """Updates the network state and check for resource overhead."""
-        # output of the simulation
-        is_success = results_dict['is_success']
-        output_network_resources(deploy_time=results_dict['current_time'])
-        output_flows(results_dict['current_time'], sfc, results_dict['latency'], results_dict['run_duration'], is_success)
-
-        self.success.append(is_success)
+        if results_dict:
+            # output of the simulation
+            output_network_resources(deploy_time=results_dict['current_time'])
+            output_flows(results_dict['current_time'],sfc,
+                        results_dict['latency'], results_dict['run_duration'],
+                        results_dict['is_success'],results_dict['backup_sfc'])
+            if not results_dict['backup_sfc']:
+                self.success.append(results_dict['is_success'])
+        # else:
+        #     if not results_dict['backup_sfc']:
+        #         self.success.append(False)
+        
         if self.verbose:
             print("__________________________________________")
             self.output_writter.print_output_info(self.substrate_network, self.success) # print log information
             print("") 
 
         #self.substrate_network.update()
-
-    def get_nodes_information(self) -> None:
-        """Get information for each node in the network."""
-    
-        for node in self.substrate_network.nodes():
-            self.node_info[node] = self.get_node_information(node)
 
     def submit_sfcs(self) -> None:
         """Submit the SFCs stored in the queue."""

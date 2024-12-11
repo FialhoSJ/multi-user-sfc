@@ -38,7 +38,7 @@ class SFCGenerator():
         self.dst_substrate_node = sfc_dict["dst_node"]
         self.latency = sfc_dict["latency"]
         self.duration = sfc_dict["duration"]
-        #self.original_sfc = sfc_dict["original_sfc"]
+        # self.original_sfc = sfc_dict["original_sfc"]
         #self.restrictions = sfc_dict["restrictions"]
 
     def generate(self):

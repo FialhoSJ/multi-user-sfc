@@ -76,6 +76,7 @@ def create_output_dir(args,topology):
         "wait_time",
         "decision_time_ms",
         "success",
+        "backup_success",
         "arrival_time",
         "sfc_id",
         "recovery_time",
@@ -109,7 +110,7 @@ class OutputWritter:
         self.sfcs_latency_dict = {}
         self.counter_users = 0
 
-    def output_flows(self,substrate_network,wait_time,running_players_sessions,counter,remaining_time,current_time, sfc, latency, run_duration, is_success,bw_transcode, latency_diff=None):
+    def output_flows(self,substrate_network,wait_time,running_players_sessions,counter,remaining_time,current_time, sfc, latency, run_duration, is_success,backup_sfc,bw_transcode, latency_diff=None):
         cpu_utilization = round(substrate_network.get_cpu_utilization_rate(), 4)
         cache_utilization = round(substrate_network.get_cache_utilization_rate(), 4)
         bw_utilization = round(substrate_network.get_bandwidth_utilization_rate(), 4)
@@ -137,9 +138,7 @@ class OutputWritter:
         crashed_sfcs = []
 
         sfc_id = sfc.id
-
         self.update_user_count(sfc_id)
-
         # if sfc.id in sfcs_crashed and is_success == 1:
         #     sfc_recovery_time = time.time() - sfcs_crashed[sfc.id]
         #     sfc_recovered = 1
@@ -153,7 +152,11 @@ class OutputWritter:
         else:        
             time_value = round(current_time - self.first_time,1)
 
-
+        backup_success = None
+        if backup_sfc:
+            backup_success = is_success
+            is_success = None
+        
         with open(self.flows_file, "a") as file:
             line = str(counter) + ',' + \
                    str(current_time) + ',' + \
@@ -170,6 +173,7 @@ class OutputWritter:
                    str(wait_time) + ',' + \
                    str(round(run_duration * 1000, 3)) + ',' + \
                    str(is_success) + ',' + \
+                   str(backup_success) + ',' + \
                    str(sfc.arrival_time) + ',' + \
                    str(sfc.id) + "," + \
                    str(sfc_recovery_time) + "," + \

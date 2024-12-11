@@ -27,7 +27,7 @@ from utils.manager_results import create_output_dir, OutputWritter
 # command line arguments
 parser = argparse.ArgumentParser(description='Select MUAR arguments') 
 parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
-parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='goku')
+parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='vegeta')
 parser.add_argument('--n_players', type=int, help='(int) number of players', default=4)
 #on: quebrar mais em funçoes
 #off: monolítico
