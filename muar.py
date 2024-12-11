@@ -27,7 +27,7 @@ from utils.manager_results import create_output_dir, OutputWritter
 # command line arguments
 parser = argparse.ArgumentParser(description='Select MUAR arguments') 
 parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
-parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='vegeta')
+parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='goku')
 parser.add_argument('--n_players', type=int, help='(int) number of players', default=4)
 #on: quebrar mais em funçoes
 #off: monolítico
@@ -76,7 +76,7 @@ sfc_queue = SFCQueue()
 
 SRC_NODE = 0
 max_duration = 120
-latency = [6,10]
+latency = [10,10]
 min_latency_acc = max(latency) if allow_delay else min(latency)
 
 fator = 0.33 # 1 players consumes fator*100 percentage of resources of an Edge Server
@@ -243,14 +243,14 @@ if args.sfc == 'on':
 substrate_network.set_verbose(verbose=verbose)
 timestamp,file_paths,flows_path = create_output_dir(args, topology)
 
-substrate_network.shareable_band = shareable_band
-substrate_network.shareable_node = shareable
+# substrate_network.shareable_band = shareable_band
+# substrate_network.shareable_node = shareable
 
 sbn_controller = SubstrateNetworkController()
 sbn_controller.substrate_network = substrate_network
 sbn_controller.sfc_queue = sfc_queue
 sbn_controller.sfc = args.sfc
-sbn_controller.shareable = shareable
+# sbn_controller.shareable = shareable
 sbn_controller.alg = SELECTED_ALG
 
 sbn_controller.crasher_activate = crasher_activated
@@ -261,10 +261,10 @@ sbn_controller.sfc_manager = SFCManager()
 sbn_controller.mobility_activated = mobility_activated
 
 sbn_controller.verbose = verbose
-sbn_controller.nodes = nodes
-sbn_controller.ec_servers = ec_servers
-sbn_controller.routers = routers
-sbn_controller.edges = edges
+# sbn_controller.nodes = nodes
+# sbn_controller.ec_servers = ec_servers
+# sbn_controller.routers = routers
+# sbn_controller.edges = edges
 
 sbn_controller.allow_high_latency = allow_delay
 sbn_controller.latency_interval = latency
@@ -277,7 +277,7 @@ sbn_controller.output_writter = OutputWritter(nodes,
                                                 file_paths['bandwidth'],
                                                 file_paths['sf'],
                                                 flows_path)
-sbn_controller.shareable_band = False
+# sbn_controller.shareable_band = False
 sbn_controller.flows = n_sessions
 sbn_controller.players = n_players
 

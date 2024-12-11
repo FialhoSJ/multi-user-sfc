@@ -594,7 +594,6 @@ class Net(nx.Graph):
         pattern = re.compile(r'_p') 
         #print(self.sfs_flux_info)
         self.reset_sfs_flux_info()
-        total_bandwidth_used = 0
         for edge in self.edges():
             self.reset_bandwidth(edge[0], edge[1])
         for node in self.nodes():
@@ -606,7 +605,10 @@ class Net(nx.Graph):
                 # sfs is being shared by someone else.
                 if sfc_id not in self.sfc_dict.keys():
                     continue
-                sfc = self.get_sfc_by_id(sfc_id)
+                try:
+                    sfc = self.get_sfc_by_id(sfc_id)
+                except:
+                    continue
                 vnf = sfc_vnf[1]
                 if vnf.id == 'dst':
                    continue
@@ -629,31 +631,28 @@ class Net(nx.Graph):
                         else:
                             pass
                     else:
-                        bandwidth_required = sfc.get_link_bandwidth_request(vnf.id, vnf.next_vnf.id)
-                        total_bandwidth_used = total_bandwidth_used + bandwidth_required
-                        self.allocate_bandwidth_resource(path[i], 
-                                                        path[i + 1], 
-                                                        bandwidth_required)
-        self.total_bandwidth_used = total_bandwidth_used
-        # total_bandwidth_used = 0
-        # # total_bandwidth_capacity = 0
+                        self.allocate_bandwidth_resource(path[i], path[i + 1], 
+                                                         sfc.get_link_bandwidth_request(vnf.id, vnf.next_vnf.id))
+        total_bandwidth_used = 0
+        total_bandwidth_capacity = 0
 
-        # practical_bw_used = 0
-        # practical_bw_capacity = 0
+        practical_bw_used = 0
+        practical_bw_capacity = 0
 
-        # for edge in self.edges():
-        #     total_bandwidth_used += self.get_link_bandwidth_used(edge[0], edge[1])
-        #     total_bandwidth_capacity += self.get_link_bandwidth_capacity(edge[0], edge[1])
+        for edge in self.edges():
+            total_bandwidth_used += self.get_link_bandwidth_used(edge[0], edge[1])
+            total_bandwidth_capacity += self.get_link_bandwidth_capacity(edge[0], edge[1])
             
             # if  self.get_link_bandwidth_used(edge[0], edge[1]) != 0:
             #     practical_bw_used  += self.get_link_bandwidth_used(edge[0], edge[1])
             #     practical_bw_capacity += self.get_link_bandwidth_capacity(edge[0], edge[1])
 
-        # self.total_bandwidth_capacity = total_bandwidth_capacity
-        #self.total_bandwidth_used = total_bandwidth_used
+        self.total_bandwidth_capacity = total_bandwidth_capacity
+        self.total_bandwidth_used = total_bandwidth_used
 
         # self.practical_bw_capacity = practical_bw_capacity
         # self.practical_bw_used = practical_bw_used
+
 
     def print_out_nodes_information(self, failure_cpu=None, failure_cache=None):
         # for node in self.nodes():

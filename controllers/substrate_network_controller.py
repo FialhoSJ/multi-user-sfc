@@ -51,15 +51,14 @@ class SubstrateNetworkController():
     def __init__(self):
         # Rede Substrato
         self.substrate_network = Net()
-        self.edges = []
-        self.nodes = None
-        self.ec_servers = None
-        self.routers = None
-        self.risk_servers = []
         self.node_info = {}
-        self.number_of_nodes = None
+        #self.edges = []
+        #self.nodes = None
+        #self.ec_servers = None
+        #self.routers = None
+        #self.risk_servers = []
+        #self.number_of_nodes = None
         
-
         # Modules
         self.mobility_manager = MobilityManager()
         self.sfc_manager = SFCManager()
@@ -69,22 +68,13 @@ class SubstrateNetworkController():
         self.remaining_time = None
         self.update_interval = 1
         self.is_stopped = True
-        self.verbose = False
         
         # SFC (Service Function Chains)
-        self.sfc_list = []
         self.sfc_queue = None
         self.sfc = None
-        self.sfc_id_duration = {}
-        self.sfcs_routing_info = {}
-        self.sfcs_that_deployed = []
-
-        # Compartilhamento
-        self.shareable = False
-        self.shareable_band = False  # not being used
-        self.shareable_list = []
 
         # Implementações extras
+        self.verbose = False
         self.log_file = "backup_log.txt"
         self.crasher_activate = False
         self.mobility_activated = None
@@ -98,7 +88,7 @@ class SubstrateNetworkController():
 
         # Outros
         self.lock = threading.Lock()
-        self.players = 0
+        # self.players = 0
         self.flows = 0
         self.players_sfc_list = []
         self.alg = None
@@ -133,29 +123,60 @@ class SubstrateNetworkController():
             self.mobility_manager.start_simulation()
             self.start_tracer(interval = 5)
 
-        if self.allow_high_latency:
-            self.start_check_altered_sfc_thread(interval = 5)
+        # if self.allow_high_latency:
+        #     self.start_check_altered_sfc_thread(interval = 5)
         
-        if self.crasher_activate:
-            self.start_crasher(interval=200)
+        # if self.crasher_activate:
+        #     self.start_crasher(interval=200)
 
-        if self.alg:
-            self.start_backup_manager(interval=50)
-
+        # if self.alg:
+        #     self.start_backup_manager(interval=50)
 
         #Run simulation
         _thread.start_new_thread(self.run, ())
 
-    def start_check_altered_sfc_thread(self, interval):
+    def run(self) -> None:
+        """Starts the simulation."""
+        while not self.is_stopped:
+            self.submit_sfcs()
+    def stop(self) -> None:
+        """Stops the simulation."""
+        self.is_stopped = True
+        self.mobility_manager.stop_simulation()
+        if self.timer:
+            self.timer.cancel()
+
+    def check_sfc_duration(self) -> None:
+        """
+        Implements a counter to remove SFCs whose durations
+        are over, using a thread.
+        """
         def task():
             while not self.is_stopped:
-                self.check_altered_sfcs()
-                time.sleep(interval)
+                with self.lock:
+                    time1 = time.time()
+                    for sfc_id in self.sfc_manager.check_sfc_duration():
+                        self.sfc_manager.undeploy_sfc(sfc_id,self.substrate_network)
+                        self.mobility_manager.remove_sfc(sfc_id)
 
-        thread_check_alt = threading.Thread(target=task)
-        thread_check_alt.daemon = True
-        thread_check_alt.start()
+                    for sfc_id in self.sfc_manager.get_list_sfc_duration(threshold=20):
+                        self.mobility_manager.remove_sfc(sfc_id)
+                    
+                    time2 = time.time()
+                    elapsed_time = time2 - time1
+                    # intervalo baseado no tempo de execução da função
+                    if elapsed_time < self.update_interval:
+                        sleep_time = self.update_interval - elapsed_time
+                    else:
+                        sleep_time = 0  # Se o tempo de execução for maior que o intervalo, reexecuta imediatamente
 
+                if not self.is_stopped:
+                    time.sleep(sleep_time)  # Aguarda o tempo restante para completar o intervalo
+
+        thread = threading.Thread(target=task)
+        thread.daemon = True  # Faz a thread rodar como daemon para que o programa termine sem bloqueios
+        thread.start()
+    
     def start_tracer(self, interval=5):
         def task_mob():
             while not self.is_stopped:
@@ -163,19 +184,17 @@ class SubstrateNetworkController():
                     start_time = time.time()  # Marca o tempo de início
                     if len(self.players_sfc_list) != 0:
                         sfcs_moved, new_locations = self.mobility_manager.check_all_vehicles_position_changes()
-
                         for sfc_list, new_location in zip(sfcs_moved, new_locations):
                             for sfc_id in sfc_list:
                                 try:
                                     sfc = self.substrate_network.get_sfc_by_id(sfc_id)
                                 except:
                                     break
-                                try:
-                                    print(f"SFC {sfc.id} mudou de localização para {new_location}")
-                                    self.send_back_to_qeue(sfc, changed_location=True, new_location=new_location)
-                                except:
-                                    print("Erro na reinstanciação da SFC")
-
+                                # try:
+                                print(f"SFC {sfc.id} mudou de localização para {new_location}")
+                                self.send_back_to_qeue(sfc, changed_location=True, new_location=new_location)
+                                # except:
+                                #     print("Erro na reinstanciação da SFC")
                     # end_time = time.time()  # Marca o tempo de fim
                     # elapsed_time = end_time - start_time
 
@@ -204,21 +223,21 @@ class SubstrateNetworkController():
                     
                     #sfcs_moved, new_locations = self.mobility_manager.check_all_vehicles_position_changes()
                     for sfc_id in sfcs_affected:
-                        try:
-                            sfc = self.substrate_network.get_sfc_by_id(sfc_id)
-                        except:
-                            break  # Se não encontrar a SFC, interrompe o loop interno
-                        try:
-                            print(f"SFC {sfc.id} crashou")
-                            self.send_back_to_qeue(sfc, changed_location=False)
-                        except:
-                            print("Erro na reinstanciação da SFC")
+                        #try:
+                        sfc = self.substrate_network.get_sfc_by_id(sfc_id)
+                        # except:
+                        #     break  # Se não encontrar a SFC, interrompe o loop interno
+                        # try:
+                        print(f"SFC {sfc.id} crashou")
+                        self.send_back_to_qeue(sfc, changed_location=False)
+                        # except:
+                        #     print("Erro na reinstanciação da SFC")
 
         thread_mob = threading.Thread(target=task_crash)
         thread_mob.daemon = True 
         thread_mob.start()
 
-    def start_backup_manager(self, interval=10,threshold=0.6):
+    def start_backup_manager(self, interval=10,threshold=1):
         def task_backup():
             while not self.is_stopped:
                 risk_servers = []
@@ -231,7 +250,7 @@ class SubstrateNetworkController():
                     top_2_nodes = dict(sorted(filtered_nodes.items(), key=lambda item: item[1], reverse=True)[:1])
 
                     self.risk_servers = list(top_2_nodes.keys())
-                    backups = self.sfc_manager.set_risk_sfcs(top_2_nodes,self.substrate_network,self.sfc_id_duration)
+                    backups = self.sfc_manager.set_risk_sfcs(top_2_nodes,self.substrate_network)
                     if backups != []:
                         for backup in backups:
                             self.sfc_queue.put_begin(backup)
@@ -252,53 +271,8 @@ class SubstrateNetworkController():
         backup_t.daemon = True 
         backup_t.start()
 
-
-    def get_nodes_information(self) -> None:
-        """Get information for each node in the network."""
-    
-        for node in self.substrate_network.nodes():
-            self.node_info[node] = self.get_node_information(node)
-
     def update(self) -> None:
         """Updates the network state and check for resource overhead."""
-        self.substrate_network.update()
-
-    def output_network_resources(self,deploy_time):
-        self.output_writter.output_cpu_utilization(self.substrate_network, deploy_time)
-        self.output_writter.output_cache_utilization(self.substrate_network, deploy_time)
-        self.output_writter.output_bandwidth_utilization(self.substrate_network, deploy_time)
-        self.output_writter.output_nodes_sf_utilization(self.substrate_network, deploy_time)
-        #self.output_utils.output_edges_sf_utilization(self.edges_vnf, self.existing_vnf, self.sfc_list, deploy_time, route_info, sfc)
-
-    def output_flows(self,current_time, sfc, latency, run_duration, is_success,latency_diff=None,wait_time=None):
-        bw_transcode=0
-        self.output_writter.output_flows(self.substrate_network,wait_time,
-                                         self.sfc_manager.get_running_players_sessions(),
-                                         self.counter,
-                                         self.remaining_time,
-                                         current_time,
-                                         sfc,
-                                         latency,
-                                         run_duration,
-                                         is_success,
-                                         bw_transcode,
-                                         latency_diff)
-        
-    def output_results(self,results_dict,sfc) -> None:
-        """Updates the network state and check for resource overhead."""
-        # output of the simulation
-        is_success = results_dict['is_success']
-        self.output_network_resources(deploy_time=results_dict['current_time'])
-        self.output_flows(results_dict['current_time'],
-                          sfc,
-                          results_dict['latency'],
-                          results_dict['run_duration'],
-                          is_success) 
-        self.success.append(is_success)
-        if self.verbose == True:
-            print("__________________________________________")
-            self.output_writter.print_output_info(self.substrate_network,self.success) #print log information
-            print("") 
         self.substrate_network.update()
 
     def deploy_sfc(self, sfc: object) -> bool:
@@ -317,31 +291,68 @@ class SubstrateNetworkController():
             bool: Whether the instantiated occured
             succesfully or not.
         """
+        # with self.lock:
         results_dict = self.sfc_manager.deploy_sfc(sfc,self.substrate_network,self.alg)
         self.output_results(results_dict,sfc)
         if results_dict['is_success'] == 1:
             self.mobility_manager.add_vehicle(sfc)
-            # self.sfcs_that_deployed.append(sfc.id)
             return True
         else:
             self.mobility_manager.remove_sfc(sfc.id)
             return False
 
-    def get_route_info(self) -> Dict:
-        """
-        Contains information about the SFC being 
-        instantiated.
+    def send_back_to_qeue(self,sfc,changed_location=False,new_location=False):
+        sfc_id = sfc.id
+        new_sfc_list = []
+        location = sfc.dst.substrate_node if new_location == False else new_location
+    
+        duration = self.sfc_manager.sfc_id_duration[sfc_id]
 
-        Returns:
-            Dict: A dictionary containing route info
-            for the current SFC.
-        """
-        return self.substrate_network.sfc_route_info
+        self.sfc_manager.undeploy_sfc(sfc_id,self.substrate_network)
+        new_vnfs_list_dict = copy.deepcopy(sfc.vnfs_dict)
 
-    def run(self) -> None:
-        """Starts the simulation."""
-        while not self.is_stopped:
-            self.submit_sfcs()
+        if changed_location == True:
+            if re.search('cache', sfc_id) is not None:
+                old_loc = str(sfc.dst.substrate_node)
+                new_loc = str(location)
+
+                ma_old_key = 'MA_region_' + old_loc
+                re_old_key = 'RE_region_' + old_loc
+                routing_info = copy.deepcopy(self.sfc_manager.sfcs_routing_info)
+                if ma_old_key in routing_info[sfc_id].keys():
+                    stored_info = routing_info[sfc_id][ma_old_key]
+                    
+                    del self.sfc_manager.sfcs_routing_info[sfc_id][ma_old_key]
+
+                    ma_new_key = re.sub(old_loc, new_loc,ma_old_key)
+
+                    self.sfc_manager.sfcs_routing_info[sfc_id][ma_new_key] = stored_info
+                    new_vnfs_list_dict[1]['name'] = ma_new_key
+
+                if re_old_key in routing_info[sfc.id].keys():
+                    stored_info = routing_info[sfc_id][re_old_key]
+
+                    del self.sfc_manager.sfcs_routing_info[sfc_id][re_old_key]
+
+                    re_new_key = re.sub(old_loc, new_loc,re_old_key)
+
+                    self.sfc_manager.sfcs_routing_info[sfc_id][re_new_key] = stored_info
+                    new_vnfs_list_dict[2]['name'] = re_new_key
+
+        new_sfc_dict = {}
+        new_sfc_dict["name"] = sfc_id
+        new_sfc_dict["vnf_list"] = new_vnfs_list_dict
+        new_sfc_dict["bandwidth"] = sfc.input_throughput
+        new_sfc_dict["src_node"] = sfc.src.substrate_node
+        new_sfc_dict["dst_node"] = location
+        new_sfc_dict["duration"] = duration
+        new_sfc_dict["latency"] = sfc.latency_request
+
+        new_sfc = SFCGenerator(new_sfc_dict).generate()
+        new_sfc_list.append(new_sfc)
+        self.sfc_queue.put_begin(new_sfc_list)
+        #except Exception as e:
+        #    print(f"Erro na tentativa de mandar de volta pra fila: {e}")
 
     def get_node_information(self, node_id: int) -> Tuple:
         """f
@@ -369,34 +380,109 @@ class SubstrateNetworkController():
                 total_cpu_capacity, cache_used, cache_free, cache_capacity, \
                     total_cache_used, total_cache_capacity)
 
-    def check_sfc_duration(self) -> None:
-        """
-        Implements a counter to remove SFCs whose durations
-        are over, using a thread.
-        """
-        def task():
-            while not self.is_stopped:
-                time1 = time.time()
-                remove_list = self.sfc_manager.check_sfc_duration()
+    def output_results(self, results_dict, sfc) -> None:
+        def output_network_resources(deploy_time):
+            self.output_writter.output_cpu_utilization(self.substrate_network, deploy_time)
+            self.output_writter.output_cache_utilization(self.substrate_network, deploy_time)
+            self.output_writter.output_bandwidth_utilization(self.substrate_network, deploy_time)
+            self.output_writter.output_nodes_sf_utilization(self.substrate_network, deploy_time)
+            #self.output_utils.output_edges_sf_utilization(self.edges_vnf, self.existing_vnf, self.sfc_list, deploy_time, route_info, sfc)
 
-                for sfc_id in remove_list:
-                    self.mobility_manager.remove_sfc(sfc_id)
+        def output_flows(current_time, sfc, latency, run_duration, is_success, latency_diff=None, wait_time=None):
+            bw_transcode = 0
+            self.output_writter.output_flows(
+                self.substrate_network,
+                wait_time,
+                self.sfc_manager.get_running_players_sessions(),
+                self.counter,
+                self.remaining_time,
+                current_time,
+                sfc,
+                latency,
+                run_duration,
+                is_success,
+                bw_transcode,
+                latency_diff
+            )
 
-                time2 = time.time()
-                elapsed_time = time2 - time1
-                # intervalo baseado no tempo de execução da função
-                if elapsed_time < self.update_interval:
-                    sleep_time = self.update_interval - elapsed_time
-                else:
-                    sleep_time = 0  # Se o tempo de execução for maior que o intervalo, reexecuta imediatamente
+        """Updates the network state and check for resource overhead."""
+        # output of the simulation
+        is_success = results_dict['is_success']
+        output_network_resources(deploy_time=results_dict['current_time'])
+        output_flows(results_dict['current_time'], sfc, results_dict['latency'], results_dict['run_duration'], is_success)
 
-                if not self.is_stopped:
-                    time.sleep(sleep_time)  # Aguarda o tempo restante para completar o intervalo
+        self.success.append(is_success)
+        if self.verbose:
+            print("__________________________________________")
+            self.output_writter.print_output_info(self.substrate_network, self.success) # print log information
+            print("") 
 
-        thread = threading.Thread(target=task)
-        thread.daemon = True  # Faz a thread rodar como daemon para que o programa termine sem bloqueios
-        thread.start()
-  
+        #self.substrate_network.update()
+
+    def get_nodes_information(self) -> None:
+        """Get information for each node in the network."""
+    
+        for node in self.substrate_network.nodes():
+            self.node_info[node] = self.get_node_information(node)
+
+    def submit_sfcs(self) -> None:
+        """Submit the SFCs stored in the queue."""
+        last_sf_mono = 'sfc_unique_p4_' + str(self.flows)
+        last_sf_dec = 'sfc_mono_p4_' + str(self.flows)
+
+        
+        while not self.is_stopped:
+            sfc_list = self.sfc_queue.peek_sfc()           
+            print("queue_size: " + str(self.sfc_queue.qsize()))
+            if self.max_queue_size < self.sfc_queue.qsize():
+                self.max_queue_size = self.sfc_queue.qsize()
+            
+            player_sfc_id_list = []
+            
+            for sfc in sfc_list:
+                t_1 = time.time()
+                self.deploy_sfc(sfc)
+                player_sfc_id_list.append(sfc.id)
+                self.update()
+                t_2 = time.time()
+                print("          algorithm take time: ", round(t_2 - t_1,4))
+                if sfc.id in (last_sf_mono, last_sf_dec):
+                    print('Last SFC released')
+                    print('Max queue size:', self.max_queue_size )
+                    self.stop()
+                    sys.exit()
+            self.players_sfc_list.append(player_sfc_id_list)
+
+
+
+
+
+
+
+    # def start_check_altered_sfc_thread(self, interval):
+    #     def task():
+    #         while not self.is_stopped:
+    #             altered_sfcs = list(self.altered_sfcs.items())  # Create a list copy of the items
+
+    #             for sfc_id, value in altered_sfcs:
+    #                 try:
+    #                     sfc = self.substrate_network.get_sfc_by_id(sfc_id)
+    #                 except:
+    #                     continue
+    #                 time_out = 30 # configurável
+    #                 tempo_primeira_inicializacao = value['timestamp']
+    #                 tempo_agora = time.time()
+    #                 tempo_corrido = int(tempo_agora - tempo_primeira_inicializacao)
+    #                 self.altered_sfcs[sfc_id]['wait_time'] = tempo_corrido # Tempo de espera aumenta
+    #         if tempo_corrido >= time_out:
+    #             self.altered_sfcs[sfc_id]['flag'] = False
+    #             self.send_back_to_qeue(sfc)
+    #             time.sleep(interval)
+    #     thread_check_alt = threading.Thread(target=task)
+    #     thread_check_alt.daemon = True
+    #     thread_check_alt.start()
+
+
     # def check_latency_and_bitrate(self, sfc,route_info, latency: int,bitrate :int) -> bool:
     #     """
     #     Checks if the latency is within acceptable limits and handles high latency scenarios.
@@ -487,136 +573,3 @@ class SubstrateNetworkController():
     #     #     latency = None
     #     #     route_info = False   
     #     return route_info, latency
-    
-    def check_altered_sfcs(self) -> None:
-        altered_sfcs = list(self.altered_sfcs.items())  # Create a list copy of the items
-
-        for sfc_id, value in altered_sfcs:
-            try:
-                sfc = self.substrate_network.get_sfc_by_id(sfc_id)
-            except:
-                continue
-            time_out = 30 # configurável
-            tempo_primeira_inicializacao = value['timestamp']
-            tempo_agora = time.time()
-            tempo_corrido = int(tempo_agora - tempo_primeira_inicializacao)
-            self.altered_sfcs[sfc_id]['wait_time'] = tempo_corrido # Tempo de espera aumenta
-
-            if tempo_corrido >= time_out:
-                self.altered_sfcs[sfc_id]['flag'] = False
-                self.send_back_to_qeue(sfc)
-
-    def send_back_to_qeue(self,sfc,changed_location=False,new_location=False):
-        sfc_id = sfc.id
-        new_sfc_list = []
-        location = sfc.dst.substrate_node if new_location == False else new_location
-    
-        duration = self.sfc_id_duration[sfc_id]
-
-        self.undeploy_sfc(sfc_id)
-        new_vnfs_list_dict = copy.deepcopy(sfc.vnfs_dict)
-
-        if changed_location == True:
-            if re.search('cache', sfc_id) is not None:
-                old_loc = str(sfc.dst.substrate_node)
-                new_loc = str(location)
-
-                ma_old_key = 'MA_region_' + old_loc
-                re_old_key = 'RE_region_' + old_loc
-
-                if ma_old_key in self.sfcs_routing_info[sfc_id].keys():
-                    stored_info = copy.deepcopy(
-                        self.sfcs_routing_info[sfc_id][ma_old_key])
-                    
-                    del self.sfcs_routing_info[sfc_id][ma_old_key]
-
-                    ma_new_key = re.sub(old_loc, new_loc,ma_old_key)
-
-                    self.sfcs_routing_info[sfc_id][ma_new_key] = stored_info
-                    new_vnfs_list_dict[1]['name'] = ma_new_key
-
-                if re_old_key in self.sfcs_routing_info[sfc.id].keys():
-                    stored_info = copy.deepcopy(
-                        self.sfcs_routing_info[sfc_id][re_old_key])
-
-                    del self.sfcs_routing_info[sfc_id][re_old_key]
-
-                    re_new_key = re.sub(old_loc, new_loc,re_old_key)
-
-                    self.sfcs_routing_info[sfc_id][re_new_key] = stored_info
-                    new_vnfs_list_dict[2]['name'] = re_new_key
-
-        new_sfc_dict = {}
-        new_sfc_dict["name"] = sfc_id
-        new_sfc_dict["vnf_list"] = new_vnfs_list_dict
-        new_sfc_dict["bandwidth"] = sfc.input_throughput
-        new_sfc_dict["src_node"] = sfc.src.substrate_node
-        new_sfc_dict["dst_node"] = location
-        new_sfc_dict["duration"] = duration
-        new_sfc_dict["latency"] = sfc.latency_request
-
-        new_sfc = SFCGenerator(new_sfc_dict).generate()
-        new_sfc_list.append(new_sfc)
-        self.sfc_queue.put_begin(new_sfc_list)
-        #except Exception as e:
-        #    print(f"Erro na tentativa de mandar de volta pra fila: {e}")
-
-    def stop(self) -> None:
-        """Stops the simulation."""
-        self.is_stopped = True
-        self.mobility_manager.stop_simulation()
-        if self.timer:
-            self.timer.cancel()
-
-    def get_shareable_sfs(self, sfc) -> List[Tuple]:
-        """_summary_
-
-        Args:
-            route_info (Dict): A provided route info.
-
-        Returns:
-            List[Tuple]: A list of SFs candidates.
-        """
-        shareable_sfs_ar = []
-        src_sf = sfc.get_src_vnf()
-        dst_sf = sfc.get_dst_vnf()
-        sf = src_sf
-        while sf != dst_sf:
-            for (node, candidate_sf_id, candidate_sf) in self.shareable_list:
-                    if candidate_sf_id == sf.id:
-                        # if max number of connections reached, cant be used.
-                        print("Chegando onde não devia")
-                        if len(self.substrate_network.sf_linkeds[candidate_sf]) != self.max_connections:
-                            print("shareable sf found.........")
-                            shareable_sfs_ar.append((node, candidate_sf_id, candidate_sf))
-            sf = sf.get_next_vnf()
-        return shareable_sfs_ar
-
-    def submit_sfcs(self) -> None:
-        """Submit the SFCs stored in the queue."""
-        last_sf_mono = 'sfc_unique_p4_' + str(self.flows)
-        last_sf_dec = 'sfc_mono_p4_' + str(self.flows)
-
-        
-        while not self.is_stopped:
-            sfc_list = self.sfc_queue.peek_sfc()           
-            print("queue_size: " + str(self.sfc_queue.qsize()))
-            if self.max_queue_size < self.sfc_queue.qsize():
-                self.max_queue_size = self.sfc_queue.qsize()
-            
-            player_sfc_id_list = []
-            
-            for sfc in sfc_list:
-                t_1 = time.time()
-                self.deploy_sfc(sfc)
-                player_sfc_id_list.append(sfc.id)
-                self.update()
-                t_2 = time.time()
-                print("          algorithm take time: ", round(t_2 - t_1,4))
-                if sfc.id in (last_sf_mono, last_sf_dec):
-                    print('Last SFC released')
-                    print('Max queue size:', self.max_queue_size )
-                    self.stop()
-                    sys.exit()
-            self.players_sfc_list.append(player_sfc_id_list)
-

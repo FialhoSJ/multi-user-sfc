@@ -21,43 +21,15 @@ class SFCManager:
         self.last_sfc_release = False
         self.risk_servers = []
         self.counter = 0 # how many sfcs are running
-    # def create_sfc(self, sfc_id, service_functions, user_id):
-    #     sfc = {
-    #         "id": sfc_id,
-    #         "functions": service_functions,
-    #         "user": user_id,
-    #         "status": "pending"
-    #     }
-    #     self.sfc_queue.append(sfc)
+        self.verbose = True
 
-    def submit_flows(self, sfc_list):
-        last_sf_mono = 'sfc_unique_p4_' + str(self.flows)
-        last_sf_dec = 'sfc_mono_p4_' + str(self.flows)
-
-        player_sfc_id_list = []
-        result = self.sfc_instatiator.submit_flows(sfc_list)
-
-        for sfc in sfc_list:
-            t_1 = time.time()
-            self.deploy_sfc(sfc)
-            player_sfc_id_list.append(sfc.id)
-            self.update()
-            t_2 = time.time()
-            print("          algorithm take time: ", round(t_2 - t_1,4))
-            if sfc.id in (last_sf_mono, last_sf_dec):
-                print('Last SFC released')
-                print('Max queue size:', self.max_queue_size )
-                self.last_sfc_release = True
-
-        self.players_sfc_list.append(player_sfc_id_list)
-        
     def deploy_sfc(self, sfc: object,substrate_network,alg) -> bool:
         if sfc.id in self.sfc_list:
             return
         
         backup = True if sfc.id.split("_")[2] == 'backup' else False
         
-        alg = copy.deepcopy(self.alg)
+        alg = copy.deepcopy(alg)
         alg.clear_all()
         alg.install_substrate_network(substrate_network)
         alg.install_SFC(sfc)
@@ -108,14 +80,15 @@ class SFCManager:
             self.deploy_success(sfc)
             if sfc not in self.sfcs_routing_info.keys():
                 self.sfcs_routing_info[sfc.id] = copy.deepcopy(route_info)
-        else:
-            self.deploy_failure = 1
-            self.deploy_failed(sfc)
+        # else:
+        #     self.deploy_failure = 1
+        #     self.deploy_failed(sfc)
             
-        self.update()
-        is_success = self.check_resources_exceed(is_success,sfc) # Check if any fees exceed %
+        substrate_network.update()
         self.counter += 1 # at this time all verifications are done. So we add 1 to counter of sfc
-        
+        is_success = self.check_resources_exceed(is_success,sfc,substrate_network) # Check if any fees exceed %
+        if is_success == False:
+            latency = None
         results_dict = {"current_time":current_time,"latency":latency,"run_duration":run_duration,"is_success":is_success}
         return results_dict
 
@@ -129,7 +102,6 @@ class SFCManager:
             #    self.check_sf_connections()
             self.sfc_list.remove(sfc_id)
             del self.sfc_id_duration[sfc_id]
-            del self.sfcs_routing_info[sfc_id]
             # TODO fazer a lógica de remover sfs
             # quando o tempo acaba
             substrate_network.update()
@@ -143,12 +115,19 @@ class SFCManager:
             if duration <= 1:
                 remove_list.append(sfc_id)
                 # if duration is over, sfc routing info no longer needed
-                self.undeploy_sfc(sfc_id)
+                del self.sfcs_routing_info[sfc_id]
                 continue
             self.sfc_id_duration[sfc_id] = duration - 1
         return remove_list
     
-    def check_resources_exceed(self,is_success,sfc):
+    def get_list_sfc_duration(self,threshold=20):
+        sfc_list_duration = []
+        for sfc_id, duration in list(self.sfc_id_duration.items()):
+            if duration <= threshold:
+                sfc_list_duration
+        return sfc_list_duration
+
+    def check_resources_exceed(self,is_success,sfc,substrate_network):
         if is_success == True:
             # cpu_utilization = round(self.substrate_network.get_cpu_utilization_rate(),4)
             # cache_utilization = round(self.substrate_network.get_cache_utilization_rate(),4)
@@ -157,9 +136,9 @@ class SFCManager:
             # if cpu_utilization > 1 or cache_utilization > 1 or bw_utilization > 1: # Check if any fees exceed %
             #     self.undeploy_sfc(sfc.id)
             #     is_success = False
-            for node in self.nodes:
-                cpu_used = self.substrate_network.get_node_cpu_used(node)
-                cache_used = self.substrate_network.get_node_cache_used(node)
+            for node in substrate_network.nodes():
+                cpu_used = substrate_network.get_node_cpu_used(node)
+                cache_used = substrate_network.get_node_cache_used(node)
                 if cpu_used > 100 or cache_used > 100:
                     self.undeploy_sfc(sfc.id)
                     is_success = False 
@@ -176,13 +155,13 @@ class SFCManager:
         if self.verbose == True:
             print(" deploy FAILED, sfc: ", sfc.id)
 
-    def set_risk_sfcs(self,servers,network,dict_sfc_id_duration):
+    def set_risk_sfcs(self,servers,network):
         if len(servers) == 0:
             return []
         #self.risk_servers = servers
         #server_infos = []
         backups_mount = []
-        sfc_id_duration = copy.deepcopy(dict_sfc_id_duration)
+        sfc_id_duration = copy.deepcopy(self.sfc_id_duration)
         for server in servers:
             server_info = network.get_node_sfc_vnf_list(server)
             sfcs_l = []
@@ -259,6 +238,29 @@ class SFCManager:
                     backups_mount.append(new_sfc_list)
         return backups_mount
 
+    def get_shareable_sfs(self, sfc):
+        """_summary_
+
+        Args:
+            route_info (Dict): A provided route info.
+
+        Returns:
+            List[Tuple]: A list of SFs candidates.
+        """
+        shareable_sfs_ar = []
+        src_sf = sfc.get_src_vnf()
+        dst_sf = sfc.get_dst_vnf()
+        sf = src_sf
+        while sf != dst_sf:
+            for (node, candidate_sf_id, candidate_sf) in self.shareable_list:
+                    if candidate_sf_id == sf.id:
+                        # if max number of connections reached, cant be used.
+                        print("Chegando onde não devia")
+                        if len(self.substrate_network.sf_linkeds[candidate_sf]) != self.max_connections:
+                            print("shareable sf found.........")
+                            shareable_sfs_ar.append((node, candidate_sf_id, candidate_sf))
+            sf = sf.get_next_vnf()
+        return shareable_sfs_ar
 
 
     # def create_backup_sfc(self):
