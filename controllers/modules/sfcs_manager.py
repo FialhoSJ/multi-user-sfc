@@ -26,10 +26,7 @@ class SFCManager:
     def deploy_sfc(self, sfc: object,substrate_network,alg) -> bool:
         if sfc.id in self.sfc_list:
             return False
-        sfcs_with_backup = list(self.sfs_backup.keys())
-        if sfc.id in sfcs_with_backup:
-            del self.sfs_backup[sfc.id]
-
+        
         backup = True if sfc.id.split("_")[2] == 'backup' else False
 
         alg = copy.deepcopy(alg)
@@ -93,9 +90,11 @@ class SFCManager:
         
         if is_success == False:
             if backup:
+                # Se a SFC de backup não foi instanciada, retira da lista de sfcs_backup
                 original_sfc = sfc.vnfs_dict[1]['original_sfc']
                 if original_sfc in list(self.sfs_backup.keys()):
                     del self.sfs_backup[original_sfc]
+
             latency = None
         results_dict = {"current_time":current_time,"latency":latency,"run_duration":run_duration,"is_success":is_success,"backup_sfc":backup}
         return results_dict
@@ -123,11 +122,24 @@ class SFCManager:
             print(f"Error: SFC ID {sfc_id} not found in the list when trying to remove.")
             return -1
 
-    def trigger_sfc_backup(self,sfc_id,vnf_id,substrate_network):
-        if sfc_id in list(self.sfs_backup.keys()):
-            backup_sfc_id = self.sfs_backup[sfc_id]
-            backup_sfc = substrate_network.get_sfc_by_id(backup_sfc_id[0])
+    def trigger_sfc_backup(self,sfc,backup_sfc,substrate_network):
+        if sfc.id in list(self.sfs_backup.keys()):
             print(backup_sfc)
+            print(sfc)
+            vnfs_dict = backup_sfc.vnfs_dict[1]
+
+            vnf_id = vnfs_dict[1]['name']
+            backup_vnf_route_info = self.sfcs_routing_info[backup_sfc.id][vnf_id]
+            self.sfcs_routing_info[sfc.id][vnf_id] = backup_vnf_route_info   
+
+            backup_in_src = True if len(backup_vnf_route_info)> 1 else False
+            # if backup_in_src:
+
+            # else:
+            #     src_sfc_keys = {k: v for k, v in vnfs_dict.items() if k.startswith('src_sfc')}
+
+            self.undeploy_sfc(backup_sfc.id,substrate_network)
+            print()
        
     # def check_sfc_duration(self):
     #     remove_list = []

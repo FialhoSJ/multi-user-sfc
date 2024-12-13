@@ -203,7 +203,6 @@ def generate_sfc_session(parameter) -> None:
     duration = lifetime
     players_sfc_cache_dict_list = []
     players_sfc_unique_dict_list = []
-    
     for i in range(1,n_players+1):
         player_cache_dict = {}
         player_cache_dict['name'] = 'sfc_cache_p' + str(i) + '_' + counter

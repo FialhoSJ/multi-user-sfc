@@ -242,15 +242,16 @@ class SubstrateNetworkController():
         thread_mob.start()
 
     def recover_sfcs(self,sfc_affected):
-        for sfc_id in sfc_affected:
-            self.mobility_manager.remove_sfc(sfc_id) # TODO sfcs que foram afetadas pelo crasher não de movimentam mais por comodidade de código 
-            sfc = self.substrate_network.get_sfc_by_id(sfc_id)
-            sfcs_with_backup = list(self.sfc_manager.sfs_backup.keys())
-            if sfc.id in sfcs_with_backup:
-                self.sfc_manager.trigger_sfc_backup(sfc.id,self.substrate_network)
-                self.update()
-            else:
-                self.send_back_to_qeue(sfc, changed_location=False,punishment=10)
+        return
+        # for sfc_id in sfc_affected:
+        #     self.mobility_manager.remove_sfc(sfc_id) # TODO sfcs que foram afetadas pelo crasher não de movimentam mais por comodidade de código 
+        #     sfc = self.substrate_network.get_sfc_by_id(sfc_id)
+        #     sfcs_with_backup = list(self.sfc_manager.sfs_backup.keys())
+        #     if sfc.id in sfcs_with_backup:
+        #         self.sfc_manager.trigger_sfc_backup(sfc.id,self.substrate_network)
+        #         self.update()
+        #     else:
+        #         self.send_back_to_qeue(sfc, changed_location=False,punishment=10)
 
     def start_backup_manager(self, interval=10,threshold=0.6):
         def task_backup():
@@ -306,13 +307,17 @@ class SubstrateNetworkController():
         results_dict = self.sfc_manager.deploy_sfc(sfc,self.substrate_network,self.alg)
         self.output_results(results_dict,sfc)
         if results_dict:
-            if not results_dict['backup_sfc']: # Give mobility to that sfc
-                if results_dict['is_success'] == 1:
-                    self.mobility_manager.add_vehicle(sfc)
-                    return True
-                else:
-                    self.mobility_manager.remove_sfc(sfc.id)
-                    return False
+            if not results_dict['backup_sfc'] and (results_dict['is_success'] == True): # Give mobility to that sfc
+                self.mobility_manager.add_vehicle(sfc)
+            else:
+                self.mobility_manager.remove_sfc(sfc.id)
+
+            if (results_dict['is_success'] == True):
+                return True
+            else:
+                return False
+        else:
+            return False
 
     def send_back_to_qeue(self,sfc,changed_location=False,new_location=False,punishment=10):
         sfc_id = sfc.id
@@ -345,6 +350,14 @@ class SubstrateNetworkController():
                     #self.sfc_manager.sfcs_routing_info[sfc_id][re_new_key] = stored_info
                     new_vnfs_list_dict[2]['name'] = re_new_key
 
+                # Se a sfc original se mover, faz undeploy do backup e deleta do dicionario de sfcs com backup
+                sfcs_with_backup = list(self.sfc_manager.sfs_backup.keys())
+                if sfc.id in sfcs_with_backup:
+                    split = sfc_id.split("_")
+                    name = split[0] + "_" + split[1] + '_backup_' + split[2] + "_" +split[3]
+                    self.sfc_manager.undeploy_sfc(name,self.substrate_network)
+                    del self.sfc_manager.sfs_backup[sfc.id]
+
         new_sfc_dict = {}
         new_sfc_dict["name"] = sfc_id
         new_sfc_dict["vnf_list"] = new_vnfs_list_dict
@@ -353,7 +366,7 @@ class SubstrateNetworkController():
         new_sfc_dict["dst_node"] = location
         new_sfc_dict["duration"] = duration
         new_sfc_dict["latency"] = sfc.latency_request
-        self.sfc_manager.undeploy_sfc(sfc_id,self.substrate_network) # retira a sfc antiga
+        self.sfc_manager.undeploy_sfc(sfc_id,self.substrate_network) # retira a sfc antiga    
         new_sfc = SFCGenerator(new_sfc_dict).generate() # gera uma nova e coloca de volta na fila
         new_sfc_list.append(new_sfc)
         self.sfc_queue.put_begin(new_sfc_list) # coloca a nova
@@ -528,13 +541,27 @@ class SubstrateNetworkController():
                 for sfc_id in sfc_list:
                     sfc = self.substrate_network.get_sfc_by_id(sfc_id)
                     print(f"SFC {sfc.id} mudou de localização para {new_location}")
+                    
+                    if sfc.id.split("_")[2] == 'backup':
+                        print("pqp")
+                    
                     self.send_back_to_qeue(sfc, changed_location=True, new_location=new_location)
 
     def sequential_check_duration(self):
         remove_list = self.sfc_manager.check_sfc_duration()
         for sfc_id in remove_list:
             self.sfc_manager.undeploy_sfc(sfc_id,self.substrate_network)
+            
+            # Se a sfc original de mover, faz undeploy do backup e deleta do dicionario de sfcs com backup
+            sfcs_with_backup = list(self.sfc_manager.sfs_backup.keys())
+            if sfc_id in sfcs_with_backup:
+                split = sfc_id.split("_")
+                name = split[0] + "_" + split[1] + '_backup_' + split[2] + "_" +split[3]
+                self.sfc_manager.undeploy_sfc(name,self.substrate_network)
+                del self.sfc_manager.sfs_backup[sfc_id]
+            
             self.mobility_manager.remove_sfc(sfc_id)
+        self.update()
 
     def sequential_submit_sfcs(self):
         last_sf_mono = 'sfc_unique_p4_' + str(self.flows)
@@ -560,6 +587,7 @@ class SubstrateNetworkController():
                 self.stop()
                 sys.exit()
         self.players_sfc_list.append(player_sfc_id_list)
+        self.update()
         return last_sfc_release
 
     def sequential_operation(self):
@@ -587,6 +615,7 @@ class SubstrateNetworkController():
             if self.alg.name in ['vegeta']:
                 decorrido = current_time - last_backup_time
                 if decorrido >= backup_interval_creation:
+                    self.sequential_check_duration() 
                     self.sequential_backup()  # Substitua pelo método de criação de backups
                     self.sequential_submit_sfcs()
                     last_backup_time = time.time()
@@ -596,6 +625,7 @@ class SubstrateNetworkController():
             if self.mobility_activated:
                 decorrido = current_time - last_mobility_time
                 if decorrido >= mobility_interval:
+                    self.sequential_check_duration() 
                     self.sequential_mobility()
                     self.sequential_submit_sfcs()
                     last_mobility_time = time.time()
@@ -604,12 +634,13 @@ class SubstrateNetworkController():
             if self.crasher_activate:
                 # Aciona o crasher se o tempo total atingir 200 segundos, apenas uma vez
                 if not crasher_activated and current_time - start_timer >= crasher_interruption_time:
-                    self.sequential_check_duration()
-                    self.update()
+                    self.sequential_check_duration() 
                     self.sequential_crasher()  # Substitua pelo método de ativação do crasher
                     self.sequential_submit_sfcs()
                     crasher_activated = True
-                    self.sequential_check_duration()    
+                    self.sequential_check_duration()
+        
+            self.sequential_check_duration()    
             print(i)
             i = i + 1
     # def start_check_altered_sfc_thread(self, interval):
