@@ -26,39 +26,39 @@ class MobilityManager:
         self.tracer.start_simulation()
 
     def add_vehicle(self, sfc):
-        try:
-            with self.lock:
-                player = sfc.id.split("_")[-2][1]
-                p_session = sfc.id.split("_")[-1]
-                player_id = int(player + p_session)
-                vehicle_id = f"veh_{player_id}"
-                
-                if vehicle_id in list(self.vehicle_to_service_map.keys()):
-                    if self.vehicle_to_service_map[vehicle_id]['connected'] == False:
-                        return
-                    # Verificando se o SFC já está associado ao veículo
-                    if sfc.id in self.vehicle_to_service_map[vehicle_id]['sfcs']:
-                        pass  # As associações são feitas no deploy e, como pode ter vindo de um redeploy, não tem erro claro.
-                    else:
-                        # Adiciona o SFC à lista de SFCS associada ao veículo
-                        self.vehicle_to_service_map[vehicle_id]['sfcs'].append(sfc.id)
-                        self.running_sfcs.append(sfc.id)
+        #try:
+        with self.lock:
+            player = sfc.id.split("_")[-2][1]
+            p_session = sfc.id.split("_")[-1]
+            player_id = int(player + p_session)
+            vehicle_id = f"veh_{player_id}"
+            
+            if vehicle_id in list(self.vehicle_to_service_map.keys()):
+                if self.vehicle_to_service_map[vehicle_id]['connected'] == False:
+                    return
+                # Verificando se o SFC já está associado ao veículo
+                if sfc.id in self.vehicle_to_service_map[vehicle_id]['sfcs']:
+                    pass  # As associações são feitas no deploy e, como pode ter vindo de um redeploy, não tem erro claro.
                 else:
-                    # Caso o veículo não exista no mapeamento, cria o veículo e associa o SFC
-                    server_start = sfc.dst_node
-                    self.tracer.create_vehicle(vehicle_id, server_start)
-                    
+                    # Adiciona o SFC à lista de SFCS associada ao veículo
+                    self.vehicle_to_service_map[vehicle_id]['sfcs'].append(sfc.id)
                     self.running_sfcs.append(sfc.id)
-                    # Adiciona o veículo com o SFC na lista de serviços
-                    self.vehicle_to_service_map[vehicle_id] = {
-                        'sfcs': [sfc.id],         # Lista com o ID do SFC associado
-                        'veh_location': sfc.dst_node,   # A localização inicial do veículo
-                        'distance': self.tracer.get_server_distance_from_car(vehicle_id,server_start),
-                        'time': time.time(),
-                        'connected': True
-                    }
-        except Exception as e:
-            print(f"Erro ao adicionar veículo para o SFC {sfc.id}: {str(e)}")
+            else:
+                # Caso o veículo não exista no mapeamento, cria o veículo e associa o SFC
+                server_start = sfc.dst_node
+                self.tracer.create_vehicle(vehicle_id, server_start)
+                
+                self.running_sfcs.append(sfc.id)
+                # Adiciona o veículo com o SFC na lista de serviços
+                self.vehicle_to_service_map[vehicle_id] = {
+                    'sfcs': [sfc.id],         # Lista com o ID do SFC associado
+                    'veh_location': sfc.dst_node,   # A localização inicial do veículo
+                    'distance': self.tracer.get_server_distance_from_car(vehicle_id,server_start),
+                    'time': time.time(),
+                    'connected': True
+                }
+        # except Exception as e:
+        #     print(f"Erro ao adicionar veículo para o SFC {sfc.id}: {str(e)}")
 
     def check_all_vehicles_position_changes(self):
         """
@@ -101,7 +101,7 @@ class MobilityManager:
                         self.vehicle_to_service_map[vehicle_id]['time'] = time.time()
             return moved_sfcs,new_locations
 
-    def remove_sfc(self, sfc_id):
+    def remove_sfc(self, sfc_id,all=False):
         """
         Remove um SFC de todos os veículos que estão associados a ele.
 
@@ -113,14 +113,21 @@ class MobilityManager:
             if sfc_id in running_sfcs:
                 for vehicle_id, vehicle_info in list(self.vehicle_to_service_map.items()):
                     # Verifica se o veículo está associado ao SFC
-                    if sfc_id in vehicle_info['sfcs']:
-                        # Remove o SFC da lista associada ao veículo
-                        self.vehicle_to_service_map[vehicle_id]['sfcs'].remove(sfc_id)
-
-                        # Se o veículo não tiver mais SFCs associados, pode ser removido do mapeamento
-                        if not self.vehicle_to_service_map[vehicle_id]['sfcs']:
-                            self.remove_vehicle(vehicle_id)
+                    if all == False:
+                        if sfc_id in vehicle_info['sfcs']:
+                            # Remove o SFC da lista associada ao veículo
+                            self.vehicle_to_service_map[vehicle_id]['sfcs'].remove(sfc_id)
                             self.running_sfcs.remove(sfc_id)
+
+                            # Se o veículo não tiver mais SFCs associados, pode ser removido do mapeamento
+                            if not self.vehicle_to_service_map[vehicle_id]['sfcs']:
+                                self.remove_vehicle(vehicle_id)
+                                #self.running_sfcs.remove(sfc_id)
+                    else:
+                        #running_sfcs.remove(sfc_id) 
+                        if sfc_id in list(self.running_sfcs):
+                            self.running_sfcs.remove(sfc_id)
+                        self.remove_vehicle(vehicle_id)  
     
     # def set_crashed_servers(self,crashed_servers):
     #     self.crashed_servers = crashed_servers

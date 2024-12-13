@@ -63,7 +63,7 @@ class Crasher():
             self.nodes_crashed = [node_choose]
             return [node_choose]
 
-    def implement_crash(self,nodes_crashed,network):
+    def implement_crash(self, nodes_crashed, network):
         sfcs_crashed = {}
         if len(nodes_crashed) != 0: 
             print(f"Servidores Crashados: {nodes_crashed}")
@@ -73,35 +73,32 @@ class Crasher():
 
             for server in nodes_crashed:
                 server_info = network.get_node_sfc_vnf_list(server)
-                filtered_edges = {key: value for key, value in self.edges_vnf.items() if server in key}
-
+                #filtered_edges = {key: value for key, value in self.edges_vnf.items() if server in key}
+                
+                # Definir capacidades negativas para simular o crash
                 network.set_node_cache_capacity(server, -0.0000001)
                 network.set_node_cpu_capacity(server, -0.0000001)
-
-                if self.crash_links:
-                    for link, sfc_vnf in filtered_edges.items():
-                        network.set_link_bandwidth_capacity(link[0], link[1], -0.0000001)
-                        network.set_link_latency(link[0], link[1], 10000)
+                
+                # if self.crash_links:
+                #     for link, sfc_vnf in filtered_edges.items():
+                #         network.set_link_bandwidth_capacity(link[0], link[1], -0.0000001)
+                #         network.set_link_latency(link[0], link[1], 10000)
                     
                 if server_info != []:
+                    # Extrai os sfc_ids
                     sfc_ids = list(set([sfc[0] for sfc in server_info]))
-                    users_crashed = []
-                    pattern = re.compile(r'p\d+_\d+')
+                    # users_crashed = []
+                    # pattern = re.compile(r'p\d+_\d+')
 
-                    for sfc_id in sfc_ids:
-                        # Popula o dicionário sfcs_crashed
-                        match = pattern.search(sfc_id)
-                        if match:
-                            users_crashed.append(match.group())
-                    users_crashed = list(set(users_crashed))
-                    #self.users_crashed = self.users_crashed + len(users_crashed)
+                    # for sfc_id in sfc_ids:
+                    #     # Popula o dicionário sfcs_crashed com usuários afetados
+                    #     match = pattern.search(sfc_id)
+                    #     if match:
+                    #         users_crashed.append(match.group())
+                    # users_crashed = list(set(users_crashed))
 
+                    # Para cada sfc_id crashada, extrair as VNFs afetadas
                     for sfc_id in sfc_ids:
-                        # if sfc_id in sfc_id_duration:
-                        #     # TODO: fazer alguma verificação pra garantir que aquela sfc está rodando
-                        #     pass
-                        #try:
-                        
                         if sfc_id not in network.sfc_dict:
                             continue
                         
@@ -109,7 +106,13 @@ class Crasher():
                         sfc_rf = network.sfc_route_info[sfc_id]
 
                         latency_sfc= sum((len(value) - 1) for key, value in sfc_rf.items() if key not in ('src', 'dst'))
-                        #duration = self.sfc_id_duration[sfc_id]
+                        
+                        # Obter os IDs das VNFs crashadas que pertencem a esta sfc_id
+                        crashed_vnf_ids = [vnf.id for sid, vnf in server_info if sid == sfc_id]
 
-                        sfcs_crashed[sfc_id] = {'fall_time':time.time(),'has_backup':False,'old_latency':latency_sfc}
+                        sfcs_crashed[sfc_id] = {
+                            'fall_time': time.time(),
+                            'old_latency': latency_sfc,
+                            'vnf_ids': crashed_vnf_ids
+                        }
         return sfcs_crashed

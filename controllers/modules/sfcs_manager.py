@@ -78,7 +78,7 @@ class SFCManager:
         if route_info:
             substrate_network.deploy_sfc(sfc, route_info)
             self.sfc_list.append(sfc.id)
-            self.sfc_id_duration[sfc.id] = sfc.duration
+            self.sfc_id_duration[sfc.id] = {"duration":sfc.duration,"timer":time.time()}
             is_success = True
             self.deploy_success(sfc)
             if sfc not in self.sfcs_routing_info.keys():
@@ -114,6 +114,8 @@ class SFCManager:
             #    self.check_sf_connections()
             self.sfc_list.remove(sfc_id)
             del self.sfc_id_duration[sfc_id]
+            del self.sfcs_routing_info[sfc_id]
+                # del self.sfc_id_duration[sfc_id]
             # TODO fazer a lógica de remover sfs
             # quando o tempo acaba
             substrate_network.update()
@@ -121,28 +123,37 @@ class SFCManager:
             print(f"Error: SFC ID {sfc_id} not found in the list when trying to remove.")
             return -1
 
-    def trigger_sfc_backup(self,sfc_id,substrate_network):
+    def trigger_sfc_backup(self,sfc_id,vnf_id,substrate_network):
         if sfc_id in list(self.sfs_backup.keys()):
             backup_sfc_id = self.sfs_backup[sfc_id]
             backup_sfc = substrate_network.get_sfc_by_id(backup_sfc_id[0])
             print(backup_sfc)
        
+    # def check_sfc_duration(self):
+    #     remove_list = []
+    #     for sfc_id, duration in list(self.sfc_id_duration.items()):
+    #         if duration <= 1:                    
+    #             remove_list.append(sfc_id)
+    #             # if duration is over, sfc routing info no longer needed
+    #             del self.sfcs_routing_info[sfc_id]
+    #             continue
+    #         self.sfc_id_duration[sfc_id] = duration - 1
+    #     return remove_list
+    
     def check_sfc_duration(self):
         remove_list = []
-        for sfc_id, duration in list(self.sfc_id_duration.items()):
-            if duration <= 1:                    
+        current_time = time.time()  # Obtém o tempo atual uma única vez para evitar múltiplas chamadas
+        for sfc_id, info in list(self.sfc_id_duration.items()):  # `info` é o dicionário com 'duration' e 'timer'
+            elapsed_time = current_time - info["timer"]  # Calcula o tempo decorrido
+            if elapsed_time >= info["duration"]:  # Verifica se a duração foi ultrapassada
                 remove_list.append(sfc_id)
-                # if duration is over, sfc routing info no longer needed
-                del self.sfcs_routing_info[sfc_id]
-                continue
-            self.sfc_id_duration[sfc_id] = duration - 1
         return remove_list
-    
-    def get_list_sfc_duration(self,threshold=20):
+
+    def get_list_sfc_duration(self, threshold=20):
         sfc_list_duration = []
-        for sfc_id, duration in list(self.sfc_id_duration.items()):
-            if duration <= threshold:
-                sfc_list_duration
+        for sfc_id, info in self.sfc_id_duration.items():  # `info` contém as informações de cada SFC
+            if info["duration"] <= threshold:
+                sfc_list_duration.append(sfc_id)  # Adiciona o ID à lista
         return sfc_list_duration
 
     def check_resources_exceed(self,is_success,sfc,substrate_network):
@@ -186,6 +197,7 @@ class SFCManager:
             server_info = network.get_node_sfc_vnf_list(server)
             sfcs_l = []
             server_infos = []
+            current_time = time.time()
             if server_info != []:
                 for info in server_info:
                     server_infos.append(info)
@@ -259,13 +271,13 @@ class SFCManager:
                     new_sfc_dict["bandwidth"] = sfc.input_throughput
                     new_sfc_dict["src_node"] = src
                     new_sfc_dict["dst_node"] = dst
-                    new_sfc_dict["duration"] = sfc_id_duration[sfc_id] # TODO 
+                    new_sfc_dict["duration"] = sfc_id_duration[sfc_id]["duration"]-(current_time-sfc_id_duration[sfc_id]["timer"])       
                     new_sfc_dict["latency"] =  sfc.latency_request - self.calculate_latency(sfc_rf) + latency_dismiss  # TODO deve ter aqui  um cálculo para não passar da latencia da original se implementada
                     # new_sfc_dict["original_sfc"] = sfc_rf
                     # new_sfc_dict["restrictions"] = [location]
                     new_sfc = SFCGenerator(new_sfc_dict).generate()
                     
-                    self.sfs_backup[sfc_id] = [new_sfc.id]  # Por enquanto teremos apenas uma SFC de Backup por SFC 
+                    self.sfs_backup[sfc_id] = {"sfc_backup_id":new_sfc.id,"vnf_id":vnf_id}  # Por enquanto teremos apenas uma SFC de Backup por SFC 
                 
                     new_sfc_list.append(new_sfc)
                     backups_mount.append(new_sfc_list)
