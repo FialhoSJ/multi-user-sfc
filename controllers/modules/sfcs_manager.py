@@ -80,9 +80,9 @@ class SFCManager:
             self.deploy_success(sfc)
             if sfc not in self.sfcs_routing_info.keys():
                 self.sfcs_routing_info[sfc.id] = copy.deepcopy(route_info)
-        # else:
-        #     self.deploy_failure = 1
-        #     self.deploy_failed(sfc)
+        else:
+            #self.deploy_failure = 1
+            self.deploy_failed(sfc)
             
         substrate_network.update()
         self.counter += 1 # at this time all verifications are done. So we add 1 to counter of sfc
@@ -128,7 +128,7 @@ class SFCManager:
             print(sfc)
             vnfs_dict = backup_sfc.vnfs_dict[1]
 
-            vnf_id = vnfs_dict[1]['name']
+            vnf_id = vnfs_dict['name']
             backup_vnf_route_info = self.sfcs_routing_info[backup_sfc.id][vnf_id]
             self.sfcs_routing_info[sfc.id][vnf_id] = backup_vnf_route_info   
 

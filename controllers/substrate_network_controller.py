@@ -526,7 +526,7 @@ class SubstrateNetworkController():
 
         # Filtrando os nós com 'rel' maior que o 'threshold'
         filtered_nodes = {node: rel for node, rel in nodes_rel.items() if rel > threshold}
-        top_1_node = dict(sorted(filtered_nodes.items(), key=lambda item: item[1], reverse=True)[:2])
+        top_1_node = dict(sorted(filtered_nodes.items(), key=lambda item: item[1], reverse=True)[:1])
 
         self.risk_servers = list(top_1_node.keys())
         backups = self.sfc_manager.set_risk_sfcs(top_1_node,self.substrate_network)
@@ -616,7 +616,7 @@ class SubstrateNetworkController():
                 decorrido = current_time - last_backup_time
                 if decorrido >= backup_interval_creation:
                     self.sequential_check_duration() 
-                    self.sequential_backup()  # Substitua pelo método de criação de backups
+                    self.sequential_backup()  # criação de backups
                     self.sequential_submit_sfcs()
                     last_backup_time = time.time()
                     self.sequential_check_duration() 
