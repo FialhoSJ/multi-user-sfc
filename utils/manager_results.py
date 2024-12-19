@@ -55,10 +55,15 @@ def create_output_dir(args,topology):
     #     file.write(f'timestamp;{edges_string}\n')
     
     dir = 'results/results_flows'
+    res_dir = 'results/results_resilient'
     directory_path = os.path.join(dir, f'{args.alg}_s_{args.n_sessions}_p_{args.n_sessions}_sfc_{args.sfc}')
+    res_directory_path = os.path.join(res_dir, f'{args.alg}_s_{args.n_sessions}_p_{args.n_sessions}_sfc_{args.sfc}')
     create_directory_if_not_exists(directory_path)
+    create_directory_if_not_exists(res_directory_path)
 
     flows_path = os.path.join(directory_path, f'{timestamp}.csv')
+    res_path = os.path.join(res_directory_path, f'{timestamp}.csv')
+
     # Define o header como uma lista para facilitar alterações
     header_fields = [
         "No.",
@@ -90,14 +95,21 @@ def create_output_dir(args,topology):
         "running_sessions",
         "trascode_bw",
     ]
+
+    res_fields = ["sfc_id","recover_success","backup_success","latency_diff","time_to_recover"]
+            
     header = ",".join(header_fields) + "\n"
+    res_header = ",".join(res_fields) + "\n"
 
     with open(flows_path, "a") as f:
         f.write(header)
-    return timestamp,file_paths,flows_path
+
+    with open(res_path, "a") as f:
+        f.write(res_header)
+    return timestamp,file_paths,flows_path,res_path
 
 class OutputWritter:
-    def __init__(self, nodes,processing_nodes, edges, cpu_utilization_file, cache_utilization_file, bw_utilization_file, sf_utilization_file,flows_file):
+    def __init__(self, nodes,processing_nodes, edges, cpu_utilization_file, cache_utilization_file, bw_utilization_file, sf_utilization_file,flows_file,res_file):
         self.nodes = nodes
         self.edges = edges
         self.processing_nodes = processing_nodes
@@ -106,9 +118,24 @@ class OutputWritter:
         self.bw_utilization_file = bw_utilization_file
         self.sf_utilization_file = sf_utilization_file
         self.flows_file = flows_file
+        self.resilient_file = res_file
         self.first_time = 0
         self.sfcs_latency_dict = {}
         self.counter_users = 0
+
+    def resilient_output(self,sfc_id,info):
+        is_success = info["recover_success"]
+        backup_success = info["backup_success"]
+        latency_diff = info["latency_diff"]
+        time_to_recover = info["time_to_recover"]
+
+        with open(self.resilient_file, "a") as file:
+            line = str(sfc_id) + ',' + \
+                str(is_success) + ',' + \
+                str(backup_success) + ',' + \
+                str(latency_diff) + ',' + \
+                str(time_to_recover) + "\n"
+            file.write(line)
 
     def output_flows(self,substrate_network,wait_time,running_players_sessions,counter,remaining_time,current_time, sfc, latency, run_duration, is_success,backup_sfc,bw_transcode, latency_diff=None):
         cpu_utilization = round(substrate_network.get_cpu_utilization_rate(), 4)

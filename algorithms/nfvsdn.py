@@ -68,7 +68,7 @@ class Goku(Algorithm):
         
         self.cpu_factor=2
         self.cache_factor=2
-        self.band_factor=0.5
+        self.band_factor=1.0
         self.boot_factor=0
         
         self.using_bit_rate = False
@@ -397,7 +397,9 @@ class Goku(Algorithm):
             #     boot_cost = 0
 
             # Ajustar o cálculo de node_resource_cost para evitar divisão por zero
-            available_cpu = server_resources[server]['cpu_free']
+            available_cpu = server_resources[server]['cpu_capacity'] - server_resources[server]['cpu_used']
+            available_cache = server_resources[server]['cache_capacity'] - server_resources[server]['cache_used']
+            
             if available_cpu > 0:
                 node_resource_cost = cpu_required / available_cpu #
             else:

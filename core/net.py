@@ -115,11 +115,7 @@ class Net(nx.Graph):
     def _get_node_attribute(self, node_id, attr):
         attribute = nx.get_node_attributes(self,attr)
         return attribute[node_id]
-    def _set_node_attribute(self, node_id, **attr):
-        self.add_node(node_id, **attr)
-        return
-    def get_node_sfc_vnf_list(self, node_id):
-        return self._get_node_attribute(node_id, "sfc_vnf_list")
+
 
     def reset_node_cpu_capacity(self, node_id, cpu_capacity):
         self.set_node_cpu_capacity(node_id, cpu_capacity)
@@ -422,6 +418,41 @@ class Net(nx.Graph):
             tmp.append((sfc.id, vnf))
             self._set_node_attribute(path[0], sfc_vnf_list=tmp)
         # sfc.start()
+
+    def _set_node_attribute(self, node_id, **attr):
+        self.add_node(node_id, **attr)
+        return
+    def get_node_sfc_vnf_list(self, node_id):
+        return self._get_node_attribute(node_id, "sfc_vnf_list")
+
+    def reset_vnf_cpu_request(self, node_id, sfc_id, vnf_id, income_bw=0, outcome_bw=0):
+        # Passo 1: Recupere a lista de VNFs associadas ao nó
+        sfc_vnf_list = self._get_node_attribute(node_id, 'sfc_vnf_list')
+
+        # Passo 2: Localize a VNF específica dentro da lista
+        for i, (current_sfc_id, vnf) in enumerate(sfc_vnf_list):
+            if current_sfc_id == sfc_id and vnf.id == vnf_id:
+                # Passo 3: Zere os atributos cpu_request e cache_request da VNF
+                vnf.cpu_request = 0
+                vnf.cache_request = 0
+                
+                # Passo 4: Atualize as interfaces income e outcome
+                vnf.set_income_interface_bandwidth(income_bw)
+                vnf.set_outcome_interface_bandwidth(outcome_bw)
+                
+                # Passo 5: Atualize a lista no nó
+                sfc_vnf_list[i] = (current_sfc_id, vnf)  # Sobrescreve com a VNF atualizada
+                self._set_node_attribute(node_id, sfc_vnf_list=sfc_vnf_list)
+                break
+                return  # Encerra após a modificação bem-sucedida
+        sfc_vnf_list = self._get_node_attribute(node_id, 'sfc_vnf_list')
+        print()
+        return
+        # Caso a VNF não seja encontrada, levanta um erro
+        raise ValueError(f"VNF {vnf_id} da SFC {sfc_id} não encontrada no nó {node_id}.")
+
+
+
 
     def undeploy_sfc(self, sfc_id):
 

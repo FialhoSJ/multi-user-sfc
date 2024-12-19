@@ -16,7 +16,7 @@ class Crasher():
         #self.server_to_reroute = None
         #self.links_to_crash = []
         
-    def activate_crasher(self, network):
+    def activate_crasher(self, network,sfc_manager):
         """Activates the crasher on the given network, excluding specific nodes."""
         nodes_info = {}
         
@@ -28,12 +28,45 @@ class Crasher():
         #     if rel < lowest_rel:
         #         lowest_rel = rel
         #         node_choose = node
-
+        
         nodes_rel = network.nodes_reliability.copy()
         for node,rel in nodes_rel.items():
             if rel > h_rel:
                 h_rel = rel
                 node_choose = node
+        # sfcs_with_backup = list(sfc_manager.sfs_backup.keys())
+        # server_backup_count = {}
+
+        # # Itera sobre os servidores
+        # node_more_cpu = None  # Nenhum servidor inicial selecionado
+        # max_cpu_used = -1  # Valor inicial menor que qualquer possível uso de CPU
+
+        # # Itera sobre os servidores
+        # for node in self.ec_servers:
+        #     cpu_used = network.get_node_cpu_used(node)
+        #     # Verifica se este servidor tem mais CPU usada que o máximo atual
+        #     if cpu_used > max_cpu_used:
+        #         max_cpu_used = cpu_used
+        #         node_more_cpu = node
+        # # Define o servidor escolhido
+        # node_choose = node_more_cpu
+
+        # node_more_sfc = None  
+        # max_sfc = -1  
+        # for node in self.ec_servers:
+        #     count_l = []  # Lista para rastrear SFCS únicas no nó
+        #     for sfc_vnf in network.get_node_sfc_vnf_list(node):
+        #         if sfc_vnf[0] not in count_l:
+        #             count_l.append(sfc_vnf[0])  # Adiciona a SFC se não estiver na lista
+        #     sfcs_in_node = len(count_l)  # Calcula o número de SFCS únicas no nó
+
+        #     # Verifica se este nó tem mais SFCS únicas que o máximo atual
+        #     if sfcs_in_node > max_sfc:
+        #         max_sfc = sfcs_in_node
+        #         node_more_sfc = node
+
+        # Define o servidor escolhido
+        # node_choose = node_more_sfc
 
         if self.crash_links:
             nodes_to_crash = [node_choose]
@@ -62,6 +95,17 @@ class Crasher():
         else:
             self.nodes_crashed = [node_choose]
             return [node_choose]
+
+
+    def recover_from_crash(self, network):
+        nodes_crashed = list(self.nodes_crashed)
+        if len(self.nodes_crashed) != 0: 
+            print(f"Recuperando servidor: {self.nodes_crashed}")
+            for server in nodes_crashed:
+                # Definir capacidades negativas para simular o crash
+                network.set_node_cache_capacity(server, 100)
+                network.set_node_cpu_capacity(server, 100)
+        self.nodes_crashed = []
 
     def implement_crash(self, nodes_crashed, network):
         sfcs_crashed = {}

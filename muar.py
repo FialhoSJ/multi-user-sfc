@@ -27,7 +27,7 @@ from utils.manager_results import create_output_dir, OutputWritter
 # command line arguments
 parser = argparse.ArgumentParser(description='Select MUAR arguments') 
 parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
-parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='vegeta')
+parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='goku')
 parser.add_argument('--n_players', type=int, help='(int) number of players', default=4)
 #on: quebrar mais em funçoes
 #off: monolítico
@@ -76,7 +76,7 @@ sfc_queue = SFCQueue()
 
 SRC_NODE = 0
 max_duration = 120
-latency = [10,10]
+latency = [7,7]
 min_latency_acc = max(latency) if allow_delay else min(latency)
 
 fator = 0.33 # 1 players consumes fator*100 percentage of resources of an Edge Server
@@ -240,7 +240,7 @@ if args.sfc == 'on':
     sfc_poisson_emitter.start(generate_sfc_session, (None))
 
 substrate_network.set_verbose(verbose=verbose)
-timestamp,file_paths,flows_path = create_output_dir(args, topology)
+timestamp,file_paths,flows_path,res_path = create_output_dir(args, topology)
 
 # substrate_network.shareable_band = shareable_band
 # substrate_network.shareable_node = shareable
@@ -275,7 +275,7 @@ sbn_controller.output_writter = OutputWritter(nodes,
                                                 file_paths['cache'],
                                                 file_paths['bandwidth'],
                                                 file_paths['sf'],
-                                                flows_path)
+                                                flows_path,res_path)
 # sbn_controller.shareable_band = False
 sbn_controller.flows = n_sessions
 sbn_controller.players = n_players
