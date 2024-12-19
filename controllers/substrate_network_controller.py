@@ -546,6 +546,7 @@ class SubstrateNetworkController():
 
 
     def sequential_submit_sfcs(self):
+        self.check_timer_qeue()
         last_sf_mono = 'sfc_unique_p4_' + str(self.flows)
         last_sf_dec = 'sfc_mono_p4_' + str(self.flows)
 
@@ -645,7 +646,7 @@ class SubstrateNetworkController():
             copy_timer_qeue = copy.deepcopy(self.timer_qeue_sfcs)
             for sfc_id,info in copy_timer_qeue.items():
                 time_elapsed = final_time - info['timer']
-                if  time_elapsed >= random.randint(4,7):
+                if  time_elapsed >= random.randint(4,6):
                     self.sfc_queue.put_begin(info["new_sfc_list"])
                     del self.timer_qeue_sfcs[sfc_id]
 
@@ -699,11 +700,11 @@ class SubstrateNetworkController():
 
     def sequential_operation(self):
         mobility_interval = 5
-        crasher_interruption_time = 200
-        crasher_recovery_time = 200
+        crasher_interruption_time = 500
+        crasher_recovery_time = 250
         crasher_activated = False
         recovery_activated = False
-        backup_interval_creation = 15
+        backup_interval_creation = 25
         
         start_timer = time.time()
         last_mobility_time = start_timer
@@ -716,7 +717,7 @@ class SubstrateNetworkController():
                 break
                        
             current_time = time.time()
-
+            
             if self.mobility_activated:
                 decorrido = current_time - last_mobility_time
                 if decorrido >= mobility_interval:
