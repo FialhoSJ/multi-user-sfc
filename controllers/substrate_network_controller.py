@@ -378,8 +378,8 @@ class SubstrateNetworkController():
 
     def output_results(self, results_dict, sfc,res_output=False) -> None:
         def output_network_resources(deploy_time):
-            self.output_writter.output_cpu_utilization(self.substrate_network, deploy_time)
-            self.output_writter.output_cache_utilization(self.substrate_network, deploy_time)
+            self.output_writter.output_cpu_utilization(self.substrate_network, deploy_time,self.crasher_manager.nodes_crashed)
+            self.output_writter.output_cache_utilization(self.substrate_network, deploy_time,self.crasher_manager.nodes_crashed)
             self.output_writter.output_bandwidth_utilization(self.substrate_network, deploy_time)
             self.output_writter.output_nodes_sf_utilization(self.substrate_network, deploy_time)
             #self.output_utils.output_edges_sf_utilization(self.edges_vnf, self.existing_vnf, self.sfc_list, deploy_time, route_info, sfc)
@@ -575,6 +575,8 @@ class SubstrateNetworkController():
 
     def sequential_crasher(self,interval=25):
         nodes_to_crash = self.crasher_manager.activate_crasher(self.substrate_network,self.sfc_manager)
+        if nodes_to_crash == False:
+            return False
         sfcs_affected = self.crasher_manager.implement_crash(nodes_to_crash,self.substrate_network)
         
         sfcs_with_backup = list(self.sfc_manager.sfs_backup.keys())
@@ -609,8 +611,7 @@ class SubstrateNetworkController():
                     continue
             else: # A sfc não tem backup
                 to_send_back_to_qeue.append(sfc)
-                continue
-        
+                continue        
 
         for sfc in to_send_back_to_qeue:        
             sfc_id = sfc.id
@@ -700,8 +701,8 @@ class SubstrateNetworkController():
 
     def sequential_operation(self):
         mobility_interval = 5
-        crasher_interruption_time = 500
-        crasher_recovery_time = 250
+        crasher_interruption_time = 200
+        crasher_recovery_time = 400
         crasher_activated = False
         recovery_activated = False
         backup_interval_creation = 25
@@ -740,11 +741,12 @@ class SubstrateNetworkController():
                 # Aciona o crasher se o tempo total atingir 200 segundos, apenas uma vez
                 if not crasher_activated and current_time - start_timer >= crasher_interruption_time:
                     self.sequential_check_duration() 
-                    self.sequential_crasher()  # Substitua pelo método de ativação do crasher
-                    self.sequential_submit_sfcs()
-                    crasher_activated = True
-                    crasher_activation_time = time.time()
-                    self.sequential_check_duration()
+                    retorno = self.sequential_crasher()  # Substitua pelo método de ativação do crasher
+                    if retorno != False:
+                        self.sequential_submit_sfcs()
+                        crasher_activated = True
+                        crasher_activation_time = time.time()
+                        self.sequential_check_duration()
 
                                 # Recupera o sistema após o tempo de recuperação
                 if crasher_activated and not recovery_activated:

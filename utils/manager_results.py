@@ -46,7 +46,7 @@ def create_output_dir(args,topology):
     with open(file_paths['cache'], "a") as file:
         file.write(f'timestamp,{nodes_string[1:-1]}\n')
     with open(file_paths['cpu'], "a") as file:
-        file.write(f'{nodes_string[1:-1]}\n')
+        file.write(f'timestamp,{nodes_string[1:-1]}\n')
     with open(file_paths['sf'], "a") as file:
         file.write(f'timestamp,{nodes_string[1:-1]}\n')
     with open(file_paths['bandwidth'], "a") as file:
@@ -229,44 +229,50 @@ class OutputWritter:
             self.counter_users = users
 
 
-    def output_cpu_utilization(self, substrate_network,deploy_time,crashed_nodes=[]) -> None:
+    def output_cpu_utilization(self, substrate_network, deploy_time, crashed_nodes=[]) -> None:
         """
         Outputs the CPU utilization of nodes to a specified file.
 
         Args:
             deploy_time (float): The deployment time to record with the utilization data.
+            crashed_nodes (list): List of nodes that are crashed and should not report CPU usage.
         """
         processing_nodes = sorted(self.processing_nodes)
-        cpu_nodes_util = np.array([np.nan if node in crashed_nodes else round(substrate_network.get_node_cpu_used(node), 2)
-                                   for node in processing_nodes])
+        cpu_nodes_util = [
+            None if node in crashed_nodes else round(substrate_network.get_node_cpu_used(node), 2)
+            for node in processing_nodes
+        ]
 
-        string_cpu_nodes_util = np.array2string(cpu_nodes_util, suppress_small=True,
-                                                precision=3, separator=',', formatter={'float_kind': lambda x: "%.2f" % x})
+        # Format the array to a string
+        string_cpu_nodes_util = ','.join(['None' if value is None else f"{value:.2f}" for value in cpu_nodes_util])
 
-        string_cpu_nodes_util = re.sub(' ', '', string_cpu_nodes_util)
-        string_cpu_nodes_util = re.sub('\n', '', string_cpu_nodes_util)
-
+        # Write the result to the file
         with open(self.cpu_utilization_file, "a") as file:
-            file.write(str(deploy_time) + ',' +string_cpu_nodes_util[1:-1] + '\n')
+            file.write(f"{deploy_time},{string_cpu_nodes_util}\n")
 
-    def output_cache_utilization(self, substrate_network,deploy_time, crashed_nodes=[]) -> None:
+
+    def output_cache_utilization(self, substrate_network, deploy_time, crashed_nodes=[]) -> None:
         """
         Outputs the cache utilization of nodes to a specified file.
 
         Args:
             deploy_time (float): The deployment time to record with the utilization data.
+            crashed_nodes (list): List of nodes that are crashed and should not report cache usage.
         """
-        cache_nodes_util = np.array([np.nan if node in crashed_nodes else round(substrate_network.get_node_cache_used(node), 2)
-                                     for node in self.nodes])
+        processing_nodes = sorted(self.processing_nodes)
 
-        string_cache_nodes_util = np.array2string(cache_nodes_util, suppress_small=True,
-                                                  precision=3, separator=',', formatter={'float_kind': lambda x: "%.2f" % x})
+        cache_nodes_util = [
+            None if node in crashed_nodes else round(substrate_network.get_node_cache_used(node), 2)
+            for node in processing_nodes
+        ]
 
-        string_cache_nodes_util = re.sub(' ', '', string_cache_nodes_util)
-        string_cache_nodes_util = re.sub('\n', '', string_cache_nodes_util)
+        # Format the array to a string
+        string_cache_nodes_util = ','.join(['None' if value is None else f"{value:.2f}" for value in cache_nodes_util])
 
+        # Write the result to the file
         with open(self.cache_utilization_file, "a") as file:
-            file.write(str(deploy_time) + ',' + string_cache_nodes_util[1:-1] + '\n')
+            file.write(f"{deploy_time},{string_cache_nodes_util}\n")
+
 
     def output_bandwidth_utilization(self, substrate_network, deploy_time: float) -> None:
         """
