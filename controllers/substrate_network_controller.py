@@ -705,7 +705,7 @@ class SubstrateNetworkController():
         crasher_recovery_time = 400
         crasher_activated = False
         recovery_activated = False
-        backup_interval_creation = 25
+        backup_interval_creation = 20
         
         start_timer = time.time()
         last_mobility_time = start_timer

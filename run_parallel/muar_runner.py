@@ -15,7 +15,7 @@ if __name__ == '__main__':
     parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
     parser.add_argument('--n_players', type=int, help='(int) number of players', default=4)
     parser.add_argument('--threads', type=int, help='(int) number of cores to use', default=10)
-    parser.add_argument('--repetition', type=int, help='(int) repetitions', default=5)
+    parser.add_argument('--repetition', type=int, help='(int) repetitions', default=10)
     parser.add_argument('--sfc', type=str, help='(str) on or off', default='on')
     parser.add_argument('--alg', type=str, help='(str) algorithm name', default='goku') # osfem, msf, musfico, ga;...
     # parser.add_argument('--share', type=str, help='(str) whether to share sfs or not', default='y')
@@ -43,7 +43,7 @@ if __name__ == '__main__':
     # Executar cada comando com um atraso de 1 segundo entre eles
     for command in cmd:
         pool.apply_async(run_process, (command,))
-        time.sleep(0.5)  # Atraso antes de iniciar o próximo comando
+        time.sleep(1.0)  # Atraso antes de iniciar o próximo comando
 
     pool.close()  # Nenhum outro trabalho será adicionado
     pool.join()  # Esperar por todos os processos terminarem

@@ -23,25 +23,25 @@ class Crasher():
         node_choose = None
         h_rel = 0
 
-        for node in self.ec_servers:
-            cpu_used = network.get_node_cpu_used(node)
-            cache_used = network.get_node_cpu_used(node)
+        # for node in self.ec_servers:
+        #     cpu_used = network.get_node_cpu_used(node)
+        #     cache_used = network.get_node_cpu_used(node)
 
-            if cpu_used >= 50 and cache_used >= 50:
-                total = cpu_used + cache_used
-                if total > h_rel:
-                    h_rel = total
-                    node_choose = node
+        #     if cpu_used >= 50 and cache_used >= 50:
+        #         total = cpu_used + cache_used
+        #         if total > h_rel:
+        #             h_rel = total
+        #             node_choose = node
         
-        if node_choose == None:
-            return False
+        # if node_choose == None:
+        #     return False
 
 
-        # nodes_rel = network.nodes_reliability.copy()
-        # for node,rel in nodes_rel.items():
-        #     if rel > h_rel:
-        #         h_rel = rel
-        #         node_choose = node
+        nodes_rel = network.nodes_reliability.copy()
+        for node,rel in nodes_rel.items():
+            if rel > h_rel:
+                h_rel = rel
+                node_choose = node
 
                 
         # sfcs_with_backup = list(sfc_manager.sfs_backup.keys())

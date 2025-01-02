@@ -519,7 +519,10 @@ class Net(nx.Graph):
         for node in self.nodes():
             cpu_used = 0
             cache_used = 0
-            reliability_consume = cpu_used + cache_used
+
+            cpu_rel = cpu_used
+            cache_rel = cache_used
+            
             cpu_capacity = self.get_node_cpu_capacity(node)
             cache_capacity = self.get_node_cache_capacity(node)
             sfc_backup = 0
@@ -534,7 +537,8 @@ class Net(nx.Graph):
                         cpu_used += sfc_vnf[1].get_cpu_request()
                         cache_used += sfc_vnf[1].get_cache_request()
                         if not is_backup:
-                            reliability_consume = cpu_used + cache_used
+                            cpu_rel = cpu_used 
+                            cache_rel = cache_used
                         if re.search(pattern, vnf_id) is None and vnf_id not in ('src', 'dst'):
                             self.shared_sfs[node].append(sfc_vnf[1])
                     else:
@@ -552,20 +556,29 @@ class Net(nx.Graph):
                     cpu_used += sfc_vnf[1].get_cpu_request()
                     cache_used += sfc_vnf[1].get_cache_request()
                     if not is_backup:
-                        reliability_consume = cpu_used + cache_used
+                        cpu_rel = cpu_rel+ cpu_used 
+                        cache_rel = cache_rel + cache_used
                 # Atualiza o dicionário de todas as VNFs nos nós
                 if vnf_id not in all_vnfs_on_nodes:
                     all_vnfs_on_nodes[vnf_id] = [node]
                 elif node not in all_vnfs_on_nodes[vnf_id]:
                     all_vnfs_on_nodes[vnf_id].append(node)
             
-            carga  = reliability_consume
-            #tempo = 1 # padrão para todos por simplificação
-            confiabilidade = self.get_node_reliability(node)
-            lambda_rate = (carga / 100) * (-math.log(confiabilidade))
-            #  probabilidade de falha após o tempo t
-            #p_falha = 1 - math.exp(-lambda_rate * tempo)
-            p_falha = 1 - math.exp(-lambda_rate * carga/2)
+
+            time = 0.01 # padrão por simplificação
+
+            base_failure_rate = 1 - self.get_node_reliability(node)
+            
+            alpha_base = 1000
+            alpha_cpu = 1
+            alpha_mem = 1.5
+   
+            lambda_total = (alpha_base * base_failure_rate +
+                            alpha_cpu * cpu_rel +
+                            alpha_mem * cache_rel)
+            
+            reliability = math.exp(-lambda_total * time)
+            p_falha = 1-reliability
 
             self.nodes_reliability[node] = p_falha
             
