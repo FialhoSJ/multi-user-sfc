@@ -53,7 +53,7 @@ class SFCManager:
 
         route_info = alg.get_route_info() # Routes choosen by the alg
         latency = alg.get_latency() # latency of the solution
-        
+        fail_reason = alg.get_fail_reason()
         # bit_rate_adjust =  1.0 if self.alg.name != 'osfem' else alg.get_bit_rate_used()
         # bw_transcode =  sfc.vnfs_dict[-1]['out_bw'] if self.alg.name != 'osfem' else alg.get_transcode_bw()
 
@@ -67,7 +67,9 @@ class SFCManager:
                 if latency > sfc.get_latency_request() or latency < 0:
                     route_info = False
                     latency = None
-        else:
+                else: # everything is okay with the latency request
+                    pass
+        else: # Latency is None 
             route_info = False
             latency = None
     
@@ -97,8 +99,8 @@ class SFCManager:
             
         substrate_network.update()
         self.counter += 1 # at this time all verifications are done. So we add 1 to counter of sfc
-        is_success = self.check_resources_exceed(is_success,sfc,substrate_network) # Check if any fees exceed %
-        results_dict = {"current_time":current_time,"latency":latency,"run_duration":run_duration,"is_success":is_success,"backup_sfc":is_backup}
+        is_success,fail_reason = self.check_resources_exceed(is_success,sfc,substrate_network,fail_reason) # Check if any fees exceed %
+        results_dict = {"current_time":current_time,"latency":latency,"run_duration":run_duration,"is_success":is_success,"fail_reason":fail_reason,"backup_sfc":is_backup}
         return results_dict
     
     def undeploy_sfc(self, sfc_id: str,substrate_network) -> None:
@@ -171,18 +173,19 @@ class SFCManager:
                 sfc_list_duration.append(sfc_id)  # Adiciona o ID à lista
         return sfc_list_duration
 
-    def check_resources_exceed(self,is_success,sfc,substrate_network):
+    def check_resources_exceed(self,is_success,sfc,substrate_network,fail_reason):
         if is_success:
             for node in substrate_network.nodes():
                 cpu_used = substrate_network.get_node_cpu_used(node)
                 cache_used = substrate_network.get_node_cache_used(node)
                 if cpu_used > 100 or cache_used > 100:
                     self.undeploy_sfc(sfc.id,substrate_network)
-                    is_success = False 
-                    return is_success
-            return is_success
+                    is_success = False
+                    fail_reason = "exceed" 
+                    return is_success,fail_reason
+            return is_success,fail_reason
         else:
-            return False
+            return False,fail_reason
     
     def set_risk_sfcs(self,servers,network):
         if len(servers) == 0:

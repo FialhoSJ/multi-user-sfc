@@ -67,6 +67,7 @@ def create_output_dir(args,topology):
     # Define o header como uma lista para facilitar alterações
     header_fields = [
         "No.",
+        "arrival_time",
         "timestamp",
         "time_seconds",
         "users",
@@ -81,8 +82,7 @@ def create_output_dir(args,topology):
         "wait_time",
         "decision_time_ms",
         "success",
-        "backup_success",
-        "arrival_time",
+        "fail_reason",
         "sfc_id",
         "recovery_time",
         "sfc_recovered",
@@ -137,7 +137,7 @@ class OutputWritter:
                 str(time_to_recover) + "\n"
             file.write(line)
 
-    def output_flows(self,substrate_network,wait_time,running_players_sessions,counter,remaining_time,current_time, sfc, latency, run_duration, is_success,backup_sfc,bw_transcode, latency_diff=None):
+    def output_flows(self,substrate_network,wait_time,running_players_sessions,counter,remaining_time,current_time, sfc, latency, run_duration, is_success,fail_reason,backup_sfc,bw_transcode, latency_diff=None):
         cpu_utilization = round(substrate_network.get_cpu_utilization_rate(), 4)
         cache_utilization = round(substrate_network.get_cache_utilization_rate(), 4)
         bw_utilization = round(substrate_network.get_bandwidth_utilization_rate(), 4)
@@ -179,13 +179,14 @@ class OutputWritter:
         else:        
             time_value = round(current_time - self.first_time,1)
 
-        backup_success = None
         if backup_sfc:
-            backup_success = is_success
+            # backup_success = is_success
             is_success = None
-        
+
+
         with open(self.flows_file, "a") as file:
             line = str(counter) + ',' + \
+                   str(sfc.arrival_time) + ',' + \
                    str(current_time) + ',' + \
                    str(time_value) + ',' + \
                    str(self.counter_users) + ',' + \
@@ -200,8 +201,7 @@ class OutputWritter:
                    str(wait_time) + ',' + \
                    str(round(run_duration * 1000, 3)) + ',' + \
                    str(is_success) + ',' + \
-                   str(backup_success) + ',' + \
-                   str(sfc.arrival_time) + ',' + \
+                   str(fail_reason) + ',' + \
                    str(sfc.id) + "," + \
                    str(sfc_recovery_time) + "," + \
                    str(sfc_recovered) + "," + \

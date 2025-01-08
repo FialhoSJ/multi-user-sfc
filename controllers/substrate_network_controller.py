@@ -384,7 +384,7 @@ class SubstrateNetworkController():
             self.output_writter.output_nodes_sf_utilization(self.substrate_network, deploy_time)
             #self.output_utils.output_edges_sf_utilization(self.edges_vnf, self.existing_vnf, self.sfc_list, deploy_time, route_info, sfc)
 
-        def output_flows(current_time, sfc, latency, run_duration, is_success,backup_sfc,latency_diff=None, wait_time=None):
+        def output_flows(current_time, sfc, latency, run_duration, is_success,fail_reason,backup_sfc,latency_diff=None, wait_time=None):
             bw_transcode = 0
             self.output_writter.output_flows(
                 self.substrate_network,
@@ -397,6 +397,7 @@ class SubstrateNetworkController():
                 latency,
                 run_duration,
                 is_success,
+                fail_reason,
                 backup_sfc,
                 bw_transcode,
                 latency_diff
@@ -409,20 +410,20 @@ class SubstrateNetworkController():
             # output of the simulation
             if not res_output:
                 output_network_resources(deploy_time=results_dict['current_time'])
-                output_flows(results_dict['current_time'],sfc,
-                            results_dict['latency'], results_dict['run_duration'],
-                            results_dict['is_success'],results_dict['backup_sfc'])
+                output_flows(results_dict['current_time'],sfc,results_dict['latency'],
+                            results_dict['run_duration'],results_dict['is_success'],
+                            results_dict['fail_reason'],results_dict['backup_sfc'])
+                
                 if not results_dict['backup_sfc']:
                     self.success.append(results_dict['is_success'])
             
-
         sfcs_crash_aff = copy.deepcopy(list(self.sfcs_crash_affected.keys())) 
         if sfc.id in sfcs_crash_aff:
             if not self.sfcs_crash_affected[sfc.id]['backup_success'] == True: #
                 if results_dict:
                     self.sfcs_crash_affected[sfc.id]["recover_success"] = results_dict['is_success']
-                    time_to_recover = time.time() - self.sfcs_crash_affected[sfc.id]["time_to_recover"] if results_dict['is_success'] else None
-                    self.sfcs_crash_affected[sfc.id]["time_to_recover"] = time_to_recover
+                    #time_to_recover = time.time() - self.sfcs_crash_affected[sfc.id]["time_to_recover"] if results_dict['is_success'] else None
+                    #self.sfcs_crash_affected[sfc.id]["time_to_recover"] = time_to_recover
                     latency_diff = results_dict['latency'] - self.sfcs_crash_affected[sfc.id]["old_latency"] if results_dict['is_success'] else None
                     self.sfcs_crash_affected[sfc.id]["latency_diff"] = latency_diff
                 else:
@@ -544,7 +545,6 @@ class SubstrateNetworkController():
         # else:
         #     return False
 
-
     def sequential_submit_sfcs(self):
         self.check_timer_qeue()
         last_sf_mono = 'sfc_unique_p4_' + str(self.flows)
@@ -634,8 +634,9 @@ class SubstrateNetworkController():
               
             new_sfc = SFCGenerator(new_sfc_dict).generate() # gera uma nova e coloca de volta na fila
             new_sfc_list.append(new_sfc)
-            self.timer_qeue_sfcs[sfc_id] = {"new_sfc_list":new_sfc_list,"timer":time.time()}
-            self.sfcs_crash_affected[sfc_id] = {"recover_success":None,"backup_success":False,"latency_diff":None,"old_latency":o_latency,"time_to_recover":time.time()}
+            #self.timer_qeue_sfcs[sfc_id] = {"new_sfc_list":new_sfc_list,"timer":time.time()}
+            self.sfcs_crash_affected[sfc_id] = {"recover_success":None,"backup_success":False,"latency_diff":None,"old_latency":o_latency,"time_to_recover":random.uniform(4,6)}
+            self.sfc_queue.put_begin(new_sfc_list)
         print()
 
     def sequential_recovery(self,interval=200):
@@ -647,8 +648,8 @@ class SubstrateNetworkController():
             copy_timer_qeue = copy.deepcopy(self.timer_qeue_sfcs)
             for sfc_id,info in copy_timer_qeue.items():
                 time_elapsed = final_time - info['timer']
-                if  time_elapsed >= random.randint(4,6):
-                    self.sfc_queue.put_begin(info["new_sfc_list"])
+                if  time_elapsed >= 5:
+                    # self.sfc_queue.put_begin(info["new_sfc_list"])
                     del self.timer_qeue_sfcs[sfc_id]
 
     def sequential_backup(self, threshold=0.0):
@@ -702,7 +703,7 @@ class SubstrateNetworkController():
     def sequential_operation(self):
         mobility_interval = 5
         crasher_interruption_time = 200
-        crasher_recovery_time = 400
+        crasher_recovery_time = 200
         crasher_activated = False
         recovery_activated = False
         backup_interval_creation = 20
@@ -749,11 +750,12 @@ class SubstrateNetworkController():
                         self.sequential_check_duration()
 
                                 # Recupera o sistema após o tempo de recuperação
-                if crasher_activated and not recovery_activated:
-                    recovery_elapsed = current_time - crasher_activation_time
-                    if recovery_elapsed >= crasher_recovery_time:
-                        self.sequential_recovery()  # Substitua pelo método de recuperação
-                        recovery_activated = True
+                # if crasher_activated and not recovery_activated:
+                #     recovery_elapsed = current_time - crasher_activation_time
+                #     if recovery_elapsed >= crasher_recovery_time:
+                #         self.sequential_recovery()  # Substitua pelo método de recuperação
+                #         recovery_activated = True
+
             self.sequential_check_duration()    
             self.check_timer_qeue()
             print(i)
