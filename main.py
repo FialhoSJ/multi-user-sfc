@@ -43,11 +43,6 @@ args = parser.parse_args()
 
 # -------------- Inicializa Topologia ----------------
 topology = TopologyInstantiator().instantiate_topology(args.topology)
-ec_servers = topology.get_topology_info()['ec_servers']
-nodes = topology.get_topology_info()['nodes']
-edges = topology.get_topology_info()['edges']
-routers = topology.get_topology_info()['routers']
-nodes_num = len(nodes)
 
 # Criando a fila de SFCs
 sfc_queue = SFCQueue()
