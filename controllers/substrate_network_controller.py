@@ -763,18 +763,8 @@ class SubstrateNetworkController():
 
     def sequential_backup(self, threshold=0.0):
         node_fail_p = self.substrate_network.nodes_reliability.copy()
-        nodes_highest_p = {node: rel for node, rel in node_fail_p.items() if rel > threshold}
-
-        # Verificando se há pelo menos 1 servidor disponível
-        if len(nodes_highest_p) < 1:
-            print("Nenhum servidor disponível com confiabilidade adequada.")
-            return
-
-        # Selecionando o servidor com menor confiabilidade
-        chosen_server = max(nodes_highest_p, key=nodes_highest_p.get)
-
         # Chamando a função 'set_risk_sfcs' com o servidor escolhido
-        backups = self.backup_manager.create_backups([chosen_server], self.substrate_network,sfc_manager=self.sfc_manager)
+        backups = self.backup_manager.create_backups(node_fail_p, self.substrate_network,sfc_manager=self.sfc_manager)
 
         # Adicionando os backups na fila, se existirem
         if backups:

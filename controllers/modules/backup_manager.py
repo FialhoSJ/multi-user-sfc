@@ -12,8 +12,16 @@ class BackupManager:
     def greedy_strategy(self,servers,network,sfc_id_duration):
         pass
 
-    def seletive_strategy(self,servers,network,sfc_id_duration):
+    def seletive_strategy(self,nodes_fail_p,network,sfc_id_duration,threshold=0):
         backups_mount = []
+        
+        nodes_highest_p = {node: rel for node, rel in nodes_fail_p.items() if rel > threshold}
+        chosen_server = max(nodes_highest_p, key=nodes_highest_p.get)
+        servers = [chosen_server] # Somente um servidor será selecionado, e será aquele com mais chance de falhar
+        
+        if len(servers) == 0:
+            return []
+        
         for server in servers:
             server_info = network.get_node_sfc_vnf_list(server)
             current_time = time.time()
@@ -61,7 +69,7 @@ class BackupManager:
 
                     i = 0
                     latency_dismiss = 0
-                    src,dst = self.escolher_src_dst(sfc_rf,vnf_id)
+                    src,dst,latency_req = self.escolher_src_dst(sfc_rf,vnf_id)
                     # for key,value in sfc_rf.items():        
                     #     if i == 1:
                     #         src = value[0]
@@ -109,17 +117,14 @@ class BackupManager:
                     backups_mount.append(new_sfc_list)
         return backups_mount
    
-    def create_backups(self,servers,network,sfc_manager):
-        if len(servers) == 0:
-            return []
-
+    def create_backups(self,nodes_fail_p,network,sfc_manager):
         backups_mount = []
         sfc_id_duration = copy.deepcopy(sfc_manager.sfc_id_duration)
 
         if self.alg in ['vegeta','ga']:
-            backups_mount = self.seletive_strategy(servers,network,sfc_id_duration)
+            backups_mount = self.seletive_strategy(nodes_fail_p,network,sfc_id_duration)
         else:        
-            backups_mount = self.greedy_strategy(servers,network,sfc_id_duration)
+            backups_mount = self.greedy_strategy(nodes_fail_p,network,sfc_id_duration)
                     #sfcs_id_backup_made.appenc_id)
         return backups_mount
     
@@ -133,20 +138,23 @@ class BackupManager:
         chaves = list(dicionario.keys())  # Lista das chaves na ordem original
         if vnf_escolhida not in chaves:
             return None, None  # Caso a VNF escolhida não exista no dicionário
-
+        latency_dismiss = 0
         idx = chaves.index(vnf_escolhida)  # Posição da VNF na lista de chaves
         
         if idx == 0:  # Se for a primeira VNF, dst é ela mesma e src é a próxima
             dst = chaves[idx]
             src = chaves[idx + 1]
+            latency_dismiss = len(dicionario[src])-1
         elif idx == len(chaves) - 1:  # Se for a última VNF, dst é a anterior e src é ela mesma
             dst = chaves[idx - 1]
             src = chaves[idx]
+            latency_dismiss = len(dicionario[vnf_escolhida]-1)
         else:  # Caso intermediário, dst é a anterior e src é a próxima
             dst = chaves[idx - 1]
             src = chaves[idx + 1]
+            latency_dismiss = (len(dicionario[src])-1) + (len(dicionario[vnf_escolhida])-1)
 
         src = dicionario[src][0]
         dst = dicionario[dst][0]
-
-        return dst, src
+        latency_requirement = 7 - latency_dismiss
+        return dst, src,latency_requirement
