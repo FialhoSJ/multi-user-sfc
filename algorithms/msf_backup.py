@@ -17,7 +17,10 @@ route info :=
 """
 import copy
 import logging
+from algorithms.greedy_algorithm import GreedyAlgorithm
 from config import ROOT_PATH
+from utils.k_shortest_paths import k_shortest_paths
+
 
 # create logger
 logger = logging.getLogger(__name__)
@@ -25,7 +28,7 @@ logger.setLevel(logging.DEBUG)
 
 # create console handler and set level to debug
 # ch = logging.StreamHandler()
-ch = logging.FileHandler(ROOT_PATH + './logs/DynamicProgrammingAlgorithm.log')
+ch = logging.FileHandler(ROOT_PATH + './logs/MSF.log')
 ch.setLevel(logging.DEBUG)
 # create formatter
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -37,9 +40,9 @@ logger.addHandler(ch)
 from algorithms.algorithm import Algorithm
 
 
-class DynamicProgrammingAlgorithm(Algorithm):
+class MSF(Algorithm):
     def __init__(self):
-        self.name = "Dynamic Programming Algorithm"
+        self.name = "msf"
         self.substrate_network = None
         self.sfc = None
         self.node_info = {}
@@ -48,15 +51,24 @@ class DynamicProgrammingAlgorithm(Algorithm):
         self.route_info = {}
         self.single_source_minimum_latency_path = None
         self.latency = None
-        self.latency_minus_dst =  0
-        self.fail_for_band = 0
-        self.fail_for_cache = 0
-        self.fail_for_cpu = 0
-        self.fail_resources = 0
-        self.saved_band = 0
-        self.saved_cpu = 0
-        self.saved_cache = 0
+        self.shareable_list = []
+        self.required_latency = None
 
+    def calculate_route_last_vnf(self):
+        """
+            Calculate shortest path between last vnf and previous vnf
+            for a new destination.
+        """
+
+        # get destination vnf from sfc
+        dst_vnf = self.sfc.get_dst_vnf()
+        # get previous vnf from old object
+        previous_vnf = self.sfc.get_previous_vnf(dst_vnf)
+        prev_vnf_node = self.route_info[previous_vnf.id][0]
+        # applies the algorithm 
+        shortest_path = k_shortest_paths(self.substrate_network, prev_vnf_node, 
+            self.dst_substrate_node, k=1, weight='latency')
+        self.route_info[previous_vnf.id] = shortest_path[0]
     def clear_all(self):
         #logger.debug('clear all')
         self.substrate_network = None
@@ -81,6 +93,7 @@ class DynamicProgrammingAlgorithm(Algorithm):
         src_substrate_node = self.sfc.get_substrate_node(src_vnf)
         dst_vnf = self.sfc.get_dst_vnf()
         dst_substrate_node = self.sfc.get_substrate_node(dst_vnf)
+
         for node in self.substrate_network.nodes():
             self.node_info[node] = {}
             for vnf_id, vnf in list(sfc.vnfs.items()):
@@ -121,21 +134,17 @@ class DynamicProgrammingAlgorithm(Algorithm):
     def get_route_info(self):
         return self.route_info
 
-    def start_algorithm(self, shareable_sfs=None, **kwargs):
+    def start_algorithm(self):
         substrate_network = self.substrate_network
         sfc = self.sfc
         #logger.info('Algorithm start')
-        if self.algorithm(substrate_network, sfc, shareable_sfs):
+        if self.algorithm(substrate_network, sfc):
             #logger.info('Algorithm end, success')
             return True
         #logger.info('Algorithm end, failed')
         return False
 
-    def algorithm(self,substrate_network, sfc, shareable_sfs=None):
-        # faça alguma coisa
-        if shareable_sfs is not None:
-            pass
-
+    def algorithm(self,substrate_network, sfc):
         nodes = substrate_network.nodes()
         # Get src and dst vnf
         src_vnf = sfc.get_src_vnf()
@@ -165,7 +174,6 @@ class DynamicProgrammingAlgorithm(Algorithm):
 
         bandwidth_request = sfc.get_link_bandwidth_request(previous_vnf_id, dst_vnf.id)
 
-#        i = 0
         for node, latency in list(node_latency.items()):
             if node == dst_substrate_node or node == src_substrate_node:
                 # if node is ingress or egress, continue
@@ -191,17 +199,9 @@ class DynamicProgrammingAlgorithm(Algorithm):
                     break
                 bandwidth_usage_info[edge_key] = residual_bandwidth
             if not is_bandwidth_sufficient:
-                #counter+=1
-                #if i == len(list(node_latency.items()))-1:
-                    #logger.warning('no path with sufficient bandwidth')
                 # check next path
                 continue
-
             _latency = self.node_info[node][previous_vnf_id]['latency']
-            #if not self.node_info[dst_substrate_node][dst_vnf.id]['latency']:
-            #    logger.warning('node info')
-            #if not _latency + latency < self.node_info[dst_substrate_node][dst_vnf.id]['latency']:
-            #    logger.warning(('node info latency: ',str(_latency + latency)))
             if not self.node_info[dst_substrate_node][dst_vnf.id]['latency'] \
                 or _latency + latency < self.node_info[dst_substrate_node][dst_vnf.id]['latency']:
                 self.node_info[dst_substrate_node][dst_vnf.id]['latency'] = _latency + latency
@@ -218,6 +218,7 @@ class DynamicProgrammingAlgorithm(Algorithm):
             # Start from dst to backtracking to src
             previous_vnf = dst_vnf
             previous_substrate_node = dst_substrate_node
+            print("backtrack pvs node:", previous_substrate_node)
             while True:
                 path = self.node_info[previous_substrate_node][previous_vnf.id]['path']
                 if not path:
@@ -230,28 +231,42 @@ class DynamicProgrammingAlgorithm(Algorithm):
                     break
             self.route_info[dst_vnf.id] = []
             self.latency = self.node_info[dst_substrate_node][dst_vnf.id]['latency']
-            # refuse if latency is too high
+            prev_vnf_node = self.route_info[previous_vnf.id][0]
+            
+            
+            # # Se chegou aqui e `self.route_info` não está vazio (ou a flag de que achou caminho é True):
+            # oversubscribed = self.check_resource_excess(sfc)
+
+            # if oversubscribed != []:
+            #     print(f"Nós que extrapolaram recursos: {oversubscribed}")
+            #     if self.solucao_paliativa(sfc):
+            #         return True
+            #     else:
+            #         return False
+
+            # remove latency from dst to previous vnf
+            #self.latency_minus_dst = self.latency - len(self.route_info[previous_vnf.id])
             if 'src' not in self.route_info.keys():
                 return True
             path = self.route_info['src']
             for i in range(len(path) - 1):
                 edge_latency = self.substrate_network.get_link_latency(
-                        path[i], path[i + 1])
+                    path[i], path[i + 1])
                 self.latency = self.latency - edge_latency
-            if self.latency > sfc.get_latency_request(): 
+            if self.latency > sfc.get_latency_request():
                 self.route_info = {}
                 return False
+            print(self.route_info)
             return True
         else:
+            print(self.route_info)
             return False
-
 
     def _dp(self, substrate_node, vnf):
         """
         Start from substrate node substrate_node, calculate all paths and latency from substrate_node to other nodes N.
         update information in nodes N for vnf, if latency is minimum. 
         """
-
         # Get precedent of the vnf
         sfc = self.sfc
         previous_vnf = sfc.get_previous_vnf(vnf)
@@ -265,32 +280,30 @@ class DynamicProgrammingAlgorithm(Algorithm):
         (node_latency, node_path) = self.single_source_minimum_latency_path[substrate_node]
         
         _latency = self.node_info[substrate_node][previous_vnf_id]['latency']
-       
+
         cpu_request = sfc.get_vnf_cpu_request(vnf)
         bandwidth_request = sfc.get_link_bandwidth_request(previous_vnf_id, vnf_id)
         cache_request = sfc.get_vnf_cache_request(vnf)
 
         for node, latency in list(node_latency.items()):
-            if node == self.src_substrate_node or node == self.dst_substrate_node:
+            if latency >2:
                 continue
-                # Ingress and egress cannot host this vnf
+            if node == substrate_node:
+               # Cannot use the current substrate node to host this vnf.
+               continue
             if node in self.node_info[substrate_node][previous_vnf_id]['current_substrate_nodes']:
                # If node has been used, cannot host this vnf
                # Current_substrate_nodes contains the nodes that have been used
                continue
+            if node == self.src_substrate_node or node == self.dst_substrate_node:
+                # Ingress and egress cannot host this vnf
+                continue
 
             # Check CPU and cache resources
             cpu_available = self.substrate_network.get_node_cpu_free(node)
             cache_available = self.substrate_network.get_node_cache_free(node)
-            if cpu_request > cpu_available:
-                # if node has not sufficient cpu, check next node.
-                #logger.warning("not sufficient CPU in Node " + str(node))
-                self.fail_for_cpu += 1
-                continue
-            if cache_request > cache_available:
-                # if node has not sufficient cache, check next node. 
-                #logger.warning("not sufficient cache in Node " + str(node))
-                self.fail_for_cache += 1
+            if cpu_request > cpu_available or cache_request > cache_available:
+                # if node has not sufficient cpu, check next node. 
                 continue
 
             # Check bandwidth resources
@@ -311,16 +324,13 @@ class DynamicProgrammingAlgorithm(Algorithm):
                     residual_bandwidth = self.substrate_network.get_link_bandwidth_free(path[i],
                                                                                         path[i + 1]) - bandwidth_request
                 if residual_bandwidth < 0:
-                    #logger.warning('dp Bandwidth resources is not sufficient')
+                    #logger.warning('Bandwidth resources is not sufficient')
                     is_bandwidth_sufficient = False
                     break
-                # condition to check latency
                 bandwidth_usage_info[edge_key] = residual_bandwidth
             if not is_bandwidth_sufficient:
-                self.fail_for_band += 1
                 continue
             self.node_info[node][vnf_id]['bandwidth_usage_info'] = bandwidth_usage_info
-
             if not self.node_info[node][vnf_id]['latency'] or (_latency + latency) <= self.node_info[node][vnf_id]['latency']:
                 self.node_info[node][vnf_id]['latency'] = _latency + latency
                 self.node_info[node][vnf_id]['path'] = node_path[node]
@@ -331,11 +341,97 @@ class DynamicProgrammingAlgorithm(Algorithm):
                 self.node_info[node][vnf_id]['src_path'] = self.node_info[substrate_node][previous_vnf_id]['src_path'][:] + node_path[node][:-1]
         return True
 
+
+
+
+
+    def check_resource_excess(self, sfc):
+        """
+        Verifica se a alocação em self.route_info extrapola a CPU ou Cache
+        livre nos nós do Substrate. Retorna lista de nós que foram excedidos
+        ou lista vazia se estiver tudo correto.
+        """
+
+        if not self.route_info:
+            # Se não houve solução (route_info vazio), não há o que checar
+            return []
+
+        # Dicionários para acumular consumo de CPU/Cache em cada nó
+        node_cpu_usage   = {}
+        node_cache_usage = {}
+
+        # Inicializa cada nó com consumo zero
+        for n in self.substrate_network.nodes():
+            node_cpu_usage[n] =  0
+            node_cache_usage[n] = 0
+
+        hosts = []
+        # Para cada VNF (chave do dict), some o consumo no nó que hospeda
+        for vnf_id, path in self.route_info.items():
+            # Ignorar caso especial src/dst se esses IDs estão no route_info
+            if vnf_id in ['src', 'dst']:
+                continue
+
+            # No seu exemplo, "path[0]" é o nó que hospeda a VNF
+            host_node = path[0]
+            hosts.append(host_node)
+            # Obtem o objeto da VNF
+            vnf_obj = sfc.vnfs[vnf_id]
+
+            # Soma as requisições
+            cpu_req   = sfc.get_vnf_cpu_request(vnf_obj)
+            cache_req = sfc.get_vnf_cache_request(vnf_obj)
+
+            node_cpu_usage[host_node]   += cpu_req
+            node_cache_usage[host_node] += cache_req
+
+        # Agora, verificar se algum nó excedeu a capacidade
+        overflow = False
+        oversubscribed_nodes = []
+        hosts = list(set(hosts))
+        for node in hosts:
+            cpu_free   = self.substrate_network.get_node_cpu_free(node)
+            cache_free = self.substrate_network.get_node_cache_free(node)
+
+            cpu_capacity   = self.substrate_network.get_node_cpu_capacity(node)
+            cache_capacity = self.substrate_network.get_node_cache_capacity(node)
+
+            solution_cpu_req = node_cpu_usage[node]
+            solution_cache_req = node_cache_usage[node]
+
+            if cpu_capacity <= 0  or cache_capacity <= 0 :
+                oversubscribed_nodes.append(node)
+
+            if (cpu_free < solution_cpu_req) or (cache_free < solution_cache_req):
+                oversubscribed_nodes.append(node)
+                overflow = True
+        return oversubscribed_nodes
+    
+    def solucao_paliativa(self,sfc):
+        # Se houver algum nó que estourou CPU ou Cache, descarta a solução
+        # Como solução parcial, caso o MSF dê uma solução inválida, iremos usar a abordagem greedy para alocação
+        greedy_alg = GreedyAlgorithm()  
+        #self.clear_all()
+        greedy_alg.clear_all()
+        greedy_alg.install_substrate_network(self.substrate_network)
+        greedy_alg.install_SFC(self.sfc)
+        greedy_alg.mono = False
+        greedy_alg.start_algorithm()
+        self.route_info = greedy_alg.get_route_info() # Routes choosen by the alg
+        self.latency = greedy_alg.get_latency() # latency of the solution     # indica falha
+
+        if self.latency == None:
+            self.route_info = {}
+            return False
             
-
+        if self.latency > sfc.get_latency_request():
+            self.route_info = {}
+            return False   
         
         
+        
+        oversubscribed = self.check_resource_excess(sfc)
 
-
-
-
+        if oversubscribed != []:
+            print("Greedy retornou uma solução errada")
+        return True

@@ -24,7 +24,6 @@ class SFCManager:
         self.counter = 0 # how many sfcs are running
         self.verbose = True
         self.crashed_servers = []
-        self.sfc_reuse = {}
 
     def deploy_sfc(self, sfc: object,substrate_network,alg) -> bool:
         if sfc.id in self.sfc_list:
@@ -45,6 +44,7 @@ class SFCManager:
             
         s = time.time() # Start measuring how long it takes to the alg run
 
+        
         is_backup = self.is_Backup(sfc.id)
 
         match alg.name:
@@ -59,11 +59,9 @@ class SFCManager:
         s2 = time.time()
 
         route_info = alg.get_route_info() # Routes choosen by the alg
+        
         latency = alg.get_latency() # latency of the solution
         fail_reason = None #alg.get_fail_reason()
-
-        r_info = self.set_sfc_reuse(sfc,route_info,shareable_sfs)
-
         # bit_rate_adjust =  1.0 if self.alg.name != 'osfem' else alg.get_bit_rate_used()
         # bw_transcode =  sfc.vnfs_dict[-1]['out_bw'] if self.alg.name != 'osfem' else alg.get_transcode_bw()
 
@@ -87,9 +85,6 @@ class SFCManager:
         is_success = False
         current_time = s2
         run_duration = s2 - s
-        if  alg.name == 'ga':
-            run_duration =alg.elapsed_time
-
         arrival_time = sfc.arrival_time
         sfc.depart_time = s2
     
@@ -126,44 +121,9 @@ class SFCManager:
         substrate_network.update()
         self.counter += 1 # at this time all verifications are done. So we add 1 to counter of sfc
         is_success,fail_reason = self.check_resources_exceed(is_success,sfc.id,substrate_network,fail_reason) # Check if any fees exceed %
-        
-        if is_success == False:
-            if sfc.id in list(self.sfc_reuse.keys()):
-                r_info = None
-                del self.sfc_reuse[sfc.id]
-
-        results_dict = {"current_time":current_time,"latency":latency,"run_duration":run_duration,"resource_info":r_info,"is_success":is_success,"fail_reason":fail_reason,"backup_sfc":is_backup}
+        results_dict = {"current_time":current_time,"latency":latency,"run_duration":run_duration,"is_success":is_success,"fail_reason":fail_reason,"backup_sfc":is_backup}
         return results_dict
     
-    def set_sfc_reuse(self,sfc,route_info,shareable_sfs):
-        conta = 0
-        if route_info != None :
-            if route_info != {}:
-                if  route_info != False:
-                    #sfc = self.substrate_network.get_sfc_by_id(sfc_id)
-                    cpu_saved = 0
-                    cache_saved = 0
-
-                    total_cpu_req = 0
-                    total_cache_req = 0
-
-                    for vnf,servers in route_info.items():
-                        if vnf not in ['src','dst']:
-                            server_used = servers[0]
-                            shared_sfs_in_node = list(map(lambda sf: sf.id, shareable_sfs[server_used]))
-                            cpu_req   = sfc.vnfs[vnf].get_cpu_request()
-                            cache_req =  sfc.vnfs[vnf].get_cache_request()
-                            if vnf in shared_sfs_in_node:
-                                # Com reúso
-                                cpu_saved += cpu_req
-                                cache_saved += cache_req
-
-                            total_cpu_req += cpu_req
-                            total_cache_req += cache_req
-                    conta = (cpu_saved + cache_saved) / (total_cpu_req + total_cache_req) 
-                    self.sfc_reuse[sfc.id] = conta
-        return conta
-        
 
     def check_route_info(self,route_info):
         if route_info != False:

@@ -5,18 +5,16 @@ import threading
 from typing import Optional
 
 from sumo.luxembourg.luxembourg_trace import Sumo_Luxembourg
-from sumo.tracer_instantiator import TracerInstantiator
 
 class MobilityManager:
-    def __init__(self,args):
+    def __init__(self,tracer=None):
         """
         Inicializa o MobilityManager com uma instância de tracer.
         
         Args:
             tracer: Uma instância de um tracer (como Sumo_Luxembourg).
         """
-        self.activated = (args.mobility == 'y')
-        self.tracer : Optional[Sumo_Luxembourg] = TracerInstantiator().instantiate_tracer(args.topology) if (args.mobility == 'y') else None
+        self.tracer : Optional[Sumo_Luxembourg] = tracer
         self.vehicle_to_service_map = {}
         self.to_remove_vehicles = []
         self.running_sfcs = []
@@ -92,7 +90,7 @@ class MobilityManager:
                             reduction_percentage = ((previous_distance - current_distance) / previous_distance) * 100
 
                             # Verificar se a redução é de pelo menos 35%
-                            if reduction_percentage >= 70:
+                            if reduction_percentage >= 60:
                                 # Atualiza a posição e a distância do veículo no mapeamento
                                 self.vehicle_to_service_map[vehicle_id]['veh_location'] = int(current_position)
                                 self.vehicle_to_service_map[vehicle_id]['status'] = 'moving'

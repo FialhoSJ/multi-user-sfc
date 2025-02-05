@@ -287,18 +287,18 @@ class Vegeta(Algorithm):
         paths = dict(nx.single_source_shortest_path_length(G, current_location, cutoff=8))
         paths[current_location] = 0  # Custo de 'mover' para o mesmo servidor é 0
         
-        if restriction == []:
-            del paths[current_location]
-            for server in self.servers_used:
-                if server in list(paths.keys()):
-                    del paths[server]
-        else:
-            if service.startswith("src"):
-                paths = {solutions["src"] :  paths[solutions['src']]}
-            else:
-                for server in restriction:
-                    if server in restriction:
-                        del paths[server]
+        # if restriction == []:
+        #     del paths[current_location]
+        #     for server in self.servers_used:
+        #         if server in list(paths.keys()):
+        #             del paths[server]
+        # else:
+        #     if service.startswith("src"):
+        #         paths = {solutions["src"] :  paths[solutions['src']]}
+        #     else:
+        #         for server in restriction:
+        #             if server in restriction:
+        #                 del paths[server]
 
 
         candidates = []
@@ -314,15 +314,12 @@ class Vegeta(Algorithm):
             if all(G[u][v]['bandwidth'] > bandwidth_requirement for u, v in zip(path, path[1:])):
                 available_cpu = server_resources[server]['cpu_capacity'] - server_resources[server]['cpu_used']
                 available_cache = server_resources[server]['cache_capacity'] - server_resources[server]['cache_used']
-               
                 if restriction == []:
                     if available_cpu > cpu_required and available_cache > cache_required:
                         return True
                 else:
                     if available_cpu >= cpu_required and available_cache >= cache_required:
                         return True
-                
-            
             return False
 
         def calculate_bandwidth_cost(path, bandwidth_requirement):
@@ -336,7 +333,7 @@ class Vegeta(Algorithm):
                     cost += (bandwidth_requirement / (available_bandwidth + epsilon))
                 else:
                     return float('inf')  # Link não disponível
-            cost = cost * 2.0
+            cost = cost * 3.5
 
             # Normalizar o custo acumulado para ficar entre 0 e 1
             # normalized_cost = cost / (len(path) - 1)
@@ -455,7 +452,7 @@ class Vegeta(Algorithm):
             #     self.bitrate_cut = bitrate
             # elif is_success and bitrate == 1.0:
             #     print(bitrate)
-
+        
         return self.evaluate_result(latency, route_info)
             # self.bitrate_cut = bitrate
             #return is_success
@@ -489,6 +486,11 @@ class Vegeta(Algorithm):
         return services, service_requirements
 
     def evaluate_result(self, latency, route_info):
+        if latency == None:
+            self.fail_reason= 'resource'
+            self.route_info = False
+            self.latency = None
+            return False
         if latency > self.latency_request:
             self.latency = None
             self.route_info = False
@@ -511,8 +513,7 @@ class Vegeta(Algorithm):
             #     next_service = services[i + 1]
             # else:
             #     next_service = None
-            
-            
+        
             best_server, best_path, min_cost, cost_details = self.allocate_sf(G,
                                                                     service_requirements,
                                                                     server_resources,
@@ -540,10 +541,11 @@ class Vegeta(Algorithm):
             else:
                 #print(f"Falha.")
                 success =  False
+                self.fail_reason = 'resource'
                 break
 
         if success == False:
-            return [],1000
+            return [],None
 
         # ultima iteração para o src
         path_to_src = nx.dijkstra_path(G,current_location, 0, weight='weight')

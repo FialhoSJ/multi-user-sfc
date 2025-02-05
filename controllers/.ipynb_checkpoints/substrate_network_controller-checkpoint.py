@@ -17,14 +17,14 @@ from threading import Timer
 from queue import Queue
 import numpy as np
 from typing import Optional
-from controllers.modules.backup_manager import BackupManager
 from controllers.modules.sfcs_manager import SFCManager
 from controllers.sfc_generator import SFCGenerator
 from collections import deque
-from typing import Optional
 
 from controllers.modules.mobility_manager import MobilityManager
 from controllers.modules.crasher import Crasher
+from controllers.modules.resource_manager import ResourceManager
+
 from controllers.sfc_queue import SFCQueue
 from core.net import Net
 from utils.manager_results import OutputWritter
@@ -57,10 +57,10 @@ class SubstrateNetworkController():
         self.node_info = {}
 
         # Modules
-        self.mobility_manager: Optional[MobilityManager] = 0  
-        self.sfc_manager: Optional[SFCManager] = 0
-        self.crasher_manager: Optional[Crasher] = 0
-        self.backup_manager: Optional[BackupManager] = 0
+        self.mobility_manager = MobilityManager()
+        self.sfc_manager = SFCManager()
+        self.crasher_manager = Crasher()
+
         # Status da Rede
         self.remaining_time = None
         self.update_interval = 1
@@ -75,7 +75,9 @@ class SubstrateNetworkController():
         # Implementações extras
         self.verbose = False
         self.log_file = "backup_log.txt"
-        self.latency_interval = [7, 7]
+        self.crasher_activate = False
+        self.mobility_activated = None
+        self.latency_interval = [6, 10]
         self.allow_high_latency = False
         self.altered_sfcs = {}
 
@@ -115,7 +117,7 @@ class SubstrateNetworkController():
         sequential = True
         
         if sequential:
-            if self.mobility_manager.activated:
+            if self.mobility_activated:
                 self.mobility_manager.start_simulation()
             
             _thread.start_new_thread(self.sequential_operation,())
@@ -125,7 +127,7 @@ class SubstrateNetworkController():
             self.check_sfc_duration()
 
             # If mobility is activated
-            if self.mobility_manager.activated:
+            if self.mobility_activated:
                 self.mobility_manager.start_simulation()
                 self.start_tracer(interval = 5)
 
@@ -762,19 +764,21 @@ class SubstrateNetworkController():
             self.timer_qeue_sfcs = new_timer_qeue_sfcs
 
     def sequential_backup(self, threshold=0.0):
-        node_fail_p = self.substrate_network.nodes_reliability.copy()
-        nodes_highest_p = {node: rel for node, rel in node_fail_p.items() if rel > threshold}
+        nodes_rel = self.substrate_network.nodes_reliability.copy()
+
+        # Filtrando os nós com 'rel' maior que o 'threshold'
+        filtered_nodes = {node: rel for node, rel in nodes_rel.items() if rel > threshold}
 
         # Verificando se há pelo menos 1 servidor disponível
-        if len(nodes_highest_p) < 1:
+        if len(filtered_nodes) < 1:
             print("Nenhum servidor disponível com confiabilidade adequada.")
             return
 
-        # Selecionando o servidor com menor confiabilidade
-        chosen_server = max(nodes_highest_p, key=nodes_highest_p.get)
+        # Selecionando o servidor com maior confiabilidade
+        chosen_server = max(filtered_nodes, key=filtered_nodes.get)
 
         # Chamando a função 'set_risk_sfcs' com o servidor escolhido
-        backups = self.backup_manager.create_backups([chosen_server], self.substrate_network,sfc_manager=self.sfc_manager)
+        backups = self.sfc_manager.set_risk_sfcs([chosen_server], self.substrate_network)
 
         # Adicionando os backups na fila, se existirem
         if backups:
@@ -820,19 +824,19 @@ class SubstrateNetworkController():
             self.sequential_submit_sfcs()
                        
             current_time = time.time()
-            if self.mobility_manager.activated:
+            if self.mobility_activated:
                 decorrido = current_time - last_mobility_time
                 if decorrido >= mobility_interval:    
                     self.sequential_mobility()
                     last_mobility_time = time.time()
 
-            if self.backup_manager.backup_activated:
+            if self.alg.name in ['vegeta']:
                 decorrido = current_time - last_backup_time
                 if decorrido >= backup_interval_creation:
                     self.sequential_backup()  # criação de backups
                     last_backup_time = time.time()
             
-            if self.crasher_manager.activated:
+            if self.crasher_activate:
                 #Recupera o sistema após o tempo de recuperação
                 if self.crasher_manager.nodes_crashed != []:
                     recovery_elapsed = current_time - last_crasher_time

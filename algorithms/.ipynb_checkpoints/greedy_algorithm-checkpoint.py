@@ -16,7 +16,6 @@ route info :=
 
 """
 import logging
-import random
 # create logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -51,7 +50,8 @@ class GreedyAlgorithm():
         self.node_info = None
         self.route_info = None
         self.latency = None
-
+        self.mono = False
+        self.old_greedy = True
 
     def clear_all(self):
         self.substrate_network = None
@@ -89,7 +89,7 @@ class GreedyAlgorithm():
         src_vnf = sfc.get_src_vnf()
         dst_vnf = sfc.get_dst_vnf()
 
-        # Get substrate network nodes that src and dst are assigned in advanced
+        # Get substrate network nodes that src and dst are assigned in advance
         src_substrate_node = sfc.get_substrate_node(src_vnf)
         dst_substrate_node = sfc.get_substrate_node(dst_vnf)
 
@@ -97,21 +97,16 @@ class GreedyAlgorithm():
         bandwidth_usage_info = {}
 
         latency = 0
-        used_node = [src_substrate_node, dst_substrate_node]
+        used_node = [dst_substrate_node, src_substrate_node]
 
         number_of_vnfs = sfc.get_number_of_vnfs()
-        current_vnf = src_vnf
-        current_substrate_node = src_substrate_node
-        
+        current_vnf = dst_vnf
+        current_substrate_node = dst_substrate_node
+
         net_info = substrate_network 
         old_server_resources = net_info._node
         servers = list(old_server_resources.keys())
-        random.shuffle(servers)
         
-        dist_src_dst = substrate_network.get_shortest_path_length(src_substrate_node, dst_substrate_node)
-        if dist_src_dst > 4:
-            servers = substrate_network.get_shortest_path(src_substrate_node, dst_substrate_node)
-
         # Inicializa o dicionário de recursos dos servidores
         server_resources = {
             server: {
@@ -125,89 +120,134 @@ class GreedyAlgorithm():
                 'reuse': []
             } for server in servers}
 
-        node = 0
-        for i in range(0, number_of_vnfs):
-            
-            edges = substrate_network.edges(current_substrate_node)
-            next_vnf = current_vnf.get_next_vnf()
+        nodes_used = []
+        for i in range(number_of_vnfs - 1, -1, -1):
+            edges = list(substrate_network.edges(current_substrate_node))
+            edges = list(set([x[1] for x in edges]))
 
-            cpu_request = sfc.get_vnf_cpu_request(next_vnf)
-            cache_request = sfc.get_vnf_cache_request(next_vnf)
+            #edges.append((current_substrate_node, current_substrate_node))
+            prev_vnf = current_vnf.get_previous_vnf()
 
-            bandwidth_request = sfc.get_link_bandwidth_request(current_vnf.id, next_vnf.id)
+            cpu_request = sfc.get_vnf_cpu_request(prev_vnf)
+            cache_request = sfc.get_vnf_cache_request(prev_vnf)
+            bandwidth_request = sfc.get_link_bandwidth_request(prev_vnf.id, current_vnf.id)
 
-            min_latency = None
-            
-            for e in servers:
-                #print("### Normal mode ###")
-                # THIS SHOULD STAY DEACTIVATED TO ALLOW MULTIPLE VNFS
-                # HOSTED IN THE SAME NODE   
-                if e in used_node:
-                   # do not use the node used before, to avoid loop
-                   continue
+            min_latency = float("inf")
+            node = None
 
-                cpu_available = substrate_network.get_node_cpu_free(e)
-                cache_available = substrate_network.get_node_cache_free(e)
+            if self.old_greedy:
+                nodes_to_check = edges
+            else:
+                nodes_to_check = servers
                 
+            for node_a in nodes_to_check:
+                if not self.mono:
+                    if node_a == current_substrate_node or node_a in nodes_used:
+                        continue
+                # Agora buscamos valores diretamente em server_resources:
+                cpu_available = server_resources[node_a]['cpu_free']
+                cache_available = server_resources[node_a]['cache_free']
+
+                cpu_used = server_resources[node_a]['cpu_used']
+                cache_used = server_resources[node_a]['cache_used']
+
+                cpu_cap = server_resources[node_a]['cpu_capacity']
+                cache_cap = server_resources[node_a]['cache_capacity']
+
+                
+                if cpu_cap <= 0 or cache_cap <= 0:
+                    continue
+
+                if cpu_available <= 0 or cache_available <= 0:
+                    continue
+
+                if cpu_used + cpu_request > cpu_cap or cache_used + cache_request > cache_cap:
+                    continue
+
                 if cpu_request > cpu_available:
-                    # if node has not sufficient cpu, check next edge.
-                    logger.debug("node %s has not %s cpu", e, cpu_request)
+                    logger.debug("Node %s não tem CPU suficiente para %s", node_a, cpu_request)
                     continue
                 if cache_request > cache_available:
-                    # if node has not sufficient cpu, check next edge.
-                    logger.debug("node %s has not %s cache", e, cache_request)
+                    logger.debug("Node %s não tem CACHE suficiente para %s",node_a, cache_request)
                     continue
 
-                #edge_latency = substrate_network.get_link_latency(e[0], e[1])
-                edge_latency = substrate_network.get_shortest_path_length(current_substrate_node, e)
-                if min_latency == None or edge_latency < min_latency:
-                    min_latency = edge_latency
-                    node = e
+                # Verificando link (apenas se não for laço no mesmo nó)
+                if node_a == node:
+                    edge_latency = 0
+                else:
+                    # bandwidth_available = substrate_network.get_link_bandwidth_free(e[0], e[1])
+                    # if bandwidth_request > bandwidth_available:
+                    #     logger.debug("Aresta (%s, %s) sem banda suficiente", e[0], e[1])
+                    #     continue
+                    edge_latency = substrate_network.single_source_minimum_latency_path[current_substrate_node][0][node_a]
 
-            if node != None and min_latency != None:
-                # be careful that node can be 0
-                path = substrate_network.get_shortest_path(current_substrate_node, node)
-                #route_info[current_vnf.id] = [current_substrate_node, node] 
-                route_info[current_vnf.id] = path
+                # Verifica se a latência desse caminho é a menor
+                if edge_latency < min_latency:
+                    min_latency = edge_latency
+                    node = node_a
+
+            # Se encontrou um nó para alocar
+            if node is not None:
+                nodes_used.append(node)
+                # Atualizamos o dicionário de recursos
+                server_resources[node]['cpu_used'] += cpu_request
+                server_resources[node]['cpu_free'] -= cpu_request
+
+                server_resources[node]['cache_used'] += cache_request
+                server_resources[node]['cache_free'] -= cache_request
+                
+                # Se for usar a banda, você também decrementa a banda do enlace
+                # se node != current_substrate_node, por exemplo
+                # Ajuste do route_info e soma de latência
+                if node == current_substrate_node:
+                    route_info[prev_vnf.id] = [node]
+                else:
+                    route_info[prev_vnf.id] = substrate_network.single_source_minimum_latency_path[node][1][current_substrate_node]
                 used_node.append(node)
-                latency = latency + min_latency
+                latency += min_latency
 
             else:
-                logger.debug("node is not existing")
+                logger.debug("Não foi possível alocar VNF")
                 self.route_info = {}
                 self.latency = None
                 return False
 
             current_substrate_node = node
-            current_vnf = next_vnf
+            current_vnf = prev_vnf
 
         try:
-            # get shortest path length. here shortest path length is weighted by latency.
-            path = substrate_network.get_shortest_path(node, dst_substrate_node)
-            path_latency = substrate_network.get_shortest_path_length(node, dst_substrate_node)
+            path = substrate_network.get_shortest_path(src_substrate_node, node)
+            path_latency = substrate_network.get_shortest_path_length(src_substrate_node, node)
         except:
-            logger.warning('have no path between last vnf and dst: %s - %s', node, dst_substrate_node)
+            logger.warning('Não há caminho entre src e primeira VNF: %s - %s',
+                        src_substrate_node, node)
             self.route_info = {}
             self.latency = None
             return False
 
-        route_info[current_vnf.id] = path
+        # Adicionamos esse path como 'src' no route_info
+        route_info['src'] = path
         route_info['dst'] = []
-        latency = latency + path_latency
+        latency += path_latency
 
+        # Define route_info e latency no objeto
         self.route_info = route_info
         self.latency = latency
 
+        # Se você precisa fazer algum ajuste de latência baseado em edges do path:
         path = self.route_info['src']
         for i in range(len(path) - 1):
-            edge_latency = self.substrate_network.get_link_latency(
-                path[i], path[i + 1])
+            edge_latency = substrate_network.get_link_latency(path[i], path[i + 1])
             self.latency = self.latency - edge_latency
+
+        # Algumas checagens que já existiam
         if len(self.route_info.keys()) != 6:
             self.latency = None
             self.route_info = {}
             return False
+
         if self.latency > sfc.get_latency_request():
             self.route_info = {}
             return False
         return True
+

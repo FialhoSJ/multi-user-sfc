@@ -17,7 +17,7 @@ from algorithms.vegeta import Vegeta
 class AlgorithmInstantiator:
     def instantiate_algorithm(self, type):
         if type == 'musfico':
-            alg = DynamicProgrammingAlgorithm()
+            alg = Musfico()
         elif type =='new_alg':
             alg = NewAlg()
         elif type == 'dp':

@@ -10,8 +10,7 @@ import random
 import math
 import numpy as np
 from scipy.spatial import KDTree
-import sys
-from traci.exceptions import FatalTraCIError
+
 from sumo.luxembourg.config_routes import topology,positions,server_ids,server_tree,routers
 # Tracer utilizando SUMO.
 # Autor: Rodrigo Flexa 
@@ -128,7 +127,7 @@ class Sumo_Luxembourg(AbstractTracer):
                                                 'end_edge':end_edge,
                                                 'connected':True}
                                                 #'coord': (x,y)}
-            #traci.simulationStep()
+            traci.simulationStep()
                                                 
         # except Exception as e:
         #     print(f"Error in vehicle creation: {str(e)}")
@@ -144,7 +143,7 @@ class Sumo_Luxembourg(AbstractTracer):
         with self.lock:
             if vehicle_id in list(self.vehicles_info.keys()):
                 self.vehicles_info[vehicle_id]['connected'] = False
-            #traci.simulationStep()
+            traci.simulationStep()
         # except Exception as e:
         #     print(f"Error removing vehicle {vehicle_id}: {str(e)}")
 
@@ -152,7 +151,7 @@ class Sumo_Luxembourg(AbstractTracer):
         with self.lock:
             if vehicle_id in list(self.vehicles_info.keys()):
                 self.vehicles_info[vehicle_id]['connected'] = True
-            #traci.simulationStep()
+            traci.simulationStep()
 
     # def reroute_vehicle(self, vehicle_id):
     #     #try:
@@ -183,17 +182,14 @@ class Sumo_Luxembourg(AbstractTracer):
     def check_arrival(self):
         vehicles = list(self.vehicles_info.keys())
         for vehicle_id in vehicles:
-            try:
-                if self.vehicles_info[vehicle_id]['connected'] == True:
-                    # Check if vehicle has reached the last edge of its current route
-                    current_route = traci.vehicle.getRoute(vehicle_id)
-                    current_route_index = traci.vehicle.getRouteIndex(vehicle_id)
-                    
-                    # If the vehicle is at the last edge or close to it, reroute it
-                    if current_route_index >= len(current_route) - 2:  # A bit before the last edge
-                        self.reroute_vehicle(vehicle_id)
-            except:
-                pass
+            if self.vehicles_info[vehicle_id]['connected'] == True:
+                # Check if vehicle has reached the last edge of its current route
+                current_route = traci.vehicle.getRoute(vehicle_id)
+                current_route_index = traci.vehicle.getRouteIndex(vehicle_id)
+                
+                # If the vehicle is at the last edge or close to it, reroute it
+                if current_route_index >= len(current_route) - 2:  # A bit before the last edge
+                    self.reroute_vehicle(vehicle_id)
 
         # except:
         #     print("Erro in update vehicle")
@@ -208,22 +204,19 @@ class Sumo_Luxembourg(AbstractTracer):
         #     print("Erro in update vehicle")
 
     def vehicle_movement_thread(self):
-        try:
-            while self.simulation_running:
-                if self.traci_connected:
-                    # try:
-                    with self.lock:
-                        self.check_arrival()
-                        traci.simulationStep()
-                        #traci.simulationStep()
-                        #self.update_coords()
-                    time.sleep(1)
-                    # except Exception as e:
-                    #     print(f"Erro não esperado na movimentação do veículo: {e}")
-                    #     traceback.print_exc()
-        except FatalTraCIError as e:
-            pass
-            #self.stop_simulation()
+        while self.simulation_running:
+            if self.traci_connected:
+                # try:
+                with self.lock:
+                    self.check_arrival()
+                    traci.simulationStep()
+                    traci.simulationStep()
+                    #self.update_coords()
+                time.sleep(1)
+                # except Exception as e:
+                #     print(f"Erro não esperado na movimentação do veículo: {e}")
+                #     traceback.print_exc()
+
     def start_simulation(self):
         self.connect_to_sumo()
         # Thread do movimento dos veículos

@@ -17,6 +17,7 @@ route info :=
 """
 import copy
 import logging
+from algorithms.greedy_algorithm import GreedyAlgorithm
 from config import ROOT_PATH
 from utils.k_shortest_paths import k_shortest_paths
 
@@ -26,7 +27,7 @@ logger.setLevel(logging.DEBUG)
 
 # create console handler and set level to debug
 # ch = logging.StreamHandler()
-ch = logging.FileHandler(ROOT_PATH + './logs/MusficoAlgorithm.log')
+ch = logging.FileHandler(ROOT_PATH + './logs/musfico.log')
 ch.setLevel(logging.DEBUG)
 # create formatter
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -38,7 +39,7 @@ logger.addHandler(ch)
 
 class Musfico():
     def __init__(self):
-        self.name = "MuSFiCO Algorithm"
+        self.name = "musfico"
         self.substrate_network = None
         self.sfc = None
         self.node_info = {}
@@ -48,21 +49,7 @@ class Musfico():
         self.single_source_minimum_latency_path = None
         self.latency = None
         self.latency_minus_dst = None
-    def calculate_route_last_vnf(self):
-        """
-            Calculate shortest path between last vnf and previous vnf
-            for a new destination.
-        """
-
-        # get destination vnf from sfc
-        dst_vnf = self.sfc.get_dst_vnf()
-        # get previous vnf from old object
-        previous_vnf = self.sfc.get_previous_vnf(dst_vnf)
-        prev_vnf_node = self.route_info[previous_vnf.id][0]
-        # applies the algorithm 
-        shortest_path = k_shortest_paths(self.substrate_network, prev_vnf_node, 
-            self.dst_substrate_node, k=1, weight='latency')
-        self.route_info[previous_vnf.id] = shortest_path[0]
+        
     def clear_all(self):
         #logger.debug('clear all')
         self.substrate_network = None
@@ -73,8 +60,7 @@ class Musfico():
         self.route_info = {}
         self.single_source_minimum_latency_path = None
         self.latency = None
-
-
+   
     def install_substrate_network(self, substrate_network):
         self.substrate_network = substrate_network
         self.single_source_minimum_latency_path = self.substrate_network.single_source_minimum_latency_path
@@ -133,7 +119,9 @@ class Musfico():
         sfc = self.sfc
         #logger.info('Algorithm start')
         if self.algorithm(substrate_network, sfc):
-             if self.latency is not None:
+            #logger.info('Algorithm end, success')
+
+            if self.latency is not None:
                 if self.latency < 0:
                     print("Latencia negativa")
                     self.latency = None
@@ -144,6 +132,8 @@ class Musfico():
                     self.latency = None
                     self.route_info = False
                     return False
+            return True
+        
         #logger.info('Algorithm end, failed')
         return False
 
@@ -159,7 +149,10 @@ class Musfico():
 
         self.src_substrate_node = src_substrate_node
         self.dst_substrate_node = dst_substrate_node
+        
+        (node_latency, node_path) = self.single_source_minimum_latency_path[dst_substrate_node] # Get single source path from substrate node to all other substrate node
 
+            
         vnf1 = src_vnf.get_next_vnf()
         self._dp(src_substrate_node, vnf1)
 
@@ -170,7 +163,7 @@ class Musfico():
             vnf = vnf.get_next_vnf()
 
         # For dst:
-        (node_latency, node_path) = self.single_source_minimum_latency_path[dst_substrate_node] # Get single source path from substrate node to all other substrate node
+
         # here node in latency and path results is the node host previous vnf
         previous_vnf = sfc.get_previous_vnf(dst_vnf)
         previous_vnf_id = previous_vnf.id
@@ -221,7 +214,7 @@ class Musfico():
             # Start from dst to backtracking to src
             previous_vnf = dst_vnf
             previous_substrate_node = dst_substrate_node
-            print("backtrack pvs node:", previous_substrate_node)
+            #print("backtrack pvs node:", previous_substrate_node)
             while True:
                 path = self.node_info[previous_substrate_node][previous_vnf.id]['path']
                 if not path:
@@ -244,12 +237,16 @@ class Musfico():
                 edge_latency = self.substrate_network.get_link_latency(
                     path[i], path[i + 1])
                 self.latency = self.latency - edge_latency
+            #TODO ajustar o MSF e o MusFICo para que eles lidem melhor com a queda de servidores e não deem latencia negativa
+            
             if self.latency > sfc.get_latency_request() or self.latency < 0: #
                 self.route_info = {}
                 self.latency = None
                 return False
+            #print("Deu certo: ",self.route_info)
             return True
         else:
+            #print("falha: ",self.route_info)
             return False
 
     def _dp(self, substrate_node, vnf):
@@ -276,13 +273,16 @@ class Musfico():
         cache_request = sfc.get_vnf_cache_request(vnf)
 
         for node, latency in list(node_latency.items()):
-            #if node == substrate_node:
-            #    # Cannot use the current substrate node to host this vnf.
-            #    continue
-            #if node in self.node_info[substrate_node][previous_vnf_id]['current_substrate_nodes']:
-            #    # If node has been used, cannot host this vnf
-            #    # Current_substrate_nodes contains the nodes that have been used
-            #    continue
+            if latency > 3:
+                continue
+
+            if node == substrate_node:
+               # Cannot use the current substrate node to host this vnf.
+               continue
+            if node in self.node_info[substrate_node][previous_vnf_id]['current_substrate_nodes']:
+               # If node has been used, cannot host this vnf
+               # Current_substrate_nodes contains the nodes that have been used
+               continue
             if node == self.src_substrate_node or node == self.dst_substrate_node:
                 # Ingress and egress cannot host this vnf
                 continue

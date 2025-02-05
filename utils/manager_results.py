@@ -21,9 +21,15 @@ def create_directory_if_not_exists(path):
 def create_output_dir(args,topology):
     ec_servers = topology.get_topology_info()['ec_servers']
     edges = topology.get_topology_info()['edges']
+    
+    availability = args.ava
+    
+    number_of_fails = args.number_of_fails
+    if availability == '1.0':
+        number_of_fails = 0
 
     timestamp = datetime.now().strftime('%Y%m%d%H%M%S%f') + str(random.randint(0, 10000))
-    base_dir = 'results/'
+    base_dir = f'results/'
     #paths = ['cache', 'cpu', 'bandwidth', 'edges_vnf', 'sf']
     paths = ['cache', 'cpu', 'bandwidth', 'sf']
 
@@ -32,7 +38,7 @@ def create_output_dir(args,topology):
     for path in paths:
         dir_path = os.path.join(base_dir, f'results_{path}')
         create_directory_if_not_exists(dir_path)
-        alg_path = os.path.join(dir_path, f'alg_{args.alg}_s_{args.n_sessions}_p_{args.n_sessions}_sfc_{args.sfc}')
+        alg_path = os.path.join(dir_path, f'alg_{args.alg}_s_{args.n_sessions}_p_{args.n_players}_a_{availability}_c_{number_of_fails}')
         create_directory_if_not_exists(alg_path)
         directories[path] = alg_path
 
@@ -54,10 +60,10 @@ def create_output_dir(args,topology):
     # with open(file_paths['edges_vnf'], "a") as file:
     #     file.write(f'timestamp;{edges_string}\n')
     
-    dir = 'results/results_flows'
-    res_dir = 'results/results_resilient'
-    directory_path = os.path.join(dir, f'{args.alg}_s_{args.n_sessions}_p_{args.n_sessions}_sfc_{args.sfc}')
-    res_directory_path = os.path.join(res_dir, f'{args.alg}_s_{args.n_sessions}_p_{args.n_sessions}_sfc_{args.sfc}')
+    dir = f'results/results_flows'
+    res_dir = f'results/results_resilient'
+    directory_path = os.path.join(dir, f'{args.alg}_s_{args.n_sessions}_p_{args.n_players}_a_{availability}_c_{number_of_fails}')
+    res_directory_path = os.path.join(res_dir, f'{args.alg}_s_{args.n_sessions}_p_{args.n_players}_a_{availability}_c_{number_of_fails}')
     create_directory_if_not_exists(directory_path)
     create_directory_if_not_exists(res_directory_path)
 
@@ -67,7 +73,6 @@ def create_output_dir(args,topology):
     # Define o header como uma lista para facilitar alterações
     header_fields = [
         "No.",
-        "arrival_time",
         "timestamp",
         "time_seconds",
         "users",
@@ -88,15 +93,15 @@ def create_output_dir(args,topology):
         "sfc_recovered",
         "cpu_saved",
         "cache_saved",
-        "number_of_sfc",
         "shared_vnfs",
         "running_sfcs",
         "running_players",
         "running_sessions",
         "trascode_bw",
+        "crashing"
     ]
 
-    res_fields = ["sfc_id","recover_success","backup_success","latency_diff","time_to_recover"]
+    res_fields = ["sfc_id","vnf_id","recover_success","backup_success","latency_diff","latency_deg","resource_deg","time_to_recover"]
             
     header = ",".join(header_fields) + "\n"
     res_header = ",".join(res_fields) + "\n"
@@ -106,17 +111,20 @@ def create_output_dir(args,topology):
 
     with open(res_path, "a") as f:
         f.write(res_header)
-    return timestamp,file_paths,flows_path,res_path
+    return file_paths,flows_path,res_path
 
 class OutputWritter:
-    def __init__(self, nodes,processing_nodes, edges, cpu_utilization_file, cache_utilization_file, bw_utilization_file, sf_utilization_file,flows_file,res_file):
-        self.nodes = nodes
-        self.edges = edges
-        self.processing_nodes = processing_nodes
-        self.cpu_utilization_file = cpu_utilization_file
-        self.cache_utilization_file = cache_utilization_file
-        self.bw_utilization_file = bw_utilization_file
-        self.sf_utilization_file = sf_utilization_file
+    def __init__(self,topology,file_paths,flows_file,res_file):
+        
+        self.processing_nodes = topology.get_topology_info()['ec_servers']
+        self.nodes = topology.get_topology_info()['nodes']
+        self.edges = topology.get_topology_info()['edges']
+
+        self.cpu_utilization_file = file_paths['cpu']
+        self.cache_utilization_file = file_paths['cache']
+        self.bw_utilization_file = file_paths['bandwidth']
+        self.sf_utilization_file = file_paths['sf']
+        
         self.flows_file = flows_file
         self.resilient_file = res_file
         self.first_time = 0
@@ -128,16 +136,22 @@ class OutputWritter:
         backup_success = info["backup_success"]
         latency_diff = info["latency_diff"]
         time_to_recover = info["time_to_recover"]
+        vnf_id = info["vnf_id"]
+        latency_deg = info["latency_degrad"]
+        resource_deg = info["resource_degrad"]       
 
         with open(self.resilient_file, "a") as file:
             line = str(sfc_id) + ',' + \
+                str(vnf_id) + ',' + \
                 str(is_success) + ',' + \
                 str(backup_success) + ',' + \
                 str(latency_diff) + ',' + \
+                str(latency_deg) + ',' + \
+                str(resource_deg) + ',' + \
                 str(time_to_recover) + "\n"
             file.write(line)
 
-    def output_flows(self,substrate_network,wait_time,running_players_sessions,counter,remaining_time,current_time, sfc, latency, run_duration, is_success,fail_reason,backup_sfc,bw_transcode, latency_diff=None):
+    def output_flows(self,substrate_network,wait_time,running_players_sessions,counter,remaining_time,current_time, sfc_id, latency, run_duration, is_success,fail_reason,backup_sfc,bw_transcode, latency_diff=None,crashing=False):
         cpu_utilization = round(substrate_network.get_cpu_utilization_rate(), 4)
         cache_utilization = round(substrate_network.get_cache_utilization_rate(), 4)
         bw_utilization = round(substrate_network.get_bandwidth_utilization_rate(), 4)
@@ -164,7 +178,6 @@ class OutputWritter:
         #     sfc_recovery_time = None
         crashed_sfcs = []
 
-        sfc_id = sfc.id
         self.update_user_count(sfc_id)
         # if sfc.id in sfcs_crashed and is_success == 1:
         #     sfc_recovery_time = time.time() - sfcs_crashed[sfc.id]
@@ -186,7 +199,6 @@ class OutputWritter:
 
         with open(self.flows_file, "a") as file:
             line = str(counter) + ',' + \
-                   str(sfc.arrival_time) + ',' + \
                    str(current_time) + ',' + \
                    str(time_value) + ',' + \
                    str(self.counter_users) + ',' + \
@@ -202,17 +214,17 @@ class OutputWritter:
                    str(round(run_duration * 1000, 3)) + ',' + \
                    str(is_success) + ',' + \
                    str(fail_reason) + ',' + \
-                   str(sfc.id) + "," + \
+                   str(sfc_id) + "," + \
                    str(sfc_recovery_time) + "," + \
                    str(sfc_recovered) + "," + \
                    str(cpu_saved) + "," + \
                    str(cache_saved) + "," + \
-                   str(sfc.number_of_vnfs) + ',' + \
                    str(shared_vnfs_count) + "," + \
                    str(running_sfcs) + "," + \
                    str(running_players) + "," + \
                    str(running_sessions) + "," + \
-                   str(bw_transcode) + "\n"
+                   str(bw_transcode) + "," + \
+                   str(crashing) + "\n"
             file.write(line)
 
     def update_user_count(self, sfc_id):

@@ -51,17 +51,24 @@ class Goku(Algorithm):
         self.single_source_minimum_latency_path = None
         self.latency = None
         self.latency_request = 0
-
-
         self.fail_reason = None
+
+        self.fail_for_band = 0
+        self.fail_for_cache = 0
+        self.fail_for_cpu = 0
+        self.fail_resources = 0
+        
+        self.saved_band = 0
+        self.saved_cpu = 0
+        self.saved_cache = 0
         
         self.server_resources = 0
         self.services_requirements = 0
         self.G = 0 
         self.services = 0
         
-        self.cpu_factor=1
-        self.cache_factor=1
+        self.cpu_factor=2
+        self.cache_factor=2
         self.band_factor=1.0
         self.boot_factor=0
         
@@ -119,11 +126,10 @@ class Goku(Algorithm):
     def get_latency(self):
         return self.latency
 
-    def get_fail_reason(self):
-        return self.fail_reason
-
     def get_route_info(self):
         return self.route_info
+    def get_fail_reason(self):
+        return self.fail_reason
 
     def get_bit_rate_used(self):
         return self.bitrate_cut
@@ -199,8 +205,8 @@ class Goku(Algorithm):
         #     if chave.startswith('EC_TC'):
         #         service_requirements_altered[chave]['out_bw'] = service_requirements_altered[chave]['out_bw'] * bitrate
 
-        route_info, latency,fail_reason = self.find_best_allocation_for_sfc(G,service_requirements, nodes_resource,network_links, services, dst)
-        self.fail_reason = fail_reason
+        route_info, latency = self.find_best_allocation_for_sfc(G,service_requirements, nodes_resource,network_links, services, dst)
+
             # if bitrate == 0.3:
             #     print(bitrate)
 
@@ -244,6 +250,11 @@ class Goku(Algorithm):
         return services, service_requirements
 
     def evaluate_result(self, latency, route_info):
+        if latency == None:
+            self.fail_reason= 'resource'
+            self.route_info = False
+            self.latency = None
+            return False
         if latency > self.latency_request:
             self.latency = None
             self.route_info = False
@@ -259,7 +270,7 @@ class Goku(Algorithm):
         allocation_results = {'dst': {'allocated_server': dst, 'path': [], 'cost': 0}}
         current_location = dst # começa a alocação de trás pra frente 
         success = True
-        fail_reason = None
+
         for i, service in enumerate(services):
             # # Verifica se há um próximo serviço na lista
             # if i + 1 < len(services):
@@ -295,11 +306,12 @@ class Goku(Algorithm):
             else:
                 #print(f"Falha.")
                 success =  False
-                fail_reason = 'resource'
+                self.fail_reason = 'resource'
                 break
 
+
         if success == False:
-            return [],1000,fail_reason
+            return [],None
 
         # ultima iteração para o src
         path_to_src = nx.dijkstra_path(G,current_location, 0, weight='weight')
@@ -316,7 +328,7 @@ class Goku(Algorithm):
         del route_info[first_key]
         route_info[first_key] = first_value
         
-        return route_info,total_latency,fail_reason
+        return route_info,total_latency
 
     def allocate_sf(self,G,service_requirements, server_resources, network_links, current_location, service, services, exploration_margin=1):
         best_cost, best_candidate, candidates = self.find_candidates_serves_for_sf(G,
@@ -338,16 +350,16 @@ class Goku(Algorithm):
     def find_candidates_serves_for_sf(self,G,service_requirements, server_resources, current_location, service):
         #service_requirements = copy.deepcopy(service_requirements)
         
-        paths = dict(nx.single_source_shortest_path_length(G, current_location, cutoff=10))
+        paths = dict(nx.single_source_shortest_path_length(G, current_location, cutoff=8))
         paths[current_location] = 0  # Custo de 'mover' para o mesmo servidor é 0
         
         candidates = []
         best_cost = float('inf')
 
         # Função para calcular o custo total
-        def calculate_total_cost(cpu_cost,cache_cost, boot_cost, bandwidth_cost, latency_cost):
+        def calculate_total_cost(node_resource_cost, boot_cost, bandwidth_cost, latency_cost):
             boot_cost = 0
-            return (cpu_cost * self.cpu_factor) + (cache_cost * self.cache_factor) + (boot_cost * self.boot_factor) + (bandwidth_cost * self.band_factor) + latency_cost
+            return (node_resource_cost * self.cpu_factor)/2 + (node_resource_cost * self.cache_factor)/2 + (boot_cost * self.boot_factor) + (bandwidth_cost * self.band_factor) + latency_cost
 
         # Função para verificar disponibilidade de largura de banda e recursos do servidor
         def check_resources(server, path, bandwidth_requirement, cpu_required, cache_required):
@@ -366,15 +378,15 @@ class Goku(Algorithm):
             for u, v in zip(path, path[1:]):
                 available_bandwidth = G[u][v]['bandwidth']
                 if available_bandwidth >= bandwidth_requirement:
-                    cost += (bandwidth_requirement / (available_bandwidth + epsilon))
+                    cost += bandwidth_requirement / (available_bandwidth + epsilon)
                 else:
                     return float('inf')  # Link não disponível
-            cost = cost * 2.0
+
             # Normalizar o custo acumulado para ficar entre 0 e 1
             # normalized_cost = cost / (len(path) - 1)
             # normalized_cost = normalized_cost / (bandwidth_requirement / max_bandwidth)
             
-            return cost  # Garantir que o valor esteja entre 0 e 1
+            return cost * 3.0  
 
         bandwidth_requirement = service_requirements[service]['out_bw']
         
@@ -399,39 +411,29 @@ class Goku(Algorithm):
             available_cache = server_resources[server]['cache_capacity'] - server_resources[server]['cache_used']
             
             if available_cpu > 0:
-                if cpu_required == 0:
-                    cpu_required = service_requirements[service]['CPU'] * 0.3
                 node_resource_cost = cpu_required / available_cpu #
             else:
                 node_resource_cost = float('inf')  # Penalizar fortemente se não houver CPU disponível
                 
             boot_cost = 0
-            
             if check_resources(server, path, bandwidth_requirement, cpu_required, cache_required):
-                bandwidth_cost = calculate_bandwidth_cost(path, bandwidth_requirement) * 1000
-                cpu_cost = node_resource_cost * 1000
-                cache_cost = cpu_cost/2
-
-                #latency_cost = self.calculate_latency_cost(num_hops)
-                latency_cost = 0
-
-
-                total_cost = calculate_total_cost(cpu_cost,cache_cost, boot_cost, bandwidth_cost, latency_cost)
+                bandwidth_cost = calculate_bandwidth_cost(path, bandwidth_requirement)
+                latency_cost = self.calculate_latency_cost(num_hops)
+                total_cost = calculate_total_cost(node_resource_cost, boot_cost, bandwidth_cost, latency_cost)
 
                 if total_cost < best_cost:
                     best_cost = total_cost
 
-                candidates.append((server, path, round(total_cost,4), {
-                    'cpu_cost': round(cpu_cost,4),
-                    'cache_cost': round(cache_cost,4),
+                candidates.append((server, path, total_cost, {
+                    'cpu_cost': node_resource_cost,
+                    'cache_cost': node_resource_cost,
                     'boot_cost': boot_cost,
-                    'bandwidth_cost': round(bandwidth_cost,4),
+                    'bandwidth_cost': bandwidth_cost,
                     'latency_cost': latency_cost,
-                    'total_cost': round(total_cost,4),
+                    'total_cost': total_cost,
                     'reuse':reuse
                 }))
             else:
-                #print("No resources")
                 # Sem recurso disponível
                 pass
 
@@ -443,9 +445,9 @@ class Goku(Algorithm):
         return best_cost, best_candidate, candidates
 
     # latency as restriction
-    # def calculate_latency_cost(self,distance):
-    #     if distance <= self.latency_request:
-    #         return 0
-    #     else:
-    #         return 1000
+    def calculate_latency_cost(self,distance):
+        if distance <= self.latency_request:
+            return 0
+        else:
+            return 1000
         

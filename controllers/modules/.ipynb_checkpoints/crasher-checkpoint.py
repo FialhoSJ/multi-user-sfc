@@ -1,24 +1,20 @@
-import random
 import re 
+import time
 
 from numpy import copy
 class Crasher():
     """Simulates network node failures based on specified modes and probabilities."""
     
-    def __init__(self,topology,args,interval=200,time=30):
+    def __init__(self,edge_servers=None,edges_vnf=None,time=30,crash_links=False):
         self.time = time
-        self.activated = (float(args.ava) != 1.0)
-        self.ec_servers = topology.get_topology_info()['ec_servers']
-        self.edges_vnf = {key: [] for key in topology.get_topology_info()['edges']}
+        self.ec_servers = edge_servers
+        self.edges_vnf = edges_vnf
         self.crash_links = False
         self.trials = 0
         self.nodes_crashed = []
         self.cluster_to_crash = []
-        self.availability = float(args.ava)
-        self.number_of_fails = 0 if not (float(args.ava) != 1.0) else int(args.number_of_fails)
-        self.fail_interval = interval
-        
-        
+        self.statistics = {}
+    
         #self.a_server_was_crashed = 0
         #self.server_to_reroute = None
         #self.links_to_crash = []
@@ -89,10 +85,6 @@ class Crasher():
             # Obtém o consumo de CPU e cache para o nó
             cpu_used   = network.get_node_cpu_used(node)  
             cache_used = network.get_node_cache_used(node) 
-            
-            # if cpu_used > 100 or cache_used > 100:
-            #     continue
-            
             total_resource_usage = cpu_used + cache_used  # Soma dos recursos usados
             
             # Atualiza o nó com maior consumo de recursos
@@ -149,32 +141,79 @@ class Crasher():
         node_choose = None
         h_rel = 0
 
+        # lowest_rel = 100
+        # for node in self.ec_servers:
+        #     rel = network.get_node_reliability(node)
+        #     cpu_used = network.get_node_cpu_used(node)
+        #     cache_used = network.get_node_cpu_used(node)
+
+        #     if rel < lowest_rel and (cpu_used >0) and (cache_used>=0):
+        #         lowest_rel = rel
+        #         node_choose = node
+        # print(lowest_rel)
+        # print(node_choose)
+
+
         # #node_choose = 5
         #     #print(rel)
         node_choose = None
-        if alg_name not in ['vegeta','msf','g']:
+        if alg_name != 'vegeta' :
             #node_choose = self.cluster_method(network=network)
             #node_choose = self.most_sf_type(network,sf_type='RE')
-            node_choose = self.highest_resource_consumer(network)
-            #node_choose = self.crash_cluster(network)
-
-        if alg_name in ['g']:
-            node_choose = random.choice(self.ec_servers)
-            while node_choose in [33,34,9]:
-                node_choose = random.choice(self.ec_servers)
-
-        if alg_name in ['msf']:
-            node_choose = None
-            max_resource_usage = -1  # Variável para rastrear o maior consumo de recursos
+            #node_choose = self.highest_resource_consumer(network)
+            node_choose = self.crash_cluster(network)
             
-            for node in [9,33,34]:
-                # Obtém o consumo de CPU e cache para o nó
-                cpu_used   = network.get_node_cpu_used(node)  
-                total_resource_usage = cpu_used   # Soma dos recursos usados
-                if total_resource_usage > max_resource_usage:
-                    max_resource_usage = total_resource_usage
-                    node_choose = node
+            # lowest_rel = 100
+            # for node in self.ec_servers:
+            #     rel = network.get_node_reliability(node)
+            #     cpu_used = network.get_node_cpu_used(node)
+            #     cache_used = network.get_node_cpu_used(node)
+
+            #     if rel < lowest_rel and (cpu_used >0) and (cache_used>=0):
+            #         lowest_rel = rel
+            #         node_choose = node
+            # print(lowest_rel)
+
+
+            # node_choose = None
+            # h_rel = 0
+            # for node in self.ec_servers:
+            #     cpu_used = network.get_node_cpu_used(node)
+            #     cache_used = network.get_node_cpu_used(node)
+            #     #     if cpu_used >= 50 and cache_used >= 50:
+            #     total = cpu_used + cache_used
+            #     if total > h_rel:
+            #         h_rel = total
+            #         node_choose = node
+            # node_choose = None
+            # max_sfc = -1
+            # max_cpu_cache_usage = -1
+
+            # for node in self.ec_servers:
+            #     unique_sfc_set = set()  # Usar um conjunto para rastrear SFCS únicas no nó
+                
+            #     for sfc_vnf in network.get_node_sfc_vnf_list(node):
+            #         sfc_type = sfc_vnf[0].split("_")[1]
+            #         vnf_id = sfc_vnf[1].id.split("_")[0]
+            #         if sfc_type == 'unique' :#and (vnf_id == 'UNI' or vnf_id == 'RE'):
+            #             unique_sfc_set.add(sfc_vnf[0])  # Adiciona ao conjunto (evita duplicados)
+                
+            #     unique_sfc_count = len(unique_sfc_set)  # Conta as SFCs únicas
+            #     cpu_used = network.get_node_cpu_used(node)  # Obtém o uso de CPU do nó
+            #     cache_used = network.get_node_cache_used(node)  # Obtém o uso de cache do nó
+            #     cpu_cache_usage = cpu_used + cache_used  # Soma para considerar o uso total de recursos
+                
+            #     # Atualiza o nó com mais SFCs únicas ou desempata com base no uso de CPU e cache
+            #     if (unique_sfc_count > max_sfc) or \
+            #     (unique_sfc_count == max_sfc and cpu_cache_usage > max_cpu_cache_usage):
+            #         max_sfc = unique_sfc_count
+            #         max_cpu_cache_usage = cpu_cache_usage
+            #         node_choose = node
+
+
 # Após o loop, `node_more_sfc` terá o nó com mais SFCs únicas
+
+            
         # if node_choose == None:
         #     return False
         if alg_name == 'vegeta':
@@ -257,52 +296,66 @@ class Crasher():
             self.nodes_crashed.append(node_choose)
             return [node_choose]
 
-    # def recover_from_crash(self, network):
-    #     nodes_crashed = list(self.nodes_crashed)
-    #     if len(self.nodes_crashed) != 0: 
-    #         print(f"Recuperando servidor: {self.nodes_crashed}")
-    #         for server in nodes_crashed:
-    #             # Definir capacidades negativas para simular o crash
-    #             network.set_node_cache_capacity(server, 100)
-    #             network.set_node_cpu_capacity(server, 100)
-    #     self.nodes_crashed = []
-
     def recover_from_crash(self, network):
-        if self.nodes_crashed:  # Verifica se há servidores na lista
-            server = self.nodes_crashed[0]  # Recupera o primeiro servidor
-            print(f"Recuperando servidor: {server}")
-            # Definir capacidades negativas para simular o crash
-            # network.set_node_cache_capacity(server, 100)
-            # network.set_node_cpu_capacity(server, 100)
-            self.nodes_crashed.remove(server)  # Remove o servidor recuperado da lista
-        return self.nodes_crashed
-    
-    
-    
-    
-    def implement_crash(self, nodes_crashed, network,players_sfc_list):
+        nodes_crashed = list(self.nodes_crashed)
+        if len(self.nodes_crashed) != 0: 
+            print(f"Recuperando servidor: {self.nodes_crashed}")
+            for server in nodes_crashed:
+                # Definir capacidades negativas para simular o crash
+                network.set_node_cache_capacity(server, 100)
+                network.set_node_cpu_capacity(server, 100)
+        self.nodes_crashed = []
+
+    def implement_crash(self, nodes_crashed, network):
+        sfcs_crashed = {}
         if len(nodes_crashed) != 0: 
             print(f"Servidores Crashados: {nodes_crashed}")
+            self.sfcs_crashed = {}
             sfc_ids = []
+            sfcs_to_crash = []
 
             for server in nodes_crashed:
                 server_info = network.get_node_sfc_vnf_list(server)
+                #filtered_edges = {key: value for key, value in self.edges_vnf.items() if server in key}
+                
+                # Definir capacidades negativas para simular o crash
                 network.set_node_cache_capacity(server, -0.0000001)
                 network.set_node_cpu_capacity(server, -0.0000001)
                 
+                # if self.crash_links:
+                #     for link, sfc_vnf in filtered_edges.items():
+                #         network.set_link_bandwidth_capacity(link[0], link[1], -0.0000001)
+                #         network.set_link_latency(link[0], link[1], 10000)
+                    
                 if server_info != []:
                     # Extrai os sfc_ids
                     sfc_ids = list(set([sfc[0] for sfc in server_info]))
-            sfcs_list = []
-            for sfc_id in sfc_ids:
-                new_sfc_list = self.find_sfc_pair_or_list(players_sfc_list,sfc_id)
-                sfcs_list.append(new_sfc_list)
-            unique_lists = [list(t) for t in set(tuple(sublist) for sublist in sfcs_list)]
-            return unique_lists
+                    # users_crashed = []
+                    # pattern = re.compile(r'p\d+_\d+')
 
+                    # for sfc_id in sfc_ids:
+                    #     # Popula o dicionário sfcs_crashed com usuários afetados
+                    #     match = pattern.search(sfc_id)
+                    #     if match:
+                    #         users_crashed.append(match.group())
+                    # users_crashed = list(set(users_crashed))
 
-    def find_sfc_pair_or_list(self,player_sfc_id_list, sfc_key):
-        for sfc_list in player_sfc_id_list:
-            if sfc_key in sfc_list:
-                return sfc_list  # Retorna a lista onde a chave está presente
-        return None  # Retorna None se a chave não for encontrada
+                    # Para cada sfc_id crashada, extrair as VNFs afetadas
+                    for sfc_id in sfc_ids:
+                        if sfc_id not in network.sfc_dict:
+                            continue
+                        
+                        sfc = network.get_sfc_by_id(sfc_id)
+                        sfc_rf = network.sfc_route_info[sfc_id]
+
+                        latency_sfc= sum((len(value) - 1) for key, value in sfc_rf.items() if key not in ('src', 'dst'))
+                        
+                        # Obter os IDs das VNFs crashadas que pertencem a esta sfc_id
+                        crashed_vnf_ids = [vnf.id for sid, vnf in server_info if sid == sfc_id]
+
+                        sfcs_crashed[sfc_id] = {
+                            'fall_time': time.time(),
+                            'old_latency': latency_sfc,
+                            'vnf_ids': crashed_vnf_ids
+                        }
+        return sfcs_crashed

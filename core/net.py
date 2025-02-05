@@ -83,7 +83,7 @@ class Net(nx.Graph):
         self.sf_route_info = {}
         self.sfs_flux_info = {}
         self.shared_sfs = {}
-        self.shareable_band = True
+        self.shareable_band = False
         self.shareable_node = True
         self.verbose = False
         #self.lock = threading.Lock()
@@ -319,12 +319,12 @@ class Net(nx.Graph):
         bw_c = self.get_link_bandwidth_capacity(u, v)
         bw_u = self.get_link_bandwidth_used(u, v)
         bw_f = self.get_link_bandwidth_free(u,v)
-        if bw_amount > bw_f:
-            return False
-        else:
-            self.set_link_bandwidth_used(u, v, bw_u+bw_amount)
-            self.set_link_bandwidth_free(u, v, bw_f-bw_amount)
-            return True
+        # if bw_amount > bw_f:
+        #     return False
+        # else:
+        self.set_link_bandwidth_used(u, v, bw_u+bw_amount)
+        self.set_link_bandwidth_free(u, v, bw_f-bw_amount)
+        return True
 
     def allocate_bandwidth_resource_path(self, path, bw_amount):
         length = len(path)
@@ -501,6 +501,28 @@ class Net(nx.Graph):
     def update_network_state(self):
         self.update_nodes_state()
         self.update_bandwidth_state()
+
+    def get_sfc_id_resource_saved(self,sfc_id):
+        cpu_saved = 0
+        cache_saved = 0
+
+        total_cpu_req = 0
+        total_cache_req = 0
+
+        route_info = self.sfc_route_info[sfc_id]
+        for key,item in route_info.items():
+            if key not in ['src','dst']:
+                node_vnf_list = self.get_node_sfc_vnf_list(item[0])
+                vnf = node_vnf_list[0][1]
+                vnf_id = vnf.id
+                if vnf_id in list(map(lambda sf: sf.id, self.shared_sfs[item[0]])):
+                    cpu_saved += vnf.get_cpu_request()
+                    cache_saved += vnf.get_cache_request()
+
+                total_cpu_req += vnf.get_cpu_request()
+                total_cache_req += vnf.get_cache_request()
+        conta = (cpu_saved + cache_saved) / (total_cpu_req + total_cache_req) 
+        return conta
 
     def update_nodes_state(self):
         pattern = re.compile(r'_p')
