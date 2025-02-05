@@ -5,6 +5,7 @@ import time
 class BackupManager:
     def __init__(self,args):
         self.backups_instatiated = []
+        self.sfc_backup = {}
         self.backup_activated = (args.backup) == 'y'
         self.alg = args.alg
 
@@ -37,9 +38,6 @@ class BackupManager:
 
                     if sfc_id not in network.sfc_dict or sfc_id not in sfc_id_duration: # Se não estiver instanciada, passa (situação de erro)
                         continue 
-
-                    split = sfc_id.split("_")
-                    name = split[0] + "_" + split[1] + '_backup_' + split[2] + "_" +split[3]
                     
                     # try:
                     #     network.get_sfc_by_id(name)
@@ -55,7 +53,7 @@ class BackupManager:
                     del sfc_rf['dst']
 
                     src = None
-                    location = None
+                    location = sfc_rf[vnf_id][0]
                     dst = None
                     
                     #src_in = 0 
@@ -70,31 +68,24 @@ class BackupManager:
                     i = 0
                     latency_dismiss = 0
                     src,dst,latency_req = self.escolher_src_dst(sfc_rf,vnf_id)
-                    # for key,value in sfc_rf.items():        
-                    #     if i == 1:
-                    #         src = value[0]
-                    #         if src == 0: # SF IA 
-                    #             src = value[-1]
-                    #         else:
-                    #             src = value[0]
-                    #             latency_dismiss = latency_dismiss + len(value)-1
-                    #             print()
-                    #         break
-                    #     if key == vnf_id:
-                    #         location = value[0]
-                    #         dst = value[-1]
-                    #         latency_dismiss = latency_dismiss + len(value)-1
-                    #         i = i + 1
                     
-                    new_sfc_list = []
+                    if latency_req < 0:
+                        continue
 
+                    new_sfc_list = []
                     backup_sf_list = []
+
+                    # split = sfc_id.split("_")
+                    # name = split[0] + "_" + split[1] + '_backup_' + split[2] + "_" +split[3]
+
                     split = sfc_id.split("_")
-                    name = split[0] + "_" + split[1] + '_backup_'+vnf_id+ '_' + split[2] + "_" +split[3]
-                    src_name = "src_" + name
-                    dst_name = "dst_" + name
+                    name = split[0] + "_" + split[1] + '_backup_'+ vnf_id + '_' + split[2] + "_" +split[3]
+                    
+                    src_name = "src" #+ vnf_id
+                    dst_name = "dst"
+
                     backup_sf_list.append({"type": 2, "name":src_name,"CPU": 0, "cache": 0, "in_bw": 0, "out_bw":src_out ,"latency":0,"location":src})
-                    backup_sf_list.append({"type": 2, "name":vnf_id,"CPU": cpu, "cache": cache, "in_bw": src_out, "out_bw": dst_in,"latency":0,"restriction":location,"original_sfc":sfc_id})
+                    backup_sf_list.append({"type": 2, "name":vnf_id,"CPU": cpu, "cache": cache, "in_bw": src_out, "out_bw": dst_in,"latency":0,"original_loc":location,"original_sfc":sfc_id})
                     backup_sf_list.append({"type": 2, "name":dst_name,"CPU": 0, "cache": 0, "in_bw": dst_in, "out_bw":0 ,"latency":0,"location":dst})
 
                     new_sfc_dict = {}
@@ -106,13 +97,14 @@ class BackupManager:
 
                     duration = sfc_id_duration[sfc_id]["duration"]-(current_time-sfc_id_duration[sfc_id]["timer"])
                     new_sfc_dict["duration"] = duration  + 20 
-                    new_sfc_dict["latency"] =  sfc.latency_request - self.calculate_latency(sfc_rf) + latency_dismiss  # TODO deve ter aqui  um cálculo para não passar da latencia da original se implementada
+                    new_sfc_dict["latency"] = latency_req  # sfc.latency_request - self.calculate_latency(sfc_rf) + latency_dismiss  # TODO deve ter aqui  um cálculo para não passar da latencia da original se implementada
                     # new_sfc_dict["original_sfc"] = sfc_rf
                     # new_sfc_dict["restrictions"] = [location]
+                    
                     new_sfc = SFCGenerator(new_sfc_dict).generate()
                     
                     #self.sfs_backup[sfc_id] = {"sfc_backup_id":new_sfc.id,"vnf_id":vnf_id}  # Por enquanto teremos apenas uma SFC de Backup por SFC 
-                
+
                     new_sfc_list.append(new_sfc)
                     backups_mount.append(new_sfc_list)
         return backups_mount
@@ -148,7 +140,7 @@ class BackupManager:
         elif idx == len(chaves) - 1:  # Se for a última VNF, dst é a anterior e src é ela mesma
             dst = chaves[idx - 1]
             src = chaves[idx]
-            latency_dismiss = len(dicionario[vnf_escolhida]-1)
+            latency_dismiss = len(dicionario[vnf_escolhida])-1
         else:  # Caso intermediário, dst é a anterior e src é a próxima
             dst = chaves[idx - 1]
             src = chaves[idx + 1]

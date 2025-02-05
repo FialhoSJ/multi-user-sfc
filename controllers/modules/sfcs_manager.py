@@ -50,7 +50,7 @@ class SFCManager:
         match alg.name:
             case 'ga' | 'osfem' | 'goku': # algs with active reuse and cost method
                 #alg.set_costs([1,1,1,1])
-                alg.start_algorithm(shareable_sfs=shareable_sfs)
+                alg.start_algorithm(shareable_sfs=shareable_sfs,is_backup=is_backup)
             case 'vegeta':
                 alg.start_algorithm(shareable_sfs=shareable_sfs,backup=is_backup) # alg that uses backup
             case _: # algs with passive reuse and no cost method
@@ -107,8 +107,7 @@ class SFCManager:
                 self.sfs_backup[original_sfc].append({
                     "sfc_backup_id": sfc.id,
                     "vnf_id": vnf_id,
-                    "route_info": route_info
-                })
+                    "route_info": route_info})
             else: 
                 self.sfc_list.append(sfc.id)
                 self.sfc_id_duration[sfc.id] = {"duration":sfc.duration,"timer":time.time()}
@@ -164,7 +163,6 @@ class SFCManager:
                     self.sfc_reuse[sfc.id] = conta
         return conta
         
-
     def check_route_info(self,route_info):
         if route_info != False:
             nodes_crashed = self.crashed_servers
