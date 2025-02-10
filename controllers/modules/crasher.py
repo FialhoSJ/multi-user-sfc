@@ -177,7 +177,7 @@ class Crasher():
 # Após o loop, `node_more_sfc` terá o nó com mais SFCs únicas
         # if node_choose == None:
         #     return False
-        if alg_name == 'vegeta':
+        if alg_name == 'ga':
     ###############################################################
             node_choose = None
             h_rel = 0

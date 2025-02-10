@@ -78,7 +78,7 @@ class SubstrateNetworkController():
         self.latency_interval = [7, 7]
         self.allow_high_latency = False
         self.altered_sfcs = {}
-
+        self.backups_data = {}
 
         # Estatísticas
         self.success = []
@@ -338,7 +338,13 @@ class SubstrateNetworkController():
             new_sfc_dict["dst_node"] = location
             new_sfc_dict["duration"] = duration
             new_sfc_dict["latency"] = sfc.latency_request
-            self.sfc_manager.undeploy_sfc(sfc_id,self.substrate_network) # retira a sfc antiga    
+            self.sfc_manager.undeploy_sfc(sfc_id,self.substrate_network) # retira a sfc antig
+            
+            for backup_id in list(self.backups_data.keys()):
+                if self.backups_data[backup_id]['original_sfc'] == sfc_id:
+                    del self.backups_data[backup_id]
+
+            #self.backup_manager.take_off_backup_if_exist([sfc_id])    
             new_sfc = SFCGenerator(new_sfc_dict).generate() # gera uma nova e coloca de volta na fila
             new_sfc_list.append(new_sfc)
         self.sfc_queue.put_begin(new_sfc_list) # coloca a nova
@@ -456,6 +462,7 @@ class SubstrateNetworkController():
                     self.sfcs_crash_affected[sfc_id]["recover_success"] = False
                     self.sfcs_crash_affected[sfc_id]["time_to_recover"] = None
                     self.sfcs_crash_affected[sfc_id]["latency_diff"] = None
+
             info = copy.deepcopy(self.sfcs_crash_affected[sfc_id])
             resilient_output(sfc_id,info)
             del self.sfcs_crash_affected[sfc_id]
@@ -555,9 +562,21 @@ class SubstrateNetworkController():
     def deploy_sfc(self, sfc: object) -> bool:
         # with self.lock:
         results_dict = self.sfc_manager.deploy_sfc(sfc,self.substrate_network,self.alg)
+        if results_dict['backup_sfc']:
+            if results_dict['is_success']:  
+                try:
+                    self.backups_data[sfc.id]['status'] = 'instantiated'
+                except:
+                    results_dict['is_success'] = False
+                    self.sfc_manager.undeploy_sfc(sfc.id,self.substrate_network)
+            else:
+                if sfc.id in self.backups_data:
+                    del self.backups_data[sfc.id]
+
         if results_dict != False:
-            if not results_dict['backup_sfc']: #and (results_dict['is_success'] == True):
-                return results_dict
+            #if not results_dict['backup_sfc']: #and (results_dict['is_success'] == True):
+            return results_dict
+        return False  
                 #self.mobility_manager.add_vehicle(sfc) # Se não é Backup e tiver sido um sucesso, adiciona um veículo para essa SFC;
             # else:
             #     self.mobility_manager.remove_sfc(sfc.id,all=True) # Se não remove ()
@@ -589,18 +608,20 @@ class SubstrateNetworkController():
             player_sfc_id_list.append(sfc.id)
             #self.update()
 
-        if all_success:
-             self.mobility_manager.add_vehicle(sfc_list)
-             sfc_duration_timer = time.time()
-             for sfc in sfc_list:
-                self.sfc_manager.sfc_id_duration[sfc.id] = {"duration":sfc.duration,"timer":sfc_duration_timer}
-        else: # Se todas não foram um sucesso, retira quem foi um sucesso
-            for sfc_id, result_dict in deploy_log.items():
-                if result_dict['is_success']:
-                    deploy_log[sfc_id]['is_success'] = False
-                    deploy_log[sfc_id]['latency'] = None
-                    self.sfc_manager.undeploy_sfc(sfc_id, self.substrate_network)
-                self.mobility_manager.remove_sfc(sfc_id, all=True)
+        if not result_dict['backup_sfc']:
+            if all_success:
+                self.mobility_manager.add_vehicle(sfc_list)
+                sfc_duration_timer = time.time()
+                # for sfc in sfc_list:
+                #     self.sfc_manager.sfc_id_duration[sfc.id] = {"duration":sfc.duration,"timer":sfc_duration_timer}
+            else: # Se todas não foram um sucesso, retira quem foi um sucesso
+                for sfc_id, result_dict in deploy_log.items():
+                    if result_dict['is_success']:
+                        deploy_log[sfc_id]['is_success'] = False
+                        deploy_log[sfc_id]['latency'] = None
+                        self.sfc_manager.undeploy_sfc(sfc_id, self.substrate_network)
+                    self.mobility_manager.remove_sfc(sfc_id, all=True)
+        
         for sfc_id, result_dict in deploy_log.items():
             self.output_results(sfc_id=sfc_id,results_dict=result_dict)
         
@@ -617,128 +638,134 @@ class SubstrateNetworkController():
             sys.exit()
         return last_sfc_release
 
+
     def sequential_crasher(self,interval=25):
         #if not backup activated
         self.sequential_check_duration() 
         nodes_to_crash = self.crasher_manager.activate_crasher(self.substrate_network,self.sfc_manager,self.alg.name)
         self.sfc_manager.crashed_servers = self.crasher_manager.nodes_crashed
-        if nodes_to_crash == False:
-            return False
+        print(f"Servidores Crashados: {nodes_to_crash}")
         
-        sfcs_lists = []
-        if len(nodes_to_crash) != 0: 
-            print(f"Servidores Crashados: {nodes_to_crash}")
-            sfc_ids = []
-            for server in nodes_to_crash:
-                server_info = self.substrate_network.get_node_sfc_vnf_list(server)
-                
-                self.substrate_network.set_node_cache_capacity(server, -0.0000001)
-                self.substrate_network.set_node_cpu_capacity(server, -0.0000001)
-                
-                self.substrate_network.set_node_cache_free(server, 0)
-                self.substrate_network.set_node_cpu_free(server, 0)
+        vnfs_backup_instantiate = 0
+        backups_instantiate = self.sfc_manager.sfs_backup
+        vnfs_backup_util = 0
+        if self.alg.name == 'ga':
+            for v in backups_instantiate.values():
+                vnfs_backup_instantiate = len(v) + vnfs_backup_instantiate
+        else:
+            vnfs_backup_instantiate = len(list(backups_instantiate.keys())) * 4
 
-                if server_info != []:
-                    # Extrai os sfc_ids
-                    sfc_ids = list(set([sfc[0] for sfc in server_info]))
-            sfcs_list = []
-            for sfc_id in sfc_ids:
-                new_sfc_list = self.find_sfc_pair_or_list(self.players_sfc_list,sfc_id)
-                sfcs_list.append(new_sfc_list)
-            sfcs_lists = [list(t) for t in set(tuple(sublist) for sublist in sfcs_list)]
+        print("número de vnfs de backup  instanciadas: ",vnfs_backup_instantiate)
+        # ------------Coleta das SFC's caídas---------------#
+        sfcs_crashed_ids = {}
+        for server in nodes_to_crash:
+            server_info = self.substrate_network.get_node_sfc_vnf_list(server)
+            self.substrate_network.set_node_cache_capacity(server, -0.0000001)
+            self.substrate_network.set_node_cpu_capacity(server, -0.0000001)
+            self.substrate_network.set_node_cache_free(server, 0)
+            self.substrate_network.set_node_cpu_free(server, 0)
+            for sfc_vnf in server_info: # Aqui serve para tirarmos as sfcs de backup da análise e também montarmos uam estrutura boa.
+                if self.sfc_manager.is_Backup(sfc_vnf[0]):
+                    self.sfc_manager.remove_backup_by_id(sfc_vnf[0],self.substrate_network)
+                    continue
+                if sfc_vnf[0] not in sfcs_crashed_ids:
+                    sfcs_crashed_ids[sfc_vnf[0]] = []  # Inicializa a chave corretamente
+                sfcs_crashed_ids[sfc_vnf[0]].append(sfc_vnf[1])  # Adiciona à lista existente
 
-
-        for sfc_list in sfcs_lists:
-            new_sfc_list = []
-            sfc_id_duration = self.sfc_manager.sfc_id_duration 
-            duration = sfc_id_duration[sfc_list[0]]["duration"]-(time.time()-sfc_id_duration[sfc_list[0]]["timer"])   + 10 # bonus
-            for sfc_id in sfc_list:
-                self.mobility_manager.set_vehicle_status(sfc_id,new_status='moving')
-                # vnf_affected = sfcs_affected[sfc_id]['vnf_ids'][0]
-                sfc = self.substrate_network.get_sfc_by_id(sfc_id)
+        
+        # ------------Checagem do Backup---------------#
+        sfcs_with_backup = []
+        for sfc_id, vnfs in sfcs_crashed_ids.items():
+            self.mobility_manager.set_vehicle_status(sfc_id,new_status='blocked')
+            backup_found = self.sfc_manager.check_backups(sfc_id,vnfs,self.substrate_network)
+            if backup_found:   
                 o_rf = self.substrate_network.sfc_route_info[sfc_id]
                 
+                if self.alg.name == 'ga':
+                    vnfs_backup_util += 1
+                    new_rf = copy.deepcopy(o_rf)
+                    vnf_id = backup_found['vnf_id'].removesuffix("_b") 
+                    new_rf[vnf_id] =  backup_found['route_info'][backup_found['vnf_id']]
+                    keys = list(new_rf)
+                    if vnf_id in keys[:-1]:  
+                        new_rf[keys[keys.index(vnf_id) + 1]] = backup_found['route_info']['source']
+                    time_to_r = random.uniform(1,2)
+                else:
+                    vnfs_backup_util += 4
+                    #self.sfc_manager.swap_sfcs(sfc_id,backup_found,self.substrate_network)
+                    self.sfc_manager.undeploy_sfc(sfc_id,self.substrate_network,take_out_backup=False)
+
+                    new_rf = backup_found['route_info']
+                    vnf_id = None
+                    time_to_r = random.uniform(3,4)
+                    
                 o_latency = self.sfc_manager.calculate_latency(o_rf)
+                new_latency = self.sfc_manager.calculate_latency(new_rf)
+                l_diff = new_latency - o_latency
                 
-                resource_saved = self.sfc_manager.sfc_reuse[sfc_id]
+                latency_degrad = l_diff/o_latency #if results_dict['is_success'] else None
+                resource_degrad = 1
+                backup_efficient = round((vnfs_backup_util/vnfs_backup_instantiate)*100,2)
+                self.sfcs_crash_affected[sfc_id] = {"vnf_id":vnf_id,"recover_success":True,"backup_success":True,
+                                                    "latency_diff":l_diff,"old_latency":o_latency,'latency_degrad':latency_degrad,'resource_degrad':resource_degrad,
+                                                    "time_to_recover":time_to_r,'backup_efficient':backup_efficient}
+                
+                self.output_results(results_dict=False,sfc_id=sfc_id,res_output=True)     
+                sfcs_with_backup.append(sfc_id)
+        
+        backup_efficient = round((vnfs_backup_util/vnfs_backup_instantiate)*100,2)
+        print(backup_efficient)
+        # Remove os SFCs que possuem backup do dicionário sfcs_crashed_ids
+        for sfc_id in sfcs_with_backup:
+            sfcs_crashed_ids.pop(sfc_id, None)  # Evita erro caso a chave já tenha sido removida
+        
+        # sfcs_list = []
+        # for sfc_id in list(sfcs_crashed_ids.keys()):
+        #     new_sfc_list = self.find_sfc_pair(self.players_sfc_list,sfc_id)
+        #     sfcs_list.append(new_sfc_list)
+        # sfcs_list = [list(t) for t in set(tuple(sublist) for sublist in sfcs_list)]
 
-                resource_info = self.sfc_manager.calculate_latency(o_rf)
-                location = sfc.dst.substrate_node
-                
-                new_vnfs_list_dict = copy.deepcopy(sfc.vnfs_dict)
-                new_sfc_dict = {}
-                new_sfc_dict["name"] = sfc_id
-                new_sfc_dict["vnf_list"] = new_vnfs_list_dict
-                new_sfc_dict["bandwidth"] = sfc.input_throughput
-                new_sfc_dict["src_node"] = sfc.src.substrate_node
-                new_sfc_dict["dst_node"] = location
-                new_sfc_dict["duration"] = duration
-                new_sfc_dict["latency"] = sfc.latency_request
-                self.sfc_manager.undeploy_sfc(sfc_id,self.substrate_network) # retira a sfc antiga  
-                
-                new_sfc = SFCGenerator(new_sfc_dict).generate() # gera uma nova e coloca de volta na fila
-                new_sfc_list.append(new_sfc)
+        for sfc_id in list(sfcs_crashed_ids.keys()):
+            new_sfc_list = []
+            sfc_id_duration = self.sfc_manager.sfc_id_duration 
+            duration = sfc_id_duration[sfc_id]["duration"]-(time.time()-sfc_id_duration[sfc_id]["timer"]) + 3 # bonus
 
-                self.sfcs_crash_affected[sfc_id] = {"vnf_id":None,"recover_success":None,"backup_success":False,"latency_diff":None,"old_latency":o_latency,"resource_info":resource_saved,"time_to_recover":None,'fall_time':time.time()}
+            # self.mobility_manager.set_vehicle_status(sfc_id,new_status='moving')         
+            sfc = self.substrate_network.get_sfc_by_id(sfc_id)
+
+            o_rf = self.substrate_network.sfc_route_info[sfc_id]
+            o_latency = self.sfc_manager.calculate_latency(o_rf)
+            
+            resource_saved = 1#self.sfc_manager.sfc_reuse[sfc_id]
+            resource_info = self.sfc_manager.calculate_latency(o_rf)
+
+            location = sfc.dst.substrate_node
+            
+            new_vnfs_list_dict = copy.deepcopy(sfc.vnfs_dict)
+            new_sfc_dict = {}
+            new_sfc_dict["name"] = sfc_id
+            new_sfc_dict["vnf_list"] = new_vnfs_list_dict
+            new_sfc_dict["bandwidth"] = sfc.input_throughput
+            new_sfc_dict["src_node"] = sfc.src.substrate_node
+            new_sfc_dict["dst_node"] = location
+            new_sfc_dict["duration"] = duration
+            new_sfc_dict["latency"] = sfc.latency_request
+            self.sfc_manager.undeploy_sfc(sfc_id,self.substrate_network) # retira a sfc antiga  
+            
+            new_sfc = SFCGenerator(new_sfc_dict).generate() # gera uma nova e coloca de volta na fila
+            new_sfc_list.append(new_sfc)
+            # self.sfc_queue.put_begin(new_sfc_list)
+
+            self.sfcs_crash_affected[sfc_id] = {"vnf_id":None,"recover_success":None,"backup_success":False,"latency_diff":None,
+                                                "old_latency":o_latency,"resource_info":resource_saved,"time_to_recover":None,
+                                                'fall_time':time.time(),'backup_efficient':backup_efficient}
             self.timer_qeue_sfcs.append({"new_sfc_list":new_sfc_list,"timer":time.time()})
 
-    def find_sfc_pair_or_list(self,player_sfc_id_list, sfc_key):
+    def find_sfc_pair(self,player_sfc_id_list, sfc_key):
         for sfc_list in player_sfc_id_list:
             if sfc_key in sfc_list:
                 return sfc_list  # Retorna a lista onde a chave está presente
         return None  # Retorna None se a chave não for encontrada
-
-
-        # sfcs_affected_keys = list(sfcs_affected.keys())
-        # random.shuffle(sfcs_affected_keys)
-        # sfcs_with_backup = list(self.sfc_manager.sfs_backup.keys())
-        
-        # backup_vnf_ids = []  # Lista para armazenar todos os vnf_ids
-        # for sfc_id, backups in self.sfc_manager.sfs_backup.items():
-        #     for backup in backups:
-        #         vnf_id = backup.get("vnf_id")  # Coleta o vnf_id
-        #         if vnf_id:  # Verifica se o vnf_id existe
-        #             backup_vnf_ids.append(vnf_id)
-        
-        # to_send_back_to_qeue = []
-        # #sfcs_backup_success = []
-        # for sfc_id in sfcs_affected_keys:
-        #     sfc = self.substrate_network.get_sfc_by_id(sfc_id)
-        #     if self.sfc_manager.is_Backup(sfc_id=sfc_id): # Se for de backup simplesmente retira
-        #         self.sfc_manager.undeploy_sfc(sfc_id,self.substrate_network)
-        #         continue
-
-        #     vnf_affected = sfcs_affected[sfc_id]['vnf_ids'][0]
-            
-        #     #if sfc_id in sfcs_with_backup:
-        #     if vnf_affected in backup_vnf_ids:
-        #         #backups = self.sfc_manager.sfs_backup[sfc_id]  # Obtém a lista de backups
-                
-        #         #for backup in backups:
-        #             # Acessa os detalhes de cada backup
-        #             #backup_id = backup["sfc_backup_id"]
-        #             #backup_vnf = backup["vnf_id"]
-                
-        #             #if backup_vnf in sfcs_affected[sfc_id]['vnf_ids']:
-        #                 # try:
-        #                 #     backup_sfc = self.substrate_network.get_sfc_by_id(backup_id)
-        #                 # except:
-        #                 #     self.sfc_manager.take_off_backup(sfc_id,self.substrate_network)
-        #                 #     to_send_back_to_qeue.append(sfc)
-        #                 #     continue
-        #             node_crash = nodes_to_crash[0]
-        #             self.sfc_manager.trigger_sfc_backup(sfc,vnf_affected,self.substrate_network,node_id=node_crash)
-        #                 #sfcs_backup_success.append(sfc)
-                        
-        #             o_rf = self.substrate_network.sfc_route_info[sfc_id]
-        #             o_latency = self.sfc_manager.calculate_latency(o_rf)
-        #             self.sfcs_crash_affected[sfc_id] = {"vnf_id":vnf_affected,"recover_success":True,"backup_success":True,"latency_diff":0,"old_latency":o_latency,"time_to_recover":random.uniform(1,2)}
-        #             self.output_results(results_dict=False,sfc=sfc,res_output=True)
-        #             #break
-        #                 #self.update()
-        #     else: # A sfc não tem backup
-        #         to_send_back_to_qeue.append(sfc)
-        #         continue        
 
     def sequential_recovery(self,interval=200):
         node = self.crasher_manager.nodes_crashed[0]
@@ -753,7 +780,7 @@ class SubstrateNetworkController():
             
             for entry in self.timer_qeue_sfcs:
                 time_elapsed = final_time - entry['timer']
-                if time_elapsed >= random.uniform(5, 6):
+                if time_elapsed >= random.uniform(4, 5):
                     self.sfc_queue.put_begin(entry["new_sfc_list"])  # Coloca na fila
                 else:
                     new_timer_qeue_sfcs.append(entry)  # Mantém na lista se não atender à condição
@@ -764,13 +791,23 @@ class SubstrateNetworkController():
     def sequential_backup(self, threshold=0.0):
         node_fail_p = self.substrate_network.nodes_reliability.copy()
         # Chamando a função 'set_risk_sfcs' com o servidor escolhido
-        backups = self.backup_manager.create_backups(node_fail_p, self.substrate_network,sfc_manager=self.sfc_manager)
-
+        backups,strategy = self.backup_manager.create_backups(node_fail_p, self.substrate_network,self.backups_data,sfc_manager=self.sfc_manager)
+        
         # Adicionando os backups na fila, se existirem
         if backups:
             for backup in backups:
+                sfc = backup[0]
+                
+                if sfc.id not in self.backups_data:
+                    if strategy == 'seletive':
+                        self.backups_data[sfc.id] = {'status':'instantiating','original_sfc':sfc.vnfs_dict[1]['original_sfc']}
+                    else:
+                        split = sfc.id.split("_")
+                        original_sfc = f"{split[0]}_{split[1]}_{split[3]}_{split[4]}" 
+                        self.backups_data[sfc.id] = {'status':'instantiating','original_sfc':original_sfc}
+                else:
+                    pass # Situação de erro, é bom ter mapeada. Se 
                 self.sfc_queue.put_begin(backup)
-
 
     def sequential_mobility(self, interval=5):
         self.sequential_check_duration() 
@@ -778,16 +815,23 @@ class SubstrateNetworkController():
             sfcs_moved, new_locations = self.mobility_manager.check_all_vehicles_position_changes() # Checagem dos Veh que mudaram de posição 
             for sfc_list, new_location in zip(sfcs_moved, new_locations):
                 print(f"SFCs moved: {sfc_list} | New Location: {new_location}")
-                obj_sfc_list = [self.substrate_network.get_sfc_by_id(sfc_id) for sfc_id in sfc_list]
-                self.send_back_to_qeue(obj_sfc_list, changed_location=True, new_location=new_location)
+                try:
+                    obj_sfc_list = [self.substrate_network.get_sfc_by_id(sfc_id) for sfc_id in sfc_list]
+                    self.send_back_to_qeue(obj_sfc_list, changed_location=True, new_location=new_location)
+                except:
+                    continue
 
     def sequential_check_duration(self):
         remove_list = self.sfc_manager.check_sfc_duration()
         for sfc_id in remove_list:
             self.sfc_manager.undeploy_sfc(sfc_id,self.substrate_network)
-            self.mobility_manager.remove_sfc(sfc_id,all=True) # Remove o Veículo associado
+           #self.mobility_manager.remove_sfc(sfc_id,all=True) # Remove o Veículo associado
+            self.mobility_manager.set_vehicle_status(sfc_id,new_status='blocked')
+            #self.backup_manager.take_off_backup_if_exist([sfc_id])
+            for backup_id in list(self.backups_data.keys()):
+                if self.backups_data[backup_id]['original_sfc'] == sfc_id:
+                    del self.backups_data[backup_id]
         self.update()
-
 
     def sequential_operation(self):
         mobility_interval = 5
@@ -795,9 +839,9 @@ class SubstrateNetworkController():
         crashs_trials = 0
         crash_limit = self.crasher_manager.number_of_fails 
 
-        fail_recovery_time = (1000 - (self.crasher_manager.availability)*1000)*3 # fator de segurança
+        fail_recovery_time = (1000 - (self.crasher_manager.availability)*1000)*2 # fator de segurança
                 
-        backup_interval_creation = 40
+        backup_interval_creation = 20
         
         start_timer = time.time()
         last_mobility_time = start_timer

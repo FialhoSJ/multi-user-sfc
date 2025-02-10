@@ -8,7 +8,8 @@ logger.setLevel(logging.DEBUG)
 
 # create console handler and set level to debug
 # ch = logging.StreamHandler()
-ch = logging.FileHandler(ROOT_PATH + './logs/DynamicProgrammingAlgorithm.log')
+import os
+ch = logging.FileHandler(os.path.join(ROOT_PATH, 'logs', 'DynamicProgrammingAlgorithm.log'))
 ch.setLevel(logging.DEBUG)
 # create formatter
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -29,7 +30,7 @@ class MSF():
         self.route_info = {}
         self.single_source_minimum_latency_path = None
         self.latency = None
-
+        self.forbidden_matches = {}
     def clear_all(self):
         #logger.debug('clear all')
         self.substrate_network = None
@@ -68,10 +69,33 @@ class MSF():
                                                                                 # in which is a set of substrate node
                                                                                 # has been assigned to VNFs in order
                 self.node_info[node][vnf_id]['bandwidth_usage_info'] = {}
+                
+                # if is_backup:
+                #     for vnf, rf in route_info.items():
+                #         if vnf not in ['src','dst']:
+                #             node_used = route_info[vnf][0]
+                #             if node_used == node and vnf == vnf_id:
+                #                 self.node_info[node][vnf_id]['flag'] = False
+
 
             self.node_info[node][src_vnf.id] = {}
             self.node_info[node][src_vnf.id]['flag'] = False  # src cannot be placed on the node except src node
             self.node_info[node][dst_vnf.id] = {}
+
+        is_backup = True if sfc.id.split("_")[2] == 'backup' else False
+        if is_backup:
+            split = sfc.id.split("_")
+            original_sfc_id = f"{split[0]}_{split[1]}_{split[3]}_{split[4]}" 
+            route_info = self.substrate_network.sfc_route_info[original_sfc_id]
+            for vnf, rf in route_info.items():
+                if vnf not in ['src','dst']:
+                    node_used = route_info[vnf][0]
+                    correct_name =  vnf + "_b"
+                    self.forbidden_matches[correct_name] = node_used
+                    #del self.node_info[node_used][correct_name] 
+                    # = {}  # Inicializa o dicionário
+                    # self.node_info[node_used][vnf+"_b"]['flag'] = False  # Define corretamente a chave 'flag'
+                    # self.node_info[node][dst_vnf.id] = {}
 
         self.node_info[src_substrate_node][src_vnf.id]['flag'] = True # src can be placed on the src node
         self.node_info[src_substrate_node][src_vnf.id]['latency'] = 0
@@ -85,7 +109,6 @@ class MSF():
         self.node_info[dst_substrate_node][dst_vnf.id]['current_substrate_nodes'] = []
         self.node_info[src_substrate_node][src_vnf.id]['bandwidth_usage_info'] = {}
         self.node_info[dst_substrate_node][dst_vnf.id]['bandwidth_usage_info'] = {}
-
         return self.sfc
 
     def get_latency(self):
@@ -94,13 +117,26 @@ class MSF():
     def get_route_info(self):
         return self.route_info
 
-    def start_algorithm(self):
+    def start_algorithm(self,is_backup):
         substrate_network = self.substrate_network
         sfc = self.sfc
         #logger.info('Algorithm start')
         if self.algorithm(substrate_network, sfc):
             #logger.info('Algorithm end, success')
 
+            if is_backup:
+                for vnf, server_forbidden in self.forbidden_matches.items():
+                    try:
+                        server_used = self.route_info[vnf][0]
+                        if server_used == server_forbidden:
+                            self.route_info = False
+                            self.latency = None
+                            return False
+                    except:
+                        self.route_info = False
+                        self.latency = None
+                        return False
+                        
             if self.latency is not None:
                 if self.latency < 0:
                     print("Latencia negativa")
@@ -223,6 +259,11 @@ class MSF():
                 self.route_info = {}
                 self.latency = None
                 return False
+            
+            if len(list(self.route_info.keys()))!=6: # Não instanciou todas
+                self.route_info = False
+                self.latency = None
+                return False
             #print("Deu certo: ",self.route_info)
             return True
         else:
@@ -255,6 +296,13 @@ class MSF():
         for node, latency in list(node_latency.items()):
             if latency > 3:
                 continue
+            
+            forbidden = False
+            for vnf_f,node_f in self.forbidden_matches.items():
+                if node_f == node and vnf_f == vnf_id:
+                    forbidden =True
+            if forbidden:
+                continue
 
             if node == substrate_node:
                # Cannot use the current substrate node to host this vnf.
@@ -270,6 +318,8 @@ class MSF():
             # Check CPU and cache resources
             cpu_available = self.substrate_network.get_node_cpu_free(node)
             cache_available = self.substrate_network.get_node_cache_free(node)
+            
+
             if cpu_request > cpu_available or cache_request > cache_available:
                 # if node has not sufficient cpu, check next node. 
                 continue

@@ -4,16 +4,69 @@ import time
 
 class BackupManager:
     def __init__(self,args):
-        self.backups_instatiated = []
+        self.sfcs_backups_instatiated = {}
         self.sfc_backup = {}
-        self.backup_activated = (args.backup) == 'y'
+        self.backup_activated = (args.backup) == 'y' if args.ava != '1.0' else False
         self.alg = args.alg
 
+    def greedy_strategy(self,nodes_fail_p,network,sfc_id_duration,backups_data,threshold=0):
+        backups_mount = []
+        
+        sfcs_id = list(sfc_id_duration.keys()) # Somente um servidor será selecionado, e será aquele com mais chance de falhar
+        
+        if len(sfcs_id) == 0:
+            return []
+        
+        for sfc_id in sfcs_id:
+            if sfc_id.split("_")[2]=='backup': # Se for backup, não cria backup
+                continue    
 
-    def greedy_strategy(self,servers,network,sfc_id_duration):
-        pass
+            if sfc_id not in network.sfc_dict or sfc_id not in sfc_id_duration: # Se não estiver instanciada, passa (situação de erro)
+                continue 
 
-    def seletive_strategy(self,nodes_fail_p,network,sfc_id_duration,threshold=0):
+            if sfc_id_duration[sfc_id]['duration'] <  25:
+                continue
+
+            split = sfc_id.split("_")
+            name = split[0] + "_" + split[1] + '_backup_' + split[2] + "_" +split[3]
+
+            if name in backups_data:
+                continue
+
+            reduction_factor = 0.2
+            sfc = network.get_sfc_by_id(sfc_id)
+            vnf_info = sfc.vnfs_dict
+            new_sfc = copy.deepcopy(sfc)
+
+            new_vnfs_dict = []
+            for info in vnf_info:
+                new_info = {}
+                for aspect,value in info.items():
+                    new_value = value
+                    if aspect in ['CPU','cache','in_bw','out_bw']:
+                        new_value = value * reduction_factor
+                    if aspect == 'name':
+                        new_value = value + "_b"
+                    new_info[aspect] = new_value
+                new_vnfs_dict.append(new_info)
+
+            players_sfc_dict_list = []
+            player_dict = {}
+            player_dict['name'] = name
+            player_dict["vnf_list"] = new_vnfs_dict
+            player_dict["bandwidth"] = sfc.input_throughput
+            player_dict["src_node"] = sfc.src.substrate_node
+            player_dict["dst_node"] = sfc.dst.substrate_node
+            player_dict["duration"] = sfc_id_duration[sfc_id]['duration']
+            player_dict["latency"] = 7
+            players_sfc_dict_list.append(player_dict)
+            new_sfc = SFCGenerator(player_dict).generate() # gera uma nova e coloca de volta na fila
+            new_sfc_list = []
+            new_sfc_list.append(new_sfc)
+            backups_mount.append(new_sfc_list)
+        return backups_mount
+
+    def seletive_strategy(self,nodes_fail_p,network,sfc_id_duration,backups_data,threshold=0):
         backups_mount = []
         
         nodes_highest_p = {node: rel for node, rel in nodes_fail_p.items() if rel > threshold}
@@ -34,12 +87,30 @@ class BackupManager:
                     vnf_id = vnf.id
 
                     if sfc_id.split("_")[2]=='backup': # Se for backup, não cria backup
-                        continue
+                        continue    
 
                     if sfc_id not in network.sfc_dict or sfc_id not in sfc_id_duration: # Se não estiver instanciada, passa (situação de erro)
                         continue 
+
+                    if sfc_id_duration[sfc_id]['duration'] <  25:
+                        continue
+
+                    split = sfc_id.split("_")
+                    name = split[0] + "_" + split[1] + '_backup_'+ vnf_id + '_' + split[2] + "_" +split[3]
+
+                    if name in backups_data:
+                        continue
+                        # backup_already_did = False
+                        # for backup in self.sfcs_backups_instatiated[sfc_id]:
+                        #     if backup['vnf_id'] == vnf_id:
+                        #         backup_already_did = True
+
+                    # if len(self.sfcs_backups_instatiated[sfc_id]) ==2: # Não permite mais de 2 backups
+                    #     continue
+
+
                     
-                    # try:
+                    # try: # Tentativa desesperada.
                     #     network.get_sfc_by_id(name)
                     #     continue
                     # except:
@@ -67,8 +138,8 @@ class BackupManager:
 
                     i = 0
                     latency_dismiss = 0
-                    src,dst,latency_req = self.escolher_src_dst(sfc_rf,vnf_id)
-                    
+                    #src,dst,latency_req = self.escolher_src_dst(sfc_rf,vnf_id)
+                    dst,src,latency_req = self.escolher_src_dst(sfc_rf,vnf_id)
                     if latency_req < 0:
                         continue
 
@@ -81,12 +152,13 @@ class BackupManager:
                     split = sfc_id.split("_")
                     name = split[0] + "_" + split[1] + '_backup_'+ vnf_id + '_' + split[2] + "_" +split[3]
                     
-                    src_name = "src" #+ vnf_id
-                    dst_name = "dst"
-
-                    backup_sf_list.append({"type": 2, "name":src_name,"CPU": 0, "cache": 0, "in_bw": 0, "out_bw":src_out ,"latency":0,"location":src})
-                    backup_sf_list.append({"type": 2, "name":vnf_id,"CPU": cpu, "cache": cache, "in_bw": src_out, "out_bw": dst_in,"latency":0,"original_loc":location,"original_sfc":sfc_id})
-                    backup_sf_list.append({"type": 2, "name":dst_name,"CPU": 0, "cache": 0, "in_bw": dst_in, "out_bw":0 ,"latency":0,"location":dst})
+                    src_name = "source" #+ vnf_id
+                    backup_vnf_name = vnf_id + "_b"
+                    dst_name = "destiny"
+                    reduction_factor = 0.7
+                    backup_sf_list.append({"type": 2, "name":src_name,"CPU": 0, "cache": 0, "in_bw": 0, "out_bw":src_out*reduction_factor ,"latency":0,"location":src})
+                    backup_sf_list.append({"type": 2, "name":backup_vnf_name,"CPU": cpu*reduction_factor, "cache": cache*reduction_factor, "in_bw": src_out*reduction_factor, "out_bw": dst_in*reduction_factor,"latency":0,"original_loc":location,"original_sfc":sfc_id})
+                    backup_sf_list.append({"type": 2, "name":dst_name,"CPU": 0, "cache": 0, "in_bw": dst_in*reduction_factor, "out_bw":0 ,"latency":0,"location":dst})
 
                     new_sfc_dict = {}
                     new_sfc_dict["name"] = name
@@ -96,7 +168,7 @@ class BackupManager:
                     new_sfc_dict["dst_node"] = dst
 
                     duration = sfc_id_duration[sfc_id]["duration"]-(current_time-sfc_id_duration[sfc_id]["timer"])
-                    new_sfc_dict["duration"] = duration  + 20 
+                    new_sfc_dict["duration"] = duration  + 10 
                     new_sfc_dict["latency"] = latency_req  # sfc.latency_request - self.calculate_latency(sfc_rf) + latency_dismiss  # TODO deve ter aqui  um cálculo para não passar da latencia da original se implementada
                     # new_sfc_dict["original_sfc"] = sfc_rf
                     # new_sfc_dict["restrictions"] = [location]
@@ -104,21 +176,31 @@ class BackupManager:
                     new_sfc = SFCGenerator(new_sfc_dict).generate()
                     
                     #self.sfs_backup[sfc_id] = {"sfc_backup_id":new_sfc.id,"vnf_id":vnf_id}  # Por enquanto teremos apenas uma SFC de Backup por SFC 
+                    if sfc_id not in self.sfcs_backups_instatiated:
+                        self.sfcs_backups_instatiated[sfc_id] = []
+                    self.sfcs_backups_instatiated[sfc_id].append({"vnf_id":vnf_id,'vnf_backup_id':backup_vnf_name})
 
                     new_sfc_list.append(new_sfc)
                     backups_mount.append(new_sfc_list)
         return backups_mount
    
-    def create_backups(self,nodes_fail_p,network,sfc_manager):
+    def take_off_backup_if_exist(self,sfc_list):
+        for sfc_id in sfc_list:
+            if sfc_id in self.sfcs_backups_instatiated:
+                del self.sfcs_backups_instatiated[sfc_id]
+
+    def create_backups(self,nodes_fail_p,network,backups_data,sfc_manager):
         backups_mount = []
         sfc_id_duration = copy.deepcopy(sfc_manager.sfc_id_duration)
 
         if self.alg in ['vegeta','ga']:
-            backups_mount = self.seletive_strategy(nodes_fail_p,network,sfc_id_duration)
+            backups_mount = self.seletive_strategy(nodes_fail_p,network,sfc_id_duration,backups_data)
+            return backups_mount,'seletive' 
         else:        
-            backups_mount = self.greedy_strategy(nodes_fail_p,network,sfc_id_duration)
+            backups_mount = self.greedy_strategy(nodes_fail_p,network,sfc_id_duration,backups_data)
+            return backups_mount,'greedy'
                     #sfcs_id_backup_made.appenc_id)
-        return backups_mount
+        
     
     def calculate_latency(self, route_info):
         total_latency = sum(

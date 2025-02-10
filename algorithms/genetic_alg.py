@@ -260,29 +260,30 @@ class Genetic(Algorithm):
                           server_resources_complex=self.server_resources,
                           node_reference=dst,hops_cuff=5)
 
-        server_resources = self.server_resources        
+        #server_resources = self.server_resources        
         all_pairs_shortest_path = dict(nx.all_pairs_dijkstra_path(A, weight='weight'))
 
         # Removing the restriction from the structures
         restriction = vnf_info[1]['original_loc']
-        self.can_alocate_sf_in_node[vnf_id].remove(restriction)
-        del self.node_info[restriction]
-        self.edge_computing_servers.remove(restriction)
-        del self.server_resources[restriction]
+        if restriction in list(self.can_alocate_sf_in_node[vnf_id]):
+            self.can_alocate_sf_in_node[vnf_id].remove(restriction)
+        if restriction in self.edge_computing_servers:        #del self.node_info[restriction]
+            self.edge_computing_servers.remove(restriction)
+        #del self.server_resources[restriction]
 
         a = time.time()
         route_info, latency = self.genetic_backup(G,A,service_requirements,services,src,dst,all_pairs_shortest_path)
         b = time.time()
         self.elapsed_time = (b-a)
         
-        # if latency > self.latency_request or route_info == False:
-        #     self.latency = None
-        #     self.route_info = False
-        #     return False
-        # else:
-        #     self.latency = latency
-        #     self.route_info = route_info
-        #     return True
+        if latency > self.latency_request or route_info == False:
+            self.latency = None
+            self.route_info = False
+            return False
+        else:
+            self.latency = latency
+            self.route_info = route_info
+            return True
 
     def genetic_backup(self, G,G_old, service_requirements, services,src,dst,all_pairs_shortest_path):
         available_servers = self.can_alocate_sf_in_node[services[1]]
@@ -363,35 +364,31 @@ class Genetic(Algorithm):
         # Após a execução do algoritmo genético
         best_ind = tools.selBest(pop, 1)[0]
         
-        if best_ind.fitness.values[0] == float('inf'):
-            return False, 100
-        else:
-            best_ind.append(dst)     
+        if best_ind.fitness.values[0] != float('inf'):
+            best_ind = [src] + best_ind + [dst]
             service_to_server_dict = display_paths_and_create_service_dict(best_ind)
 
-            service_to_server_dict.popitem()
-
+            #service_to_server_dict.popitem()
             # Inverter a ordem dos itens no dicionário
             route_info = dict(reversed(list(service_to_server_dict.items())))
-            src_node = next(reversed(route_info.values()))[0]
+            #src_node = next(reversed(route_info.values()))[0]
 
-            path_to_src = list(reversed(nx.dijkstra_path(G_old, src_node, 0, weight='weight')))
+            #path_to_src = list(reversed(nx.dijkstra_path(G_old, src_node, 0, weight='weight')))
             
             total_latency = sum(len(path) - 1 for path in route_info.values() if path) 
 
-            route_info['src'] = path_to_src
-            route_info['dst'] = []
+            #route_info['src'] = path_to_src
+            #route_info['dst'] = []
             b = time.time()
             elapsed_time_ms = (b - a) * 1000  # Convertendo para milissegundos
-
 
             print(f"Tempo total de avaliação: {self.evaluation_time:.2f} ms")
             print(f"Tempo total de crossover: {self.crossover_time:.2f} ms")
             print(f"Tempo total de mutação: {self.mutation_time:.2f} ms")
-
             print(f"Tempo de execução: {elapsed_time_ms:.2f} ms")
-            return route_info, total_latency
-
+            return route_info, total_latency            
+        else:
+            return False, 100
 
 
 
@@ -591,17 +588,15 @@ class Genetic(Algorithm):
         # Registrar o método de paralelização
     
         # Parâmetros do algoritmo genético
-        population_size = 50
+        population_size = 60
         crossover_probability = 0.7
         mutation_probability = 0.2
-        number_of_generations = 50
+        number_of_generations = 60
 
         # Inicialização da população
         pop = toolbox.population(n=population_size)
 
         # Algoritmo genético
-
-
         algorithms.eaSimple(pop, toolbox, crossover_probability, mutation_probability, ngen=number_of_generations,verbose=False)
 
         def display_paths_and_create_service_dict(best_individual):

@@ -101,7 +101,7 @@ def create_output_dir(args,topology):
         "crashing"
     ]
 
-    res_fields = ["sfc_id","vnf_id","recover_success","backup_success","latency_diff","latency_deg","resource_deg","time_to_recover"]
+    res_fields = ["sfc_id","vnf_id","recover_success","backup_success","backup_efficient","latency_diff","latency_deg","resource_deg","time_to_recover"]
             
     header = ",".join(header_fields) + "\n"
     res_header = ",".join(res_fields) + "\n"
@@ -134,17 +134,20 @@ class OutputWritter:
     def resilient_output(self,sfc_id,info):
         is_success = info["recover_success"]
         backup_success = info["backup_success"]
+        backup_efficient = info['backup_efficient']
         latency_diff = info["latency_diff"]
         time_to_recover = info["time_to_recover"]
         vnf_id = info["vnf_id"]
         latency_deg = info["latency_degrad"]
-        resource_deg = info["resource_degrad"]       
+        resource_deg = info["resource_degrad"] 
+             
 
         with open(self.resilient_file, "a") as file:
             line = str(sfc_id) + ',' + \
                 str(vnf_id) + ',' + \
                 str(is_success) + ',' + \
                 str(backup_success) + ',' + \
+                str(backup_efficient) + ',' + \
                 str(latency_diff) + ',' + \
                 str(latency_deg) + ',' + \
                 str(resource_deg) + ',' + \
@@ -261,7 +264,6 @@ class OutputWritter:
         # Write the result to the file
         with open(self.cpu_utilization_file, "a") as file:
             file.write(f"{deploy_time},{string_cpu_nodes_util}\n")
-
 
     def output_cache_utilization(self, substrate_network, deploy_time, crashed_nodes=[]) -> None:
         """

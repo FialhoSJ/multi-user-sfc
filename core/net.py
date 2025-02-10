@@ -455,7 +455,6 @@ class Net(nx.Graph):
 
 
     def undeploy_sfc(self, sfc_id):
-
         if sfc_id not in self.sfc_route_info or sfc_id not in self.sfc_dict:
             print("Not in both")
         else:

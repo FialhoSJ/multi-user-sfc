@@ -37,7 +37,7 @@ if __name__ == '__main__':
     for a in avas: # 3 
         for n in number_of_fails: # 1
             for _ in range(args.repetition):
-                command = './muar.py' + \
+                command = './main.py' + \
                     ' --n_sessions ' + str(args.n_sessions) + \
                     ' --alg ' + args.alg + \
                     ' --sfc ' + args.sfc + \

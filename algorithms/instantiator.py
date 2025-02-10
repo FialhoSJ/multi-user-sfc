@@ -1,3 +1,4 @@
+from algorithms.greedy_boosted import GreedyOptAlgorithm
 from algorithms.nfvsdn import Goku
 from algorithms.osfem import Osfem
 from algorithms.genetic_alg import Genetic
@@ -24,6 +25,8 @@ class AlgorithmInstantiator:
             alg = DynamicProgrammingAlgorithm()
         elif type == 'g':
             alg = GreedyAlgorithm()  
+        elif type == 'greedyb':
+            alg = GreedyOptAlgorithm()  
         elif type == 'k':
             alg = KShortestPathsAlgorithm(5)
         elif type == 'b':

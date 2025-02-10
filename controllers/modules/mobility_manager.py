@@ -37,7 +37,7 @@ class MobilityManager:
                 vehicle_id = f"veh_{player_id}"
                 
                 if vehicle_id in list(self.vehicle_to_service_map.keys()):
-                    if self.vehicle_to_service_map[vehicle_id]['connected'] == False:
+                    if self.vehicle_to_service_map[vehicle_id]['connected'] == False or self.vehicle_to_service_map[vehicle_id]['status']=='blocked':
                         return
                     # Verificando se o SFC já está associado ao veículo
                     if sfc.id in self.vehicle_to_service_map[vehicle_id]['sfcs']:
@@ -92,7 +92,7 @@ class MobilityManager:
                             reduction_percentage = ((previous_distance - current_distance) / previous_distance) * 100
 
                             # Verificar se a redução é de pelo menos 35%
-                            if reduction_percentage >= 70:
+                            if reduction_percentage >= 60:
                                 # Atualiza a posição e a distância do veículo no mapeamento
                                 self.vehicle_to_service_map[vehicle_id]['veh_location'] = int(current_position)
                                 self.vehicle_to_service_map[vehicle_id]['status'] = 'moving'
@@ -146,6 +146,10 @@ class MobilityManager:
         running_sfcs = self.running_sfcs.copy()
         if sfc_id in running_sfcs:
              for vehicle_id, vehicle_info in list(self.vehicle_to_service_map.items()):
+                if new_status == 'blocked':
+                    self.remove_vehicle(vehicle_id)
+                    self.running_sfcs.remove(sfc_id)
+                    break   
                 sfcs_in_veh = vehicle_info['sfcs']
                 if sfc_id in sfcs_in_veh :
                     self.vehicle_to_service_map[vehicle_id]['status'] = new_status
