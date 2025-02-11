@@ -561,7 +561,7 @@ class SubstrateNetworkController():
 
     def deploy_sfc(self, sfc: object) -> bool:
         # with self.lock:
-        results_dict = self.sfc_manager.deploy_sfc(sfc,self.substrate_network,self.alg)
+        results_dict = self.sfc_manager.deploy_sfc(sfc,self.substrate_network)
         if results_dict['backup_sfc']:
             if results_dict['is_success']:  
                 try:
@@ -647,14 +647,17 @@ class SubstrateNetworkController():
         print(f"Servidores Crashados: {nodes_to_crash}")
         
         vnfs_backup_instantiate = 0
-        backups_instantiate = self.sfc_manager.sfs_backup
+        backups = self.sfc_manager.backup_manager.backups_sfc_instantiated
+        
         vnfs_backup_util = 0
         if self.alg.name == 'ga':
-            for v in backups_instantiate.values():
-                vnfs_backup_instantiate = len(v) + vnfs_backup_instantiate
+            for backup_id,original_sfc in backups.items():
+                sfc_backups = self.sfc_manager.backup_manager.sfcs_backups_instatiated[original_sfc]
+                vnfs_backup_instantiate = len(sfc_backups) + vnfs_backup_instantiate
         else:
-            vnfs_backup_instantiate = len(list(backups_instantiate.keys())) * 4
+            vnfs_backup_instantiate = len(list(backups.keys())) * 4
 
+        
         print("número de vnfs de backup  instanciadas: ",vnfs_backup_instantiate)
         # ------------Coleta das SFC's caídas---------------#
         sfcs_crashed_ids = {}
@@ -789,25 +792,7 @@ class SubstrateNetworkController():
             self.timer_qeue_sfcs = new_timer_qeue_sfcs
 
     def sequential_backup(self, threshold=0.0):
-        node_fail_p = self.substrate_network.nodes_reliability.copy()
-        # Chamando a função 'set_risk_sfcs' com o servidor escolhido
-        backups,strategy = self.backup_manager.create_backups(node_fail_p, self.substrate_network,self.backups_data,sfc_manager=self.sfc_manager)
-        
-        # Adicionando os backups na fila, se existirem
-        if backups:
-            for backup in backups:
-                sfc = backup[0]
-                
-                if sfc.id not in self.backups_data:
-                    if strategy == 'seletive':
-                        self.backups_data[sfc.id] = {'status':'instantiating','original_sfc':sfc.vnfs_dict[1]['original_sfc']}
-                    else:
-                        split = sfc.id.split("_")
-                        original_sfc = f"{split[0]}_{split[1]}_{split[3]}_{split[4]}" 
-                        self.backups_data[sfc.id] = {'status':'instantiating','original_sfc':original_sfc}
-                else:
-                    pass # Situação de erro, é bom ter mapeada. Se 
-                self.sfc_queue.put_begin(backup)
+        backups = self.sfc_manager.create_backups(self.substrate_network)
 
     def sequential_mobility(self, interval=5):
         self.sequential_check_duration() 
@@ -815,11 +800,11 @@ class SubstrateNetworkController():
             sfcs_moved, new_locations = self.mobility_manager.check_all_vehicles_position_changes() # Checagem dos Veh que mudaram de posição 
             for sfc_list, new_location in zip(sfcs_moved, new_locations):
                 print(f"SFCs moved: {sfc_list} | New Location: {new_location}")
-                try:
-                    obj_sfc_list = [self.substrate_network.get_sfc_by_id(sfc_id) for sfc_id in sfc_list]
-                    self.send_back_to_qeue(obj_sfc_list, changed_location=True, new_location=new_location)
-                except:
-                    continue
+                # try:
+                obj_sfc_list = [self.substrate_network.get_sfc_by_id(sfc_id) for sfc_id in sfc_list]
+                self.send_back_to_qeue(obj_sfc_list, changed_location=True, new_location=new_location)
+                # except:
+                #     continue
 
     def sequential_check_duration(self):
         remove_list = self.sfc_manager.check_sfc_duration()
@@ -841,7 +826,10 @@ class SubstrateNetworkController():
 
         fail_recovery_time = (1000 - (self.crasher_manager.availability)*1000)*2 # fator de segurança
                 
-        backup_interval_creation = 20
+        if self.alg.name == 'msf' or self.alg.name == 'greedyb':
+            backup_interval_creation = 40
+        else:
+            backup_interval_creation = 10
         
         start_timer = time.time()
         last_mobility_time = start_timer
@@ -860,12 +848,16 @@ class SubstrateNetworkController():
                     self.sequential_mobility()
                     last_mobility_time = time.time()
 
-            if self.backup_manager.backup_activated:
+            self.sequential_submit_sfcs()
+            
+            if self.sfc_manager.backup_manager.backup_activated:
                 decorrido = current_time - last_backup_time
                 if decorrido >= backup_interval_creation:
                     self.sequential_backup()  # criação de backups
                     last_backup_time = time.time()
             
+            self.sequential_submit_sfcs()
+
             if self.crasher_manager.activated:
                 #Recupera o sistema após o tempo de recuperação
                 if self.crasher_manager.nodes_crashed != []:
@@ -879,5 +871,6 @@ class SubstrateNetworkController():
                     #     self.sequential_submit_sfcs()
                     last_crasher_time = time.time()
                     crashs_trials = crashs_trials + 1 
+            self.sequential_submit_sfcs()
             print(i)
             i = i + 1

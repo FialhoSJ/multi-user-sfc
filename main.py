@@ -20,7 +20,7 @@ from utils.manager_results import create_output_dir, OutputWritter
 # command line arguments
 parser = argparse.ArgumentParser(description='Select Immersive Service arguments') 
 parser.add_argument('--application', type=str, help='type of application', default='muar')
-parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='greedyb')
+parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='ga')
 parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
 parser.add_argument('--n_players', type=int, help='(int) number of players', default=4)
 #on: quebrar mais em funçoes
@@ -34,7 +34,7 @@ parser.add_argument('--mobility',  type=str, help='(str) mobility', default='y')
 
 parser.add_argument('--allow_delay', type=str, help='(str) whether to allow delay or not', default='n')
 parser.add_argument('--backup', type=str, help='(str) whether to allow delay or not', default='y')
-parser.add_argument('--ava', type=str, help='(str) whether to allow delay or not', default='1.0')
+parser.add_argument('--ava', type=str, help='(str) whether to allow delay or not', default='0.95')
 parser.add_argument('--number_of_fails', type=str, help='(str) whether to allow delay or not', default='1')
 parser.add_argument('--verbose',   type=str, help='verbose log', default='y')
 
@@ -56,17 +56,19 @@ muar_scenario = MuarScenario(args, sfc_queue,topology, sfc_poisson_emitter)
 # Iniciando a simulação
 sfc_poisson_emitter.start(muar_scenario.generate_sfc_session,(None))
 
+ALG = AlgorithmInstantiator().instantiate_algorithm(args.alg)
+
 substrate_network = topology.generate_substrate_network()
 substrate_network.set_verbose(verbose=(args.verbose == 'y'))
 sbn_controller = SubstrateNetworkController()
 sbn_controller.substrate_network = substrate_network
 sbn_controller.sfc_queue = sfc_queue
 sbn_controller.sfc = args.sfc
-sbn_controller.alg = AlgorithmInstantiator().instantiate_algorithm(args.alg)
-sbn_controller.crasher_manager = Crasher(topology=topology,args=args,interval=100)
-sbn_controller.backup_manager = BackupManager(args=args)
+sbn_controller.alg = ALG
+sbn_controller.crasher_manager = Crasher(topology=topology,args=args,interval=200)
+# sbn_controller.backup_manager = BackupManager(args=args)
 sbn_controller.mobility_manager = MobilityManager(args)
-sbn_controller.sfc_manager = SFCManager()
+sbn_controller.sfc_manager = SFCManager(args,backup_manager=BackupManager(args=args),alg=ALG)
 sbn_controller.sfc_manager.alg_name = args.alg
 sbn_controller.verbose = (args.verbose == 'y')
 sbn_controller.output_writter = OutputWritter(topology, *create_output_dir(args, topology))

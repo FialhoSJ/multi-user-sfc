@@ -5,11 +5,13 @@ import time
 class BackupManager:
     def __init__(self,args):
         self.sfcs_backups_instatiated = {}
-        self.sfc_backup = {}
+        self.backups_sfc_instantiated = {}
+        self.backups_activated = []
+        
         self.backup_activated = (args.backup) == 'y' if args.ava != '1.0' else False
         self.alg = args.alg
 
-    def greedy_strategy(self,nodes_fail_p,network,sfc_id_duration,backups_data,threshold=0):
+    def greedy_strategy(self,network,sfc_id_duration,threshold=0):
         backups_mount = []
         
         sfcs_id = list(sfc_id_duration.keys()) # Somente um servidor será selecionado, e será aquele com mais chance de falhar
@@ -27,11 +29,17 @@ class BackupManager:
             if sfc_id_duration[sfc_id]['duration'] <  25:
                 continue
 
+            if sfc_id in self.sfcs_backups_instatiated:
+                continue
+
             split = sfc_id.split("_")
             name = split[0] + "_" + split[1] + '_backup_' + split[2] + "_" +split[3]
+        
+            if name in self.backups_sfc_instantiated:
+                    continue
 
-            if name in backups_data:
-                continue
+            # if name in backups_data:
+            #     continue
 
             reduction_factor = 0.2
             sfc = network.get_sfc_by_id(sfc_id)
@@ -66,9 +74,9 @@ class BackupManager:
             backups_mount.append(new_sfc_list)
         return backups_mount
 
-    def seletive_strategy(self,nodes_fail_p,network,sfc_id_duration,backups_data,threshold=0):
+    def seletive_strategy(self,network,sfc_id_duration,threshold=0):
         backups_mount = []
-        
+        nodes_fail_p = network.nodes_reliability.copy()
         nodes_highest_p = {node: rel for node, rel in nodes_fail_p.items() if rel > threshold}
         chosen_server = max(nodes_highest_p, key=nodes_highest_p.get)
         servers = [chosen_server] # Somente um servidor será selecionado, e será aquele com mais chance de falhar
@@ -91,15 +99,18 @@ class BackupManager:
 
                     if sfc_id not in network.sfc_dict or sfc_id not in sfc_id_duration: # Se não estiver instanciada, passa (situação de erro)
                         continue 
-
-                    if sfc_id_duration[sfc_id]['duration'] <  25:
-                        continue
+                
+                    # if sfc_id_duration[sfc_id]['duration'] <  25:
+                    #     continue
 
                     split = sfc_id.split("_")
                     name = split[0] + "_" + split[1] + '_backup_'+ vnf_id + '_' + split[2] + "_" +split[3]
 
-                    if name in backups_data:
+                    if name in self.backups_sfc_instantiated:
                         continue
+
+                    # if name in backups_data:
+                    #     continue
                         # backup_already_did = False
                         # for backup in self.sfcs_backups_instatiated[sfc_id]:
                         #     if backup['vnf_id'] == vnf_id:
@@ -109,7 +120,6 @@ class BackupManager:
                     #     continue
 
 
-                    
                     # try: # Tentativa desesperada.
                     #     network.get_sfc_by_id(name)
                     #     continue
@@ -176,9 +186,9 @@ class BackupManager:
                     new_sfc = SFCGenerator(new_sfc_dict).generate()
                     
                     #self.sfs_backup[sfc_id] = {"sfc_backup_id":new_sfc.id,"vnf_id":vnf_id}  # Por enquanto teremos apenas uma SFC de Backup por SFC 
-                    if sfc_id not in self.sfcs_backups_instatiated:
-                        self.sfcs_backups_instatiated[sfc_id] = []
-                    self.sfcs_backups_instatiated[sfc_id].append({"vnf_id":vnf_id,'vnf_backup_id':backup_vnf_name})
+                    # if sfc_id not in self.sfcs_backups_instatiated:
+                    #     self.sfcs_backups_instatiated[sfc_id] = []
+                    # self.sfcs_backups_instatiated[sfc_id].append({"vnf_id":vnf_id,'vnf_backup_id':backup_vnf_name})
 
                     new_sfc_list.append(new_sfc)
                     backups_mount.append(new_sfc_list)
