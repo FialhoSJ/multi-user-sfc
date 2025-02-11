@@ -153,6 +153,7 @@ class GreedyOptAlgorithm():
             } for server in servers}
         first_vnf = True
         nodes_used = []
+
         for i in range(number_of_vnfs - 1, -1, -1):
             edges = list(substrate_network.edges(current_substrate_node))
             edges = list(set([x[1] for x in edges]))
@@ -167,8 +168,9 @@ class GreedyOptAlgorithm():
             min_latency = float("inf")
             node = None
 
-            if self.is_backup:
+            if self.is_backup and first_vnf:
                 nodes_to_check = servers
+                first_vnf = False
             else:
                 nodes_to_check = edges
 

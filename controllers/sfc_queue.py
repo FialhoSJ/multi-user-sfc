@@ -1,6 +1,7 @@
 from queue import Queue
 from collections import deque
 from heapq import heappush, heappop
+import time as ti
 from time import monotonic as time
 
 class Full(Exception):
@@ -55,10 +56,16 @@ if __name__ == '__main__':
     a = 1
     b = 2
     c = 3
+    d = 4
+    e = 5
     q.put_sfc(a)
     q.put_sfc(b)
+    q.put_begin(d)
+    q.put_begin(e)
     q.put_sfc(c)
-
+    
+    
+    
     print(q.peek_sfc())
     print(q.peek_sfc())
     print(q.peek_sfc())

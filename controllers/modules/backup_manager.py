@@ -36,12 +36,12 @@ class BackupManager:
             name = split[0] + "_" + split[1] + '_backup_' + split[2] + "_" +split[3]
         
             if name in self.backups_sfc_instantiated:
-                    continue
+                continue
 
             # if name in backups_data:
             #     continue
 
-            reduction_factor = 0.4
+            reduction_factor = 0.25
             sfc = network.get_sfc_by_id(sfc_id)
             vnf_info = sfc.vnfs_dict
             new_sfc = copy.deepcopy(sfc)
@@ -165,7 +165,7 @@ class BackupManager:
                     src_name = "source" #+ vnf_id
                     backup_vnf_name = vnf_id + "_b"
                     dst_name = "destiny"
-                    reduction_factor = 0.7
+                    reduction_factor = 0.25
                     backup_sf_list.append({"type": 2, "name":src_name,"CPU": 0, "cache": 0, "in_bw": 0, "out_bw":src_out*reduction_factor ,"latency":0,"location":src})
                     backup_sf_list.append({"type": 2, "name":backup_vnf_name,"CPU": cpu*reduction_factor, "cache": cache*reduction_factor, "in_bw": src_out*reduction_factor, "out_bw": dst_in*reduction_factor,"latency":0,"original_loc":location,"original_sfc":sfc_id})
                     backup_sf_list.append({"type": 2, "name":dst_name,"CPU": 0, "cache": 0, "in_bw": dst_in*reduction_factor, "out_bw":0 ,"latency":0,"location":dst})
@@ -178,7 +178,7 @@ class BackupManager:
                     new_sfc_dict["dst_node"] = dst
 
                     duration = sfc_id_duration[sfc_id]["duration"]-(current_time-sfc_id_duration[sfc_id]["timer"])
-                    new_sfc_dict["duration"] = duration  + 10 
+                    new_sfc_dict["duration"] = duration 
                     new_sfc_dict["latency"] = latency_req  # sfc.latency_request - self.calculate_latency(sfc_rf) + latency_dismiss  # TODO deve ter aqui  um cálculo para não passar da latencia da original se implementada
                     # new_sfc_dict["original_sfc"] = sfc_rf
                     # new_sfc_dict["restrictions"] = [location]

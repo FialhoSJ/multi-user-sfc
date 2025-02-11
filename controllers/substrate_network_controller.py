@@ -71,6 +71,7 @@ class SubstrateNetworkController():
         self.sfc_queue = None
         self.timer_qeue_sfcs = []
         self.sfcs_crash_affected = {}
+        self.crashs_trials  = 0
 
         # Implementações extras
         self.verbose = False
@@ -410,7 +411,7 @@ class SubstrateNetworkController():
                 len(self.crasher_manager.nodes_crashed)!=0
             )
         def resilient_output(sfc_id,info):
-            self.output_writter.resilient_output(sfc_id,info)
+            self.output_writter.resilient_output(sfc_id,info,self.crashs_trials)
 
         """Updates the network state and check for resource overhead."""
         if results_dict:
@@ -579,58 +580,61 @@ class SubstrateNetworkController():
         #     return False
 
     def sequential_submit_sfcs(self):
-        self.check_timer_qeue()
+        # self.check_timer_qeue()
         self.sequential_check_duration() 
         
         last_sf_mono = 'sfc_unique_p4_' + str(self.flows)
         last_sf_dec = 'sfc_mono_p4_' + str(self.flows)
 
-        sfc_list = self.sfc_queue.peek_sfc()           
-        print("queue_size: " + str(self.sfc_queue.qsize()))
         if self.max_queue_size < self.sfc_queue.qsize():
             self.max_queue_size = self.sfc_queue.qsize()
         last_sfc_release = False
-        player_sfc_id_list = []
+        
+        while self.sfc_queue.qsize() != 0:
+            player_sfc_id_list = []
+            deploy_log = {}  # Indicador para verificar se todas as SFCs foram implantadas com sucesso 
+            all_success = True
 
-        deploy_log = {}  # Indicador para verificar se todas as SFCs foram implantadas com sucesso 
-        all_success = True
-        t_1 = time.time()
-        for sfc in sfc_list:
-            result_dict = self.deploy_sfc(sfc)
-            deploy_log[sfc.id] = result_dict
-            if not result_dict['is_success']:
-                all_success = False
-            player_sfc_id_list.append(sfc.id)
-            #self.update()
+            sfc_list = self.sfc_queue.peek_sfc()           
+            #print("queue_size: " + str(self.sfc_queue.qsize()))
 
-        if not result_dict['backup_sfc']:
-            if all_success:
-                self.mobility_manager.add_vehicle(sfc_list)
-                sfc_duration_timer = time.time()
-                # for sfc in sfc_list:
-                #     self.sfc_manager.sfc_id_duration[sfc.id] = {"duration":sfc.duration,"timer":sfc_duration_timer}
-            else: # Se todas não foram um sucesso, retira quem foi um sucesso
-                for sfc_id, result_dict in deploy_log.items():
-                    if result_dict['is_success']:
-                        deploy_log[sfc_id]['is_success'] = False
-                        deploy_log[sfc_id]['latency'] = None
-                        self.sfc_manager.undeploy_sfc(sfc_id, self.substrate_network)
-                    self.mobility_manager.remove_sfc(sfc_id, all=True)
-        
-        for sfc_id, result_dict in deploy_log.items():
-            self.output_results(sfc_id=sfc_id,results_dict=result_dict)
-        
-        self.players_sfc_list.append(player_sfc_id_list)
-        self.update()
-        
-        t_2 = time.time()
-        print(f"          algorithm {self.alg.name} take time: {round(t_2 - t_1,4)}")
-        if sfc.id in (last_sf_mono, last_sf_dec):
-            print('Last SFC released')
-            print('Max queue size:', self.max_queue_size )
-            last_sfc_release = True
-            self.stop()
-            sys.exit()
+            t_1 = time.time()
+            for sfc in sfc_list:
+                result_dict = self.deploy_sfc(sfc)
+                deploy_log[sfc.id] = result_dict
+                if not result_dict['is_success']:
+                    all_success = False
+                player_sfc_id_list.append(sfc.id)
+                #self.update()
+
+            if not result_dict['backup_sfc']:
+                if all_success:
+                    self.mobility_manager.add_vehicle(sfc_list)
+                    sfc_duration_timer = time.time()
+                    # for sfc in sfc_list:
+                    #     self.sfc_manager.sfc_id_duration[sfc.id] = {"duration":sfc.duration,"timer":sfc_duration_timer}
+                else: # Se todas não foram um sucesso, retira quem foi um sucesso
+                    for sfc_id, result_dict in deploy_log.items():
+                        if result_dict['is_success']:
+                            deploy_log[sfc_id]['is_success'] = False
+                            deploy_log[sfc_id]['latency'] = None
+                            self.sfc_manager.undeploy_sfc(sfc_id, self.substrate_network)
+                        self.mobility_manager.remove_sfc(sfc_id, all=True)
+            
+            for sfc_id, result_dict in deploy_log.items():
+                self.output_results(sfc_id=sfc_id,results_dict=result_dict)
+            
+            self.players_sfc_list.append(player_sfc_id_list)
+            self.update()
+            
+            t_2 = time.time()
+            print(f"          algorithm {self.alg.name} take time: {round(t_2 - t_1,4)}")
+            if sfc.id in (last_sf_mono, last_sf_dec):
+                print('Last SFC released')
+                print('Max queue size:', self.max_queue_size )
+                last_sfc_release = True
+                self.stop()
+                sys.exit()
         return last_sfc_release
 
 
@@ -695,7 +699,7 @@ class SubstrateNetworkController():
 
                     new_rf = backup_found['route_info']
                     vnf_id = None
-                    time_to_r = random.uniform(4,5)
+                    time_to_r = random.uniform(2,3)
                     
                 o_latency = self.sfc_manager.calculate_latency(o_rf)
                 new_latency = self.sfc_manager.calculate_latency(new_rf) + 1 # Compensar bug
@@ -759,9 +763,11 @@ class SubstrateNetworkController():
             
             novas.append(new_sfc_list)
             self.timer_qeue_sfcs.append({"new_sfc_list":new_sfc_list,"timer":time.time()})
-        time.sleep(7)
+        
+        time.sleep(6)
         for sfc_list in novas:
             self.sfc_queue.put_begin(sfc_list)
+        
 
     def find_sfc_pair(self,player_sfc_id_list, sfc_key):
         for sfc_list in player_sfc_id_list:
@@ -821,13 +827,13 @@ class SubstrateNetworkController():
     def sequential_operation(self):
         mobility_interval = 5
         crasher_interval = self.crasher_manager.fail_interval #260  # Intervalo em segundos para ativar o Crasher repetidamente
-        crashs_trials = 0
+        self.crashs_trials  = 0
         crash_limit = self.crasher_manager.number_of_fails 
 
         fail_recovery_time = (1000 - (self.crasher_manager.availability)*1000)*2 # fator de segurança
                 
         if self.alg.name == 'msf' or self.alg.name == 'greedyb':
-            backup_interval_creation = 25
+            backup_interval_creation = 20
         else:
             backup_interval_creation = 5
         
@@ -865,13 +871,13 @@ class SubstrateNetworkController():
                     if recovery_elapsed >= fail_recovery_time:
                         self.sequential_recovery()  # Substitua pelo método de recuperação        
 
-                if (current_time - last_crasher_time >= crasher_interval) and not self.backup_in_qeue() and crashs_trials < crash_limit:
+                if (current_time - last_crasher_time >= crasher_interval) and not self.backup_in_qeue() and self.crashs_trials < crash_limit:
                     #self.sequential_backup()
                     retorno = self.sequential_crasher()  
                     # if retorno != False:
                     #     self.sequential_submit_sfcs()
                     last_crasher_time = time.time()
-                    crashs_trials = crashs_trials + 1 
+                    self.crashs_trials = self.crashs_trials + 1 
             self.sequential_submit_sfcs()
-            print(i)
+            #print(i)
             i = i + 1

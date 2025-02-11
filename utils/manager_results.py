@@ -101,7 +101,7 @@ def create_output_dir(args,topology):
         "crashing"
     ]
 
-    res_fields = ["sfc_id","vnf_id","recover_success","backup_success","backup_efficient","latency_diff","latency_deg","resource_deg","time_to_recover"]
+    res_fields = ["crash_trial","sfc_id","vnf_id","recover_success","backup_success","backup_efficient","latency_diff","latency_deg","resource_deg","time_to_recover"]
             
     header = ",".join(header_fields) + "\n"
     res_header = ",".join(res_fields) + "\n"
@@ -131,7 +131,7 @@ class OutputWritter:
         self.sfcs_latency_dict = {}
         self.counter_users = 0
 
-    def resilient_output(self,sfc_id,info):
+    def resilient_output(self,sfc_id,info,crash_trial):
         is_success = info["recover_success"]
         backup_success = info["backup_success"]
         backup_efficient = info['backup_efficient']
@@ -143,7 +143,8 @@ class OutputWritter:
              
 
         with open(self.resilient_file, "a") as file:
-            line = str(sfc_id) + ',' + \
+            line = str(crash_trial) + ',' + \
+                str(sfc_id) + ',' + \
                 str(vnf_id) + ',' + \
                 str(is_success) + ',' + \
                 str(backup_success) + ',' + \

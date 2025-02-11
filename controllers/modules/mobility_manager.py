@@ -99,7 +99,7 @@ class MobilityManager:
                         reduction_percentage = ((previous_distance - current_distance) / previous_distance) * 100
 
                         # Verificar se a redução é de pelo menos 35%
-                        if reduction_percentage >= 60:
+                        if reduction_percentage >= 70:
                             # Atualiza a posição e a distância do veículo no mapeamento
                             self.vehicle_to_service_map[vehicle_id]['veh_location'] = int(current_position)
                             self.vehicle_to_service_map[vehicle_id]['status'] = 'moving'
