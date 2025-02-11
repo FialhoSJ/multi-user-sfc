@@ -332,10 +332,10 @@ class Genetic(Algorithm):
         # Registrar o método de paralelização
     
         # Parâmetros do algoritmo genético
-        population_size = 30
+        population_size = 20
         crossover_probability = 0
         mutation_probability = 0.2
-        number_of_generations = 30
+        number_of_generations = 20
 
         # Inicialização da população
         pop = toolbox.population(n=population_size)
@@ -382,9 +382,9 @@ class Genetic(Algorithm):
             b = time.time()
             elapsed_time_ms = (b - a) * 1000  # Convertendo para milissegundos
 
-            print(f"Tempo total de avaliação: {self.evaluation_time:.2f} ms")
-            print(f"Tempo total de crossover: {self.crossover_time:.2f} ms")
-            print(f"Tempo total de mutação: {self.mutation_time:.2f} ms")
+            # print(f"Tempo total de avaliação: {self.evaluation_time:.2f} ms")
+            # print(f"Tempo total de crossover: {self.crossover_time:.2f} ms")
+            # print(f"Tempo total de mutação: {self.mutation_time:.2f} ms")
             print(f"Tempo de execução: {elapsed_time_ms:.2f} ms")
             return route_info, total_latency            
         else:

@@ -154,7 +154,7 @@ class OutputWritter:
                 str(time_to_recover) + "\n"
             file.write(line)
 
-    def output_flows(self,substrate_network,wait_time,running_players_sessions,counter,remaining_time,current_time, sfc_id, latency, run_duration, is_success,fail_reason,backup_sfc,bw_transcode, latency_diff=None,crashing=False):
+    def output_flows(self,substrate_network,wait_time,running_players_sessions,counter,remaining_time,current_time, sfc_id, latency, run_duration, is_success,fail_reason,backup_sfc,bw_transcode, latency_diff=None,crashing=False,alg_name='ga'):
         cpu_utilization = round(substrate_network.get_cpu_utilization_rate(), 4)
         cache_utilization = round(substrate_network.get_cache_utilization_rate(), 4)
         bw_utilization = round(substrate_network.get_bandwidth_utilization_rate(), 4)
@@ -194,12 +194,13 @@ class OutputWritter:
             time_value = 0
         else:        
             time_value = round(current_time - self.first_time,1)
-
+        decision_time =  str(round(run_duration * 1000, 3))
         if backup_sfc:
             # backup_success = is_success
             is_success = None
-
-
+            #if alg_name == 'ga':
+            latency = None
+            decision_time = None
         with open(self.flows_file, "a") as file:
             line = str(counter) + ',' + \
                    str(current_time) + ',' + \
@@ -214,7 +215,7 @@ class OutputWritter:
                    str(latency) + ',' + \
                    str(latency_diff) + ',' + \
                    str(wait_time) + ',' + \
-                   str(round(run_duration * 1000, 3)) + ',' + \
+                   str(decision_time) + ',' + \
                    str(is_success) + ',' + \
                    str(fail_reason) + ',' + \
                    str(sfc_id) + "," + \
@@ -229,7 +230,6 @@ class OutputWritter:
                    str(bw_transcode) + "," + \
                    str(crashing) + "\n"
             file.write(line)
-
     def update_user_count(self, sfc_id):
         # Extrair o número do player e da sessão
         player = int(sfc_id.split("_")[-2][1])

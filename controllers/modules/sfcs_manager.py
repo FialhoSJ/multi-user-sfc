@@ -3,6 +3,7 @@ import sys
 import time
 import re
 import copy
+import random
 from typing import Optional
 from controllers.modules.backup_manager import BackupManager
 from controllers.sfc_generator import SFCGenerator
@@ -144,7 +145,7 @@ class SFCManager:
             # Se a SFC possui backup, retire ela da lista de sfcs com backup e faça undeploy do backup 
             if take_out_backup:
                 if sfc_id in list(self.sfs_backup.keys()): 
-                    self.take_off_backup(sfc_id,substrate_network)
+                    self.undeploy_sfc_backups(sfc_id,substrate_network)
         else:
             self.remove_backup_by_id(sfc_id,substrate_network)
 
@@ -170,6 +171,10 @@ class SFCManager:
             for backup in backups_mount:
                 sfc = backup[0]
                 results_dict = self.deploy_sfc(sfc,network,is_backup=True)
+                
+                if sfc.id in self.backup_manager.backups_sfc_instantiated:
+                    continue
+
                 if results_dict['is_success']:
                     if self.alg_name == 'ga':
                         original_sfc = sfc.vnfs_dict[1]['original_sfc'] 
@@ -186,21 +191,52 @@ class SFCManager:
                     # Adiciona um backup à lista de backups do original
                     self.backup_manager.sfcs_backups_instatiated[original_sfc].append({"sfc_backup_id": sfc.id,"vnf_id": vnf_id,"route_info": results_dict["route_info"]})
                     self.backup_manager.backups_sfc_instantiated[sfc.id] = original_sfc
-                    
-    def clean_backups(self,network):
-        print("VISH")
+
+    
+
+    def clean_backups(self, network):
         for backup in list(self.backup_manager.backups_sfc_instantiated.keys()):
-            self.undeploy_sfc(backup,network)
-        self.backup_manager.sfcs_backups_instatiated = {}
-        self.backup_manager.backups_sfc_instantiated = {}
+            if backup in self.backup_manager.backups_activated:
+                continue
+            if random.random() < 0.7:  # 70% de chance de apagar
+                self.remove_backup_by_id(backup, network)
+        network.update()
 
-    def take_off_backup(self,sfc_id,substrate_network):
+        # Limpa os dicionários
+        # self.backup_manager.sfcs_backups_instatiated.clear()
+        # self.backup_manager.backups_sfc_instantiated.clear()
+
+    def undeploy_sfc_backups(self,sfc_id,substrate_network): # Retira os backups da SFC, inclusive os ativos
         backups_removed = self.backup_manager.sfcs_backups_instatiated.pop(sfc_id)
-
         for backup in backups_removed:
             backup_id = backup["sfc_backup_id"]
             del self.backup_manager.backups_sfc_instantiated[backup_id]
+            if backup_id in self.backup_manager.backups_activated:
+                self.backup_manager.backups_activated.remove(backup_id)
             substrate_network.undeploy_sfc(backup_id)
+
+    def remove_backup_by_id(self, backup_id, substrate_network): # Remove todos os backups (menos os ativos)
+        if backup_id in self.backup_manager.backups_sfc_instantiated:
+            
+            original_sfc = self.backup_manager.backups_sfc_instantiated[backup_id]
+            if original_sfc in self.backup_manager.sfcs_backups_instatiated:
+                backups = self.backup_manager.sfcs_backups_instatiated[original_sfc]
+                self.backup_manager.sfcs_backups_instatiated[original_sfc] = [backup for backup in backups if backup["sfc_backup_id"] != backup_id]
+                
+                if len(self.backup_manager.sfcs_backups_instatiated[original_sfc]) == 0:
+                    del self.backup_manager.sfcs_backups_instatiated[original_sfc]
+                del self.backup_manager.backups_sfc_instantiated[backup_id]
+                
+                if backup_id in self.sfc_list:
+                    self.sfc_list.remove(backup_id)
+                    del self.sfc_id_duration[backup_id]
+                substrate_network.undeploy_sfc(backup_id)
+            else:
+                try: 
+                    del self.backup_manager.backups_sfc_instantiated[backup_id]
+                    substrate_network.undeploy_sfc(backup_id)
+                except:
+                    pass
 
     def check_backups(self,sfc_id,vnfs,substrate_network):
         if sfc_id in list(self.backup_manager.sfcs_backups_instatiated.keys()):
@@ -213,7 +249,7 @@ class SFCManager:
                         if vnf_id == vnf_backup:
                             print("Tem backup daquela vnf caída, então ativa")
                             self.trigger_sfc_backup(sfc_id,vnf_id,substrate_network,self.crashed_servers[0])
-                            self.backups_activated.append()
+                            self.backup_manager.backups_activated.append(backup['sfc_backup_id'])
                             return backup
             else:
                 backup = self.backup_manager.sfcs_backups_instatiated[sfc_id][0]
@@ -227,15 +263,6 @@ class SFCManager:
                 return backup 
         return False
 
-    def remove_backup_by_id(self, backup_id, substrate_network):
-        original_sfc = self.backup_manager.backups_sfc_instantiated[backup_id]
-        backups = self.backup_manager.sfcs_backups_instatiated[original_sfc]
-        self.backup_manager.sfcs_backups_instatiated[original_sfc] = [backup for backup in backups if backup["sfc_backup_id"] != backup_id]
-        if len(self.backup_manager.sfcs_backups_instatiated[original_sfc]) == 0:
-            del self.backup_manager.sfcs_backups_instatiated[original_sfc]
-            del self.backup_manager.backups_sfc_instantiated[backup_id]
-        substrate_network.undeploy_sfc(backup_id)
-    
     def is_Backup(self,sfc_id):
         return True if sfc_id.split("_")[2] == 'backup' else False
 

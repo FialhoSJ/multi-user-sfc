@@ -41,7 +41,7 @@ class BackupManager:
             # if name in backups_data:
             #     continue
 
-            reduction_factor = 0.2
+            reduction_factor = 0.4
             sfc = network.get_sfc_by_id(sfc_id)
             vnf_info = sfc.vnfs_dict
             new_sfc = copy.deepcopy(sfc)
