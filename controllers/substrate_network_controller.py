@@ -691,7 +691,7 @@ class SubstrateNetworkController():
                     keys = list(new_rf)
                     if vnf_id in keys[:-1]:  
                         new_rf[keys[keys.index(vnf_id) + 1]] = backup_found['route_info']['source']
-                    time_to_r = random.uniform(2,3)
+                    time_to_r = random.uniform(1,3)
                 else:
                     vnfs_backup_util += 4
                     #self.sfc_manager.swap_sfcs(sfc_id,backup_found,self.substrate_network)
@@ -699,7 +699,7 @@ class SubstrateNetworkController():
 
                     new_rf = backup_found['route_info']
                     vnf_id = None
-                    time_to_r = random.uniform(2,3)
+                    time_to_r = random.uniform(3,5)
                     
                 o_latency = self.sfc_manager.calculate_latency(o_rf)
                 new_latency = self.sfc_manager.calculate_latency(new_rf) + 1 # Compensar bug
@@ -833,7 +833,7 @@ class SubstrateNetworkController():
         fail_recovery_time = (1000 - (self.crasher_manager.availability)*1000)*2 # fator de segurança
                 
         if self.alg.name == 'msf' or self.alg.name == 'greedyb':
-            backup_interval_creation = 20
+            backup_interval_creation = 40
         else:
             backup_interval_creation = 5
         
@@ -873,11 +873,11 @@ class SubstrateNetworkController():
 
                 if (current_time - last_crasher_time >= crasher_interval) and not self.backup_in_qeue() and self.crashs_trials < crash_limit:
                     #self.sequential_backup()
+                    self.crashs_trials = self.crashs_trials + 1 
                     retorno = self.sequential_crasher()  
                     # if retorno != False:
                     #     self.sequential_submit_sfcs()
                     last_crasher_time = time.time()
-                    self.crashs_trials = self.crashs_trials + 1 
-            self.sequential_submit_sfcs()
+            #self.sequential_submit_sfcs()
             #print(i)
             i = i + 1

@@ -1,6 +1,7 @@
 import copy
 from controllers.sfc_generator import SFCGenerator
 import time
+import random
 
 class BackupManager:
     def __init__(self,args):
@@ -15,7 +16,7 @@ class BackupManager:
         backups_mount = []
         
         sfcs_id = list(sfc_id_duration.keys()) # Somente um servidor será selecionado, e será aquele com mais chance de falhar
-        
+        random.shuffle(sfcs_id)
         if len(sfcs_id) == 0:
             return []
         
@@ -26,10 +27,13 @@ class BackupManager:
             if sfc_id not in network.sfc_dict or sfc_id not in sfc_id_duration: # Se não estiver instanciada, passa (situação de erro)
                 continue 
 
-            if sfc_id_duration[sfc_id]['duration'] <  25:
-                continue
+            # if sfc_id_duration[sfc_id]['duration'] <  25:
+            #     continue
 
             if sfc_id in self.sfcs_backups_instatiated:
+                continue
+            
+            if random.random() < 0.6:
                 continue
 
             split = sfc_id.split("_")
@@ -165,7 +169,7 @@ class BackupManager:
                     src_name = "source" #+ vnf_id
                     backup_vnf_name = vnf_id + "_b"
                     dst_name = "destiny"
-                    reduction_factor = 0.25
+                    reduction_factor = 0.75
                     backup_sf_list.append({"type": 2, "name":src_name,"CPU": 0, "cache": 0, "in_bw": 0, "out_bw":src_out*reduction_factor ,"latency":0,"location":src})
                     backup_sf_list.append({"type": 2, "name":backup_vnf_name,"CPU": cpu*reduction_factor, "cache": cache*reduction_factor, "in_bw": src_out*reduction_factor, "out_bw": dst_in*reduction_factor,"latency":0,"original_loc":location,"original_sfc":sfc_id})
                     backup_sf_list.append({"type": 2, "name":dst_name,"CPU": 0, "cache": 0, "in_bw": dst_in*reduction_factor, "out_bw":0 ,"latency":0,"location":dst})

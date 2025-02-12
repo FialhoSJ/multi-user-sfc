@@ -177,16 +177,16 @@ class Crasher():
 # Após o loop, `node_more_sfc` terá o nó com mais SFCs únicas
         # if node_choose == None:
         #     return False
-        if alg_name == 'ga':
+        # if alg_name == 'ga':
     ###############################################################
-            node_choose = None
-            h_rel = 0
-            
-            nodes_rel = network.nodes_reliability.copy()
-            for node,rel in nodes_rel.items():
-                if rel > h_rel:
-                    h_rel = rel
-                    node_choose = node
+        node_choose = None
+        h_rel = 0
+        
+        nodes_rel = network.nodes_reliability.copy()
+        for node,rel in nodes_rel.items():
+            if rel > h_rel:
+                h_rel = rel
+                node_choose = node
     ###############################################################
 
                 
