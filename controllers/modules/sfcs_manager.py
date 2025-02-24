@@ -164,8 +164,7 @@ class SFCManager:
         if self.alg_name in ['vegeta','ga']:
             self.clean_backups(network)
             backups_mount = self.backup_manager.seletive_strategy(network,sfc_id_duration) 
-        else:  
-            self.clean_backups(network,factor=0.2)      
+        else:        
             backups_mount = self.backup_manager.greedy_strategy(network,sfc_id_duration)
 
         if backups_mount:
@@ -193,11 +192,13 @@ class SFCManager:
                     self.backup_manager.sfcs_backups_instatiated[original_sfc].append({"sfc_backup_id": sfc.id,"vnf_id": vnf_id,"route_info": results_dict["route_info"]})
                     self.backup_manager.backups_sfc_instantiated[sfc.id] = original_sfc
 
-    def clean_backups(self, network,factor=0.5):
+    
+
+    def clean_backups(self, network):
         for backup in list(self.backup_manager.backups_sfc_instantiated.keys()):
             if backup in self.backup_manager.backups_activated:
                 continue
-            if random.random() < factor:  # fator% de chance de apagar
+            if random.random() < 0.7:  # 70% de chance de apagar
                 self.remove_backup_by_id(backup, network)
         network.update()
 

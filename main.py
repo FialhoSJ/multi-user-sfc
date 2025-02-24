@@ -2,6 +2,7 @@ import argparse
 from controllers.modules.sfcs_manager import SFCManager
 from controllers.substrate_network_controller import SubstrateNetworkController
 from datetime import datetime as dt
+from controllers.substrate_network_controller_parallel import SubstrateNetworkControllerP
 from core.poisson_emitter import PoissonEmitter
 from controllers.sfc_queue import SFCQueue
 from algorithms.instantiator import AlgorithmInstantiator
@@ -60,12 +61,18 @@ ALG = AlgorithmInstantiator().instantiate_algorithm(args.alg)
 
 substrate_network = topology.generate_substrate_network()
 substrate_network.set_verbose(verbose=(args.verbose == 'y'))
-sbn_controller = SubstrateNetworkController()
+
+parallel_run = False
+if parallel_run:
+    sbn_controller = SubstrateNetworkControllerP() # run parallel
+else: 
+    sbn_controller = SubstrateNetworkController() # runs sequential    
+
 sbn_controller.substrate_network = substrate_network
 sbn_controller.sfc_queue = sfc_queue
 sbn_controller.sfc = args.sfc
 sbn_controller.alg = ALG
-sbn_controller.crasher_manager = Crasher(topology=topology,args=args,interval=200)
+sbn_controller.fail_manager = Crasher(topology=topology,args=args,interval=200)
 # sbn_controller.backup_manager = BackupManager(args=args)
 sbn_controller.mobility_manager = MobilityManager(args)
 sbn_controller.sfc_manager = SFCManager(args,backup_manager=BackupManager(args=args),alg=ALG)

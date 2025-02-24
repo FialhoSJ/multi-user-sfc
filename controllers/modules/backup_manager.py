@@ -246,3 +246,15 @@ class BackupManager:
         dst = dicionario[dst][0]
         latency_requirement = 7 - latency_dismiss
         return dst, src,latency_requirement
+    
+    def get_backups_instantiated_q(self):
+        vnfs_backup_instantiate = 0
+        backups = self.backups_sfc_instantiated
+        if self.alg == 'ga':
+            for backup_id,original_sfc in backups.items():
+                sfc_backups = self.sfcs_backups_instatiated[original_sfc]
+                vnfs_backup_instantiate = len(sfc_backups) + vnfs_backup_instantiate
+        else:
+            vnfs_backup_instantiate = len(list(backups.keys())) * 4
+
+        return vnfs_backup_instantiate
