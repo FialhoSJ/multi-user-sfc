@@ -38,18 +38,6 @@ server_tree = KDTree(server_coords)
 
 routers = [1, 3, 4, 7, 10, 11, 12, 13, 15, 16, 17, 19, 20, 21, 22, 24, 26, 27, 29, 30, 31, 32]
 
-
-
-
-
-
-
-
-
-
-
-
-
 # # Dados estáticos de topologia e posições
 # topology = {
 #     1: (2884, 6739), 2: (8081, 4302), 3: (8881, 4995), 4: (8956, 2900),

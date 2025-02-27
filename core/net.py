@@ -128,8 +128,25 @@ class Net(nx.Graph):
         self._set_node_attribute(node_id, sfc_vnf_list=[])
         return
 
+    def reset_node_cell_bandwidth_capacityy(self, node_id, cell_bw_capacity):
+        self.set_node_cell_bandwidth_capacity(node_id, cell_bw_capacity)
+        self.set_node_cell_bandwidth_used(node_id, 0)
+        
+        try:
+            self.set_node_reuse(node_id,[])
+        except:
+            print("Nó não tem esse atributo")
+        
+        self.set_node_cell_bandwidth_free(node_id, cell_bw_capacity)
+        self._set_node_attribute(node_id, sfc_vnf_list=[])
+        return
+
     def init_node_cpu_capacity(self, node_id, cpu_capacity):
         self.reset_node_cpu_capacity(node_id, cpu_capacity)
+        return
+
+    def init_node_cell_bandwidth_capacity(self, node_id, cell_bandwidth_capacity):
+        self.reset_node_cell_bandwidth_capacityy(node_id, cell_bandwidth_capacity)
         return
 
     def init_node_reliability(self, node_id, reliability):
@@ -181,9 +198,19 @@ class Net(nx.Graph):
     def set_node_cpu_capacity(self, node_id, cpu_capacity):
         self._set_node_attribute(node_id, cpu_capacity=cpu_capacity)
         return cpu_capacity
-            
+     
     def set_node_cpu_used(self, node_id, cpu_used):
         self._set_node_attribute(node_id, cpu_used = cpu_used)
+
+    def set_node_cell_bandwidth_capacity(self, node_id, cell_bw_capacity):
+        self._set_node_attribute(node_id, cell_bw_capacity=cell_bw_capacity)
+        return cell_bw_capacity
+    
+    def set_node_cell_bandwidth_used(self, node_id, cell_bw_used):
+        self._set_node_attribute(node_id, cell_bw_used = cell_bw_used)
+
+    def set_node_cell_bandwidth_free(self, node_id, cell_bw_free):
+        return self._set_node_attribute(node_id, cell_bw_free = cell_bw_free)
 
     def set_node_reuse(self, node_id, reuse=[]):
         self._set_node_attribute(node_id, reuse = reuse)  

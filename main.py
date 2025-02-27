@@ -59,8 +59,8 @@ sfc_poisson_emitter.start(muar_scenario.generate_sfc_session,(None))
 
 ALG = AlgorithmInstantiator().instantiate_algorithm(args.alg)
 
-substrate_network = topology.generate_substrate_network()
-substrate_network.set_verbose(verbose=(args.verbose == 'y'))
+network = topology.generate_substrate_network()
+network.set_verbose(verbose=(args.verbose == 'y'))
 
 parallel_run = False
 if parallel_run:
@@ -68,7 +68,7 @@ if parallel_run:
 else: 
     sbn_controller = SubstrateNetworkController() # runs sequential    
 
-sbn_controller.substrate_network = substrate_network
+sbn_controller.substrate_network = network
 sbn_controller.sfc_queue = sfc_queue
 sbn_controller.sfc = args.sfc
 sbn_controller.alg = ALG

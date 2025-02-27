@@ -52,8 +52,9 @@ class Luxembourg(TopologyBase):
                 reliability = np.random.uniform(RELIABILITY_RANGE[0], RELIABILITY_RANGE[1])
                 substrate_network.init_node_reliability(node, reliability)
                 substrate_network.nodes_reliability[node] = reliability
-
+                substrate_network.init_node_cell_bandwidth_capacity(node,0)
             else:
+                substrate_network.init_node_cell_bandwidth_capacity(node,self.bandwidth_capacity)
                 substrate_network.init_node_cpu_capacity(node, 0)
                 substrate_network.init_node_cache_capacity(node, 0)
                 substrate_network.init_node_reliability(node, 1)
