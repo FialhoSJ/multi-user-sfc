@@ -129,7 +129,8 @@ class MuarScenario:
             })
             caching_sf_list.append({
                 "type": 2, 
-                "name": "EC_TC_p" + str(i) + "_" + counter, 
+                #"name": "EC_TC_p" + str(i) + "_" + counter, 
+                "name": "EC_TC_region_" + str(i) + "_" + counter, 
                 "CPU": round(EC_TC * chr, 2), 
                 "cache": 0, 
                 "in_bw": round(RE_bw * chr, 2), 
