@@ -64,7 +64,7 @@ class GreedyOptAlgorithm():
         self.latency = None
         self.is_backup = False
 
-    def install_substrate_network(self, substrate_network):
+    def install_substrate_network(self, substrate_network,shareable_sfs=[]):
         self.substrate_network = substrate_network
         return self.substrate_network
 
@@ -136,7 +136,7 @@ class GreedyOptAlgorithm():
         current_substrate_node = dst_substrate_node
 
         net_info = substrate_network 
-        old_server_resources = net_info._node
+        old_server_resources = net_info.graph._node
         servers = list(old_server_resources.keys())
         
         # Inicializa o dicionário de recursos dos servidores
@@ -148,14 +148,13 @@ class GreedyOptAlgorithm():
                 'cache_used': substrate_network.get_node_cache_used(server),
                 'cpu_free': substrate_network.get_node_cpu_free(server),
                 'cache_free': substrate_network.get_node_cache_free(server),
-                'position': old_server_resources[server]['position'],
                 'reuse': []
             } for server in servers}
         first_vnf = True
         nodes_used = []
 
         for i in range(number_of_vnfs - 1, -1, -1):
-            edges = list(substrate_network.edges(current_substrate_node))
+            edges = list(substrate_network.graph.edges(current_substrate_node))
             edges = list(set([x[1] for x in edges]))
             
             #edges.append((current_substrate_node, current_substrate_node))

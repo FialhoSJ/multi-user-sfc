@@ -43,29 +43,59 @@ class SFCManager:
             self.sfcs_tracker[group_id] = {"sfc_list":sfc_list,'solution':solution,'duration':duration,'timer':time.time()}
 
         self.counter += 1 # at this time all verifications are done. So we add 1 to counter of sfc
-
         #return {"current_time":current_time,"latency":latency,"run_duration":run_duration,"resource_info":r_info,"is_success":is_success,"route_info":route_info,"fail_reason":fail_reason,"backup_sfc":is_backup}
     
+    def undeploy_sfc(self, sfc_list_id: str,substrate_network,take_out_backup=True) -> None:
+        # if not self.is_Backup(sfc_id): # Se não for uma sfc de backup
+        #     if take_out_backup:
+        #         if sfc_id in list(self.sfs_backup.keys()): 
+        #             self.undeploy_sfc_backups(sfc_id,substrate_network)   
+        for sfc in self.sfcs_tracker[sfc_list_id]['sfc_list']:
+            substrate_network.undeploy_sfc(sfc.id)  
+        del self.sfcs_tracker[sfc_list_id]
 
-    def undeploy_sfc(self, sfc_id: str,substrate_network,take_out_backup=True) -> None:
-        if not self.is_Backup(sfc_id): # Se não for uma sfc de backup
-            substrate_network.undeploy_sfc(sfc_id)    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    # def undeploy_sfc(self, sfc_id: str,substrate_network,take_out_backup=True) -> None:
+    #     if not self.is_Backup(sfc_id): # Se não for uma sfc de backup
+    #         substrate_network.undeploy_sfc(sfc_id)    
             
+    #         #del self.sfc_id_duration[sfc_id]
+    #         # Se a SFC possui backup, retire ela da lista de sfcs com backup e faça undeploy do backup 
+    #         if take_out_backup:
+    #             if sfc_id in list(self.sfs_backup.keys()): 
+    #                 self.undeploy_sfc_backups(sfc_id,substrate_network)
+    #     else:
+    #         self.remove_backup_by_id(sfc_id,substrate_network)
 
-            #del self.sfc_id_duration[sfc_id]
-            # Se a SFC possui backup, retire ela da lista de sfcs com backup e faça undeploy do backup 
-            if take_out_backup:
-                if sfc_id in list(self.sfs_backup.keys()): 
-                    self.undeploy_sfc_backups(sfc_id,substrate_network)
-        else:
-            self.remove_backup_by_id(sfc_id,substrate_network)
+    #     # TODO fazer a lógica de remover sfs
+    #     # quando o tempo acaba
+    #     substrate_network.update()
+    #     # except ValueError:
+    #     #     print(f"Error: SFC ID {sfc_id} not found in the list when trying to remove.")
+    #     #     return -1
 
-        # TODO fazer a lógica de remover sfs
-        # quando o tempo acaba
-        substrate_network.update()
-        # except ValueError:
-        #     print(f"Error: SFC ID {sfc_id} not found in the list when trying to remove.")
-        #     return -1
 
     def create_backups(self,network):
         backups_mount = []
@@ -179,48 +209,48 @@ class SFCManager:
         if sfc_id in list(self.sfs_backup.keys()):
             substrate_network.reset_vnf_cpu_request(node_id,sfc_id, vnf_id)
 
-    def check_sfc_duration(self):
-        remove_list = []
-        current_time = time.time()  # Obtém o tempo atual uma única vez para evitar múltiplas chamadas
-        for sfc_list_id, info in list(self.sfcs_tracker.items()):  # `info` é o dicionário com 'duration' e 'timer'
-            elapsed_time = current_time - info["timer"]  # Calcula o tempo decorrido
-            if elapsed_time >= info["duration"]:  # Verifica se a duração foi ultrapassada
-                remove_list.append(sfc_list_id)
-        return remove_list
+    # def check_sfc_duration(self):
+    #     remove_list = []
+    #     current_time = time.time()  # Obtém o tempo atual uma única vez para evitar múltiplas chamadas
+    #     for sfc_list_id, info in list(self.sfcs_tracker.items()):  # `info` é o dicionário com 'duration' e 'timer'
+    #         elapsed_time = current_time - info["timer"]  # Calcula o tempo decorrido
+    #         if elapsed_time >= info["duration"]:  # Verifica se a duração foi ultrapassada
+    #             remove_list.append(sfc_list_id)
+    #     return remove_list
 
-    def get_list_sfc_duration(self, threshold=20):
-        sfc_list_duration = []
-        for sfc_id, info in self.sfc_id_duration.items():  # `info` contém as informações de cada SFC
-            if info["duration"] <= threshold:
-                sfc_list_duration.append(sfc_id)  # Adiciona o ID à lista
-        return sfc_list_duration
+    # def get_list_sfc_duration(self, threshold=20):
+    #     sfc_list_duration = []
+    #     for sfc_id, info in self.sfc_id_duration.items():  # `info` contém as informações de cada SFC
+    #         if info["duration"] <= threshold:
+    #             sfc_list_duration.append(sfc_id)  # Adiciona o ID à lista
+    #     return sfc_list_duration
 
-    def check_resources_exceed(self,is_success,sfc_id,substrate_network,fail_reason):
-        if is_success:
-            for node in substrate_network.graph.nodes():
-                if node in self.crashed_servers:
-                    continue
-                limit = 100
-                cpu_used = substrate_network.get_node_cpu_used(node)
-                cache_used = substrate_network.get_node_cache_used(node)
+    # def check_resources_exceed(self,is_success,sfc_id,substrate_network,fail_reason):
+    #     if is_success:
+    #         for node in substrate_network.graph.nodes():
+    #             if node in self.crashed_servers:
+    #                 continue
+    #             limit = 100
+    #             cpu_used = substrate_network.get_node_cpu_used(node)
+    #             cache_used = substrate_network.get_node_cache_used(node)
                 
-                if cpu_used > limit or cache_used > limit:
-                    self.undeploy_sfc(sfc_id,substrate_network)
-                    is_success = False
-                    fail_reason = "exceed" 
-                    return is_success,fail_reason
+    #             if cpu_used > limit or cache_used > limit:
+    #                 self.undeploy_sfc(sfc_id,substrate_network)
+    #                 is_success = False
+    #                 fail_reason = "exceed" 
+    #                 return is_success,fail_reason
                 
-            for edge in substrate_network.graph.edges():
-                bandwidth_used = substrate_network.get_link_bandwidth_used(edge[0], edge[1])
-                bandwidth_capacity = substrate_network.get_link_bandwidth_capacity(edge[0], edge[1])
-                if bandwidth_used > bandwidth_capacity:
-                    is_success = False
-                    fail_reason = "band_exceed"
-                    self.undeploy_sfc(sfc_id,substrate_network)
-                    return is_success,fail_reason
-            return is_success,fail_reason
-        else:
-            return False,fail_reason
+    #         for edge in substrate_network.graph.edges():
+    #             bandwidth_used = substrate_network.get_link_bandwidth_used(edge[0], edge[1])
+    #             bandwidth_capacity = substrate_network.get_link_bandwidth_capacity(edge[0], edge[1])
+    #             if bandwidth_used > bandwidth_capacity:
+    #                 is_success = False
+    #                 fail_reason = "band_exceed"
+    #                 self.undeploy_sfc(sfc_id,substrate_network)
+    #                 return is_success,fail_reason
+    #         return is_success,fail_reason
+    #     else:
+    #         return False,fail_reason
     
     def set_risk_sfcs(self,servers,network):
         if len(servers) == 0:

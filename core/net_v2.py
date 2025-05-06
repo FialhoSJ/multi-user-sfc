@@ -235,6 +235,11 @@ class Net2:
             raise ValueError(f"Nó {node_id} não existe na topologia.")
         return self.graph.nodes[node_id]['cpu_used']
 
+    def get_node_cpu_free(self, node_id):
+        if node_id not in self.graph:
+            raise ValueError(f"Nó {node_id} não existe na topologia.")
+        return self.graph.nodes[node_id]['cpu_capacity'] - self.graph.nodes[node_id]['cpu_used']
+
     def get_node_cpu_capacity(self, node_id):
         if node_id not in self.graph:
             raise ValueError(f"Nó {node_id} não existe na topologia.")
@@ -244,6 +249,11 @@ class Net2:
         if node_id not in self.graph:
             raise ValueError(f"Nó {node_id} não existe na topologia.")
         return self.graph.nodes[node_id]['cache_used']
+
+    def get_node_cache_free(self, node_id):
+        if node_id not in self.graph:
+            raise ValueError(f"Nó {node_id} não existe na topologia.")
+        return self.graph.nodes[node_id]['cache_capacity'] - self.graph.nodes[node_id]['cache_used']
 
     def get_node_cache_capacity(self, node_id):
         if node_id not in self.graph:
@@ -255,10 +265,20 @@ class Net2:
             raise ValueError(f"Aresta entre {node1} e {node2} não existe.")
         return self.graph.edges[node1, node2]['bandwidth_used']
 
+    def get_link_bandwidth_free(self, node1, node2):
+        if not self.graph.has_edge(node1, node2):
+            raise ValueError(f"Aresta entre {node1} e {node2} não existe.")
+        return self.graph.edges[node1, node2]['bandwidth_capacity'] - self.graph.edges[node1, node2]['bandwidth_used']
+
     def get_link_bandwidth_capacity(self, node1, node2):
         if not self.graph.has_edge(node1, node2):
             raise ValueError(f"Aresta entre {node1} e {node2} não existe.")
         return self.graph.edges[node1, node2]['bandwidth_capacity']
+
+    def get_link_latency(self, node1, node2):
+        if not self.graph.has_edge(node1, node2):
+            raise ValueError(f"Aresta entre {node1} e {node2} não existe.")
+        return self.graph.edges[node1, node2]['latency']
 
     def get_cpu_utilization_rate(self):
         return self.total_cpu_used*1.0/self.total_cpu_capacity

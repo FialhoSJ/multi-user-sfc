@@ -290,7 +290,7 @@ class SubstrateNetworkController():
         t_1 = time.time() 
         solution = self.sfc_instantiator.search_solution(sfc_list,self.substrate_network)
         t_2 = time.time()
-        print(f"Algorithm Take time {t_2-t_1}")
+        print(f"Algorithm Take time     : {round(t_2-t_1,2)}")
         if solution:
             self.sfc_manager.submit_solution(sfc_list,solution,self.substrate_network)
         else:
@@ -419,13 +419,16 @@ class SubstrateNetworkController():
 
     def check_duration(self):
         #TODO Continuar daqui#
-        remove_list = self.sfc_manager.check_sfc_duration()
-        for group_id in remove_list:
-            sfc_list  = self.sfc_manager.sfcs_tracker[group_id]['sfc_list']
-            for sfc in sfc_list:
-                self.sfc_manager.undeploy_sfc(sfc.id,self.substrate_network)
-                self.mobility_manager.remove_sfc(sfc.id)#(sfc_id,new_status='blocked')
-        self.update()
+        remove_list = []
+        current_time = time.time()
+        for sfc_list_id, info in list(self.sfc_manager.sfcs_tracker.items()):
+            elapsed_time = current_time - info["timer"] 
+            if elapsed_time >= info["duration"]: # Tempo do user acabou
+                self.sfc_manager.undeploy_sfc(sfc_list_id,self.substrate_network)
+                #self.mobility_manager.remove_sfc(sfc_list_id)#(sfc_id,new_status='blocked')
+        pass
+        pass
+        #self.update()
 
 
     def sequential_operation(self):
