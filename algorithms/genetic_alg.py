@@ -67,8 +67,7 @@ class Genetic(Algorithm):
         self.min_latency = 0
         self.elapsed_time = None
         self.latency_minus_dst =  0
-        self.crashed_servers = []
-        self.edge_computing_servers =[25, 8, 14, 28, 2, 5, 9, 23, 18, 6, 33, 34]
+        self.edge_computing_servers =[2, 5, 6, 8, 9, 14, 18, 23, 25, 28, 33, 34]
         self.services_requirements = 0
         self.G = 0 
         self.services = 0
@@ -92,7 +91,7 @@ class Genetic(Algorithm):
         self.route_info = {}
         self.single_source_minimum_latency_path = None
         self.latency = None
-        self.edge_computing_servers = [25, 8, 14, 28, 2, 5, 9, 23, 18, 6, 33, 34] 
+        self.edge_computing_servers =[2, 5, 6, 8, 9, 14, 18, 23, 25, 28, 33, 34]
         self.service_requirements = {}
         self.services = []
 
@@ -101,10 +100,10 @@ class Genetic(Algorithm):
         self.crossover_time = 0
         self.mutation_time = 0
 
-    def install_substrate_network(self, substrate_network,shareable_sfs,crashed_servers):
+    def install_substrate_network(self, substrate_network,shareable_sfs=[],crashed_servers=[]):
         self.substrate_network = substrate_network
         net_info = substrate_network
-        server_resources = net_info._node
+        server_resources = net_info.graph._node
         self.edge_computing_servers = list(set(self.edge_computing_servers) - set(crashed_servers))
 
         shareable_sfs = shareable_sfs if shareable_sfs is not None else {node_id: [] for node_id in server_resources.keys()}
@@ -119,11 +118,18 @@ class Genetic(Algorithm):
 
         self.shareable_sfs = shareable_sfs      
         self.server_resources = server_resources  
-        for node in self.substrate_network.nodes():
+
+        for node in self.substrate_network.graph.nodes():
             self.node_info[node] = {}
-            cpu_free = server_resources[node]['cpu_free']
-            cache_free = server_resources[node]['cache_free']
             cpu_capacity = server_resources[node]['cpu_capacity']
+            cache_capacity = server_resources[node]['cache_capacity']
+
+            cpu_used = server_resources[node]['cpu_used']
+            cache_used = server_resources[node]['cache_used']
+
+            cpu_free = cpu_capacity - cpu_used
+            cache_free = cache_capacity - cache_used
+
             reuse_list = server_resources[node]['reuse']  # Obter lista de VNFs reutilizáveis para o nó atual
 
             for vnf_id, vnf in list(self.sfc.vnfs.items()):
@@ -227,7 +233,8 @@ class Genetic(Algorithm):
         
         for node, edges in new_network_topology.items():
             for target, edge_attr in edges.items():
-                G_non_complex.add_edge(node, target, bandwidth=edge_attr['bandwidth_free'], weight=1)
+                bandwidth_free = edge_attr['bandwidth_capacity'] - edge_attr['bandwidth_used']
+                G_non_complex.add_edge(node, target, bandwidth=bandwidth_free, weight=1)
 
         # Removendo a chave '0' após a criação para garantir que não esteja presente
         if 0 in G_non_complex:
@@ -253,7 +260,9 @@ class Genetic(Algorithm):
         A = nx.Graph()
         for node, edges in network_topology.items():
             for target, edge_attr in edges.items():
-                A.add_edge(node, target, bandwidth=edge_attr['bandwidth_free'], weight=1)
+                bandwidth_free = edge_attr['bandwidth_capacity'] - edge_attr['bandwidth_used']
+
+                A.add_edge(node, target, bandwidth=bandwidth_free, weight=1)
 
         G,server_resources = self.cut_topology(G_complex=A,
                           complex_network_topology=network_topology,
@@ -447,7 +456,7 @@ class Genetic(Algorithm):
         
         net_info = substrate_network
         server_resources = self.server_resources
-        network_topology = net_info._adj
+        network_topology = net_info.graph._adj
 
         service_requirements = self.service_requirements
         services = self.services
@@ -456,7 +465,8 @@ class Genetic(Algorithm):
         A = nx.Graph()
         for node, edges in network_topology.items():
             for target, edge_attr in edges.items():
-                A.add_edge(node, target, bandwidth=edge_attr['bandwidth_free'], weight=1)
+                bandwidth_free = edge_attr['bandwidth_capacity'] - edge_attr['bandwidth_used']
+                A.add_edge(node, target, bandwidth=bandwidth_free, weight=1)
 
 
         G,server_resources = self.cut_topology(G_complex=A,
@@ -496,6 +506,9 @@ class Genetic(Algorithm):
         if hasattr(creator, "Individual"):
             del creator.Individual
 
+        if dst in self.edge_computing_servers:
+            self.edge_computing_servers.remove(dst)
+        
         # DEAP setup para minimizar o fitness
         creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
         creator.create("Individual", list, fitness=creator.FitnessMin)
@@ -648,6 +661,20 @@ class Genetic(Algorithm):
             print(f"Tempo total de mutação: {self.mutation_time:.2f} ms")
 
             print(f"Tempo de execução: {elapsed_time_ms:.2f} ms")
+            
+            #[2, 5, 6, 8, 9, 14, 18, 23, 25, 28, 33, 34]
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
             return route_info, total_latency
 
 

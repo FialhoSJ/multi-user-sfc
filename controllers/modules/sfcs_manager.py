@@ -12,7 +12,7 @@ from utils.k_shortest_paths import k_shortest_paths
 
 class SFCManager:
     def __init__(self,args,backup_manager,alg):
-        self.sfc_list = [] # sfcs that are running in the simulation
+        self.sfcs_tracker = {} # sfcs that are running in the simulation
         self.sfcs_routing_info = {}
         self.sfc_id_duration = {}
         self.backup_manager: Optional[BackupManager] = backup_manager
@@ -29,119 +29,30 @@ class SFCManager:
         self.crashed_servers = []
         self.sfc_reuse = {}
 
-    def deploy_sfc(self, sfc: object,substrate_network,is_backup=False) -> bool:
-        if sfc.id in self.sfc_list:
-            return False
+    def submit_solution(self, sfc_list,solution,substrate_network,is_backup=False) -> bool:
+        # if sfc.id in self.sfc_list:
+        #     return False
+        for sfc in sfc_list:
+            substrate_network.deploy_sfc(sfc, solution[sfc.id]['route_info'])
         
-        # # Verifica se o backup daquela vnf já foi feito
-        # if is_backup: # Se for uma SFC de Backup apenas coloque na lista de sfcs com backup
-
-        #     if original_sfc not in self.sfc_list:
-        #         return {"current_time":time.time(),"latency":None,"run_duration":0,"resource_info":1,"is_success":False,"fail_reason":None,"backup_sfc":True}
-                
-        alg = copy.deepcopy(self.alg)
-        alg.clear_all()
-        shareable_sfs = substrate_network.get_shareable_sfs()
-        if alg.name == 'ga':
-            alg.install_SFC(sfc)
-            alg.install_substrate_network(substrate_network,shareable_sfs=shareable_sfs,crashed_servers=self.crashed_servers)
+        group_id = sfc_list[0].group_id
+        duration = sfc_list[0].duration
+        if group_id in self.sfcs_tracker:
+            raise ValueError("SFC já instanciada")
         else:
-            alg.install_substrate_network(substrate_network)
-            alg.install_SFC(sfc)
-            
-        s = time.time() # Start measuring how long it takes to the alg run
+            self.sfcs_tracker[group_id] = {"sfc_list":sfc_list,'solution':solution,'duration':duration,'timer':time.time()}
 
-
-        match self.alg_name:
-            case 'ga' | 'osfem' | 'goku': # algs with active reuse and cost method
-                #alg.set_costs([1,1,1,1])
-                alg.start_algorithm(shareable_sfs=shareable_sfs,is_backup=is_backup)
-            case 'g' | 'msf' | 'vegeta': # algs with passive reuse and no cost method
-                alg.start_algorithm(is_backup=is_backup) # alg that uses backup
-            case _: # algs with passive reuse and no cost method
-                alg.start_algorithm() 
-
-        s2 = time.time()
-
-        route_info = alg.get_route_info() # Routes choosen by the alg
-        latency = alg.get_latency() # latency of the solution
-        fail_reason = None #alg.get_fail_reason()
-
-        r_info = self.set_sfc_reuse(sfc,route_info,shareable_sfs)
-
-        # bit_rate_adjust =  1.0 if self.alg.name != 'osfem' else alg.get_bit_rate_used()
-        # bw_transcode =  sfc.vnfs_dict[-1]['out_bw'] if self.alg.name != 'osfem' else alg.get_transcode_bw()
-
-        if (alg.name == 'musfico') and (sfc.id in self.sfcs_routing_info.keys()): # musfico exclusive methodology
-            latency,route_info = self.musfico_method(sfc,substrate_network)
-
-        #is_acceptable,wait_time  = self.check_latency_and_bitrate(sfc, route_info,latency)
-        #route_info, latency = self.validate_solution(route_info, latency, sfc, self.sfc)
-        if latency is not None: # se latencia não é nula e se atende aos requisitos da sfc
-            if isinstance(latency, (int, float)):
-                if latency > sfc.get_latency_request() or latency < 0:
-                    route_info = False
-                    latency = None
-                else: # everything is okay with the latency request
-                    pass
-        else: # Latency is None 
-            route_info = False
-            latency = None
-        route_info = self.check_route_info(route_info)
-
-        is_success = False
-        current_time = s2
-        run_duration = s2 - s
-        if  alg.name == 'ga':
-            run_duration =alg.elapsed_time
-
-        arrival_time = sfc.arrival_time
-        sfc.depart_time = s2
-
-        if route_info:
-            substrate_network.deploy_sfc(sfc, route_info)
-            if not is_backup: # Se for uma SFC de Backup apenas coloque na lista de sfcs com backup
-                self.sfc_list.append(sfc.id)
-                self.sfc_id_duration[sfc.id] = {"duration":sfc.duration,"timer":time.time()}
-                if sfc.id in list(self.sfcs_routing_info.keys()):
-                    del self.sfcs_routing_info[sfc.id]
-                # Adiciona a SFC com o novo route_info -> Importante para o musfico
-                self.sfcs_routing_info[sfc.id] = copy.deepcopy(route_info)
-            is_success = True
-            self.deploy_success(sfc)
-        else:
-            #self.deploy_failure = 1
-            self.deploy_failed(sfc)
-            
-        substrate_network.update()
         self.counter += 1 # at this time all verifications are done. So we add 1 to counter of sfc
-        is_success,fail_reason = self.check_resources_exceed(is_success,sfc.id,substrate_network,fail_reason) # Check if any fees exceed %
-        
-        if is_success == False:
-            if sfc.id in list(self.sfc_reuse.keys()):
-                r_info = None
-                del self.sfc_reuse[sfc.id]
-        
-        return {"current_time":current_time,"latency":latency,"run_duration":run_duration,"resource_info":r_info,"is_success":is_success,"route_info":route_info,"fail_reason":fail_reason,"backup_sfc":is_backup}
-    
 
-    def check_route_info(self,route_info):
-        if route_info != False:
-            nodes_crashed = self.crashed_servers
-            for key,info in route_info.items():
-                if key not in ['src','dst']:
-                    server_used = info[0]
-                    if server_used in nodes_crashed:
-                        return False  
-        return route_info
+        #return {"current_time":current_time,"latency":latency,"run_duration":run_duration,"resource_info":r_info,"is_success":is_success,"route_info":route_info,"fail_reason":fail_reason,"backup_sfc":is_backup}
+    
 
     def undeploy_sfc(self, sfc_id: str,substrate_network,take_out_backup=True) -> None:
         if not self.is_Backup(sfc_id): # Se não for uma sfc de backup
             substrate_network.undeploy_sfc(sfc_id)    
-            self.sfc_list.remove(sfc_id)
-            del self.sfc_id_duration[sfc_id]
-            #del self.sfcs_routing_info[sfc_id]
+            
 
+            #del self.sfc_id_duration[sfc_id]
             # Se a SFC possui backup, retire ela da lista de sfcs com backup e faça undeploy do backup 
             if take_out_backup:
                 if sfc_id in list(self.sfs_backup.keys()): 
@@ -191,8 +102,6 @@ class SFCManager:
                     # Adiciona um backup à lista de backups do original
                     self.backup_manager.sfcs_backups_instatiated[original_sfc].append({"sfc_backup_id": sfc.id,"vnf_id": vnf_id,"route_info": results_dict["route_info"]})
                     self.backup_manager.backups_sfc_instantiated[sfc.id] = original_sfc
-
-    
 
     def clean_backups(self, network):
         for backup in list(self.backup_manager.backups_sfc_instantiated.keys()):
@@ -273,10 +182,10 @@ class SFCManager:
     def check_sfc_duration(self):
         remove_list = []
         current_time = time.time()  # Obtém o tempo atual uma única vez para evitar múltiplas chamadas
-        for sfc_id, info in list(self.sfc_id_duration.items()):  # `info` é o dicionário com 'duration' e 'timer'
+        for sfc_list_id, info in list(self.sfcs_tracker.items()):  # `info` é o dicionário com 'duration' e 'timer'
             elapsed_time = current_time - info["timer"]  # Calcula o tempo decorrido
             if elapsed_time >= info["duration"]:  # Verifica se a duração foi ultrapassada
-                remove_list.append(sfc_id)
+                remove_list.append(sfc_list_id)
         return remove_list
 
     def get_list_sfc_duration(self, threshold=20):
@@ -288,7 +197,7 @@ class SFCManager:
 
     def check_resources_exceed(self,is_success,sfc_id,substrate_network,fail_reason):
         if is_success:
-            for node in substrate_network.nodes():
+            for node in substrate_network.graph.nodes():
                 if node in self.crashed_servers:
                     continue
                 limit = 100
@@ -301,7 +210,7 @@ class SFCManager:
                     fail_reason = "exceed" 
                     return is_success,fail_reason
                 
-            for edge in substrate_network.edges():
+            for edge in substrate_network.graph.edges():
                 bandwidth_used = substrate_network.get_link_bandwidth_used(edge[0], edge[1])
                 bandwidth_capacity = substrate_network.get_link_bandwidth_capacity(edge[0], edge[1])
                 if bandwidth_used > bandwidth_capacity:

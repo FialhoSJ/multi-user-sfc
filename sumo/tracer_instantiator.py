@@ -4,7 +4,7 @@ from sumo.small_luxembourg.small_luxembourg_trace import Sumo_Small_Luxembourg
 
 class TracerInstantiator(object):
     def instantiate_tracer(self, type):
-        if type == 'luxembourg':
+        if type == 'luxembourg' or type =='luxembourgv2':
             tracer = Sumo_Luxembourg()
         elif type == 'small luxembourg':
             tracer = Sumo_Small_Luxembourg()

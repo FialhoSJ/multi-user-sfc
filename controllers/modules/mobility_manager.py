@@ -41,9 +41,6 @@ class MobilityManager:
                 if self.vehicle_to_service_map[vehicle_id]['connected'] == False:
                     return
                 
-                if self.vehicle_to_service_map[vehicle_id]['status'] == 'blocked':
-                    return
-                
                 # Verificando se o SFC já está associado ao veículo
                 if sfc.id in self.vehicle_to_service_map[vehicle_id]['sfcs']:
                     self.vehicle_to_service_map[vehicle_id]['status'] = 'available' # Redeploy bem sucedido
@@ -66,7 +63,7 @@ class MobilityManager:
                     'distance': self.tracer.get_server_distance_from_car(vehicle_id,server_start),
                     'time': time.time(),
                     'connected': True,
-                    'status':'available' # active: pode alterar de servidor; 
+                    'status':'available' # 'available': pode alterar de servidor,'moving': movendo de servidor,'blocked':não 'está' mais na simulação; 
                 }
         # except Exception as e:
         #     print(f"Erro ao adicionar veículo para o SFC {sfc.id}: {str(e)}")
@@ -82,45 +79,36 @@ class MobilityManager:
         moved_sfcs = []
         new_locations = []
 
-        for vehicle_id in list(self.tracer.vehicles_info.keys()):  # Fazendo uma cópia dos itens
-            try:  # Criar log desses casos
-                vehicle_info = self.vehicle_to_service_map[vehicle_id]
+        #for vehicle_id in list(self.tracer.vehicles_info.keys()):  # Fazendo uma cópia dos itens
+        for vehicle_id, vehicle_info in self.vehicle_to_service_map.items():
+            #try:  # Criar log desses casos
+            #vehicle_info = self.vehicle_to_service_map[vehicle_id]
 
-                if vehicle_info['connected'] and vehicle_info['status'] == 'available':
-                    current_position, current_distance = self.tracer.get_closest_server(vehicle_id)
+            if vehicle_info['connected'] and vehicle_info['status'] == 'available':
+                current_position, current_distance = self.tracer.get_closest_server(vehicle_id)
 
-                    # Posição registrada do veículo no mapeamento
-                    previous_position = int(self.vehicle_to_service_map[vehicle_id]['veh_location'])
-                    previous_distance = self.tracer.get_server_distance_from_car(vehicle_id, previous_position)
+                # Posição registrada do veículo no mapeamento
+                previous_position = int(self.vehicle_to_service_map[vehicle_id]['veh_location'])
+                previous_distance = self.tracer.get_server_distance_from_car(vehicle_id, previous_position)
 
-                    # Verificar se a posição mudou e a nova distância é pelo menos 35% menor
-                    if int(current_position) != previous_position:
-                        # Calcular a redução percentual da distância
-                        reduction_percentage = ((previous_distance - current_distance) / previous_distance) * 100
+                # Verificar se a posição mudou e a nova distância é pelo menos 35% menor
+                if int(current_position) != previous_position:
+                    # Calcular a redução percentual da distância
+                    reduction_percentage = ((previous_distance - current_distance) / previous_distance) * 100
 
-                        # Verificar se a redução é de pelo menos 35%
-                        if reduction_percentage >= 70:
-                            # Atualiza a posição e a distância do veículo no mapeamento
-                            self.vehicle_to_service_map[vehicle_id]['veh_location'] = int(current_position)
-                            self.vehicle_to_service_map[vehicle_id]['status'] = 'moving'
-                            
-                            # Coleta os SFCs associados ao veículo
-                            sfc_ids = self.vehicle_to_service_map[vehicle_id]['sfcs']
-
-                            # Adiciona o veículo e os SFCs à lista de veículos que se moveram
-                            moved_sfcs.append(sfc_ids)
-                            new_locations.append(current_position)
-                    
-                    self.vehicle_to_service_map[vehicle_id]['time'] = time.time()
-                # else:
-            except Exception as e:
-                # Caso haja exceção, remove o veículo e pode-se adicionar um log aqui
-                self.remove_vehicle(vehicle_id)
-                print(f"Erro ao verificar veículo {vehicle_id}: {e}")  # Log do erro
-
+                    # Verificar se a redução é de pelo menos 35%
+                    if reduction_percentage > 50:
+                        # Atualiza a posição e a distância do veículo no mapeamento
+                        self.vehicle_to_service_map[vehicle_id]['veh_location'] = int(current_position)
+                        self.vehicle_to_service_map[vehicle_id]['status'] = 'moving'        
+                        # Coleta os SFCs associados ao veículo
+                        sfc_ids = self.vehicle_to_service_map[vehicle_id]['sfcs']
+                        # Adiciona o veículo e os SFCs à lista de veículos que se moveram
+                        moved_sfcs.append(sfc_ids)
+                        new_locations.append(current_position)
+                
+                self.vehicle_to_service_map[vehicle_id]['time'] = time.time()
         return moved_sfcs, new_locations
-
-
 
     def remove_vehicle(self, vehicle_id):
         """
@@ -140,7 +128,7 @@ class MobilityManager:
         Args:
             sfc_id: ID do SFC que deve ser removido.
         """
-
+        
         #running_sfcs = self.running_sfcs.copy()
         #if sfc_id in running_sfcs:
         for vehicle_id, vehicle_info in list(self.vehicle_to_service_map.items()):
@@ -149,23 +137,6 @@ class MobilityManager:
                 self.running_sfcs.remove(sfc_id)
                 self.remove_vehicle(vehicle_id)  
                 break
-    
-    # def set_vehicle_status(self,sfc_id,new_status='moving'):
-    #     running_sfcs = self.running_sfcs.copy()
-    #     if sfc_id in running_sfcs:
-    #          for vehicle_id, vehicle_info in list(self.vehicle_to_service_map.items()):
-    #             if new_status == 'blocked':
-    #                 self.remove_vehicle(vehicle_id)
-    #                 self.running_sfcs.remove(sfc_id)
-    #                 break   
-    #             sfcs_in_veh = vehicle_info['sfcs']
-    #             if sfc_id in sfcs_in_veh :
-    #                 self.vehicle_to_service_map[vehicle_id]['status'] = new_status
-                    
-    # def set_crashed_servers(self,crashed_servers):
-    #     self.crashed_servers = crashed_servers
-    #     self.tracer.crashed_servers = crashed_servers
-    #     self.tracer.build_kdtree()
 
     def stop_simulation(self):
         """Encerra a simulação."""

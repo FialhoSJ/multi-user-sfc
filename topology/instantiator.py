@@ -1,4 +1,5 @@
 from topology.predefined.luxembourg import Luxembourg
+from topology.predefined.luxembourg_netv2 import LuxembourgV2
 from topology.predefined.paloalto import PaloAlto
 from topology.experimental.nsfnet import NSFNet
 from topology.predefined.santamonica import SantaMonica
@@ -11,6 +12,7 @@ class TopologyInstantiator(object):
             'paloalto': PaloAlto,
             'santamonica': SantaMonica,
             'luxembourg': Luxembourg,
+            'luxembourgv2': LuxembourgV2,
             'test': SampleTopology
         }
 

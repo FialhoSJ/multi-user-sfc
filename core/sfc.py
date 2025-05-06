@@ -6,7 +6,7 @@ class SFC():
     def __init__(self, vnf_src, vnf_dst):
         self.number_of_vnfs = 0 # This is not include src and dst
         self.vnfs = {} #This is not include src and dst
-        
+        self.group_id = None
         self.vnfs_dict = None 
         self.src = vnf_src
         self.dst = vnf_dst

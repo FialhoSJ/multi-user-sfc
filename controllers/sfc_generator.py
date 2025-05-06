@@ -38,8 +38,7 @@ class SFCGenerator():
         self.dst_substrate_node = sfc_dict["dst_node"]
         self.latency = sfc_dict["latency"]
         self.duration = sfc_dict["duration"]
-        # self.original_sfc = sfc_dict["original_sfc"]
-        #self.restrictions = sfc_dict["restrictions"]
+        self.group_id = sfc_dict['group_id']
 
     def generate(self):
         vnfs_list = []
@@ -51,7 +50,7 @@ class SFCGenerator():
         sfc.set_src_substrate_node(self.src_substrate_node)
         sfc.set_dst_substrate_node(self.dst_substrate_node)
         sfc.duration = self.duration
-
+        sfc.group_id = self.group_id 
         vnfs_list.append(src_vnf)
 
         for vnf_dict in self.vnf_id_list:

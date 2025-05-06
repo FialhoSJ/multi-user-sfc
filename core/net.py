@@ -50,22 +50,12 @@ class Net(nx.Graph):
         self.total_cpu_used = 0
         self.total_cpu_capacity = 0
         
-        # self.practical_cpu_used =  0 
-        # self.practical_cpu_capacity =  0 
-        
         self.total_cache_used = 0
         self.total_cache_capacity = 0
-
-        # self.practical_cache_used =  0 
-        # self.practical_cache_capacity = 0 
 
         self.total_bandwidth_used = 0  
         self.total_bandwidth_capacity = 0
 
-        
-        # self.practical_bw_used = 0
-        # self.practical_bw_capacity = 0
-        
         self.max_cpu_overload = 1
         self.max_cache_overload = 1
         
@@ -76,7 +66,7 @@ class Net(nx.Graph):
         self.single_source_minimum_latency_path = None
         self.nodes_positions = 0
         self.kd_positions = 0
-        self.map_area = 0
+
         self.processing_delay_info = [] # stores processing delay information for each node in the topology
         self.shareable_sf_sfc = {} # stores sfc information for a shareable sf for 
                                     # later undeploy.
@@ -95,27 +85,35 @@ class Net(nx.Graph):
         for edge in self.edges():
             self.sfs_flux_info[(edge[0], edge[1])] = []
             self.sfs_flux_info[(edge[1], edge[0])] = []
+    
     def reset_shared_sfs(self):
         for node in self.nodes():
             self.shared_sfs[node] = []
+    
     def set_node_processing_delay(self):
         pass
+    
     def get_node_processing_delay(self):
         pass
+    
     def get_nodes_processing_delay(self):
         pass
+    
     def set_max_cpu_overload(self, ratio):
         self.max_cpu_overload = ratio
+    
     def get_max_cpu_overload(self):
         return self.max_cpu_overload
+    
     def get_sfc_by_id(self, sfc_id):
         return self.sfc_dict[sfc_id]
+    
     def set_sfc(self, sfc):
         self.sfc_dict[sfc.id] = sfc
+    
     def _get_node_attribute(self, node_id, attr):
         attribute = nx.get_node_attributes(self,attr)
         return attribute[node_id]
-
 
     def reset_node_cpu_capacity(self, node_id, cpu_capacity):
         self.set_node_cpu_capacity(node_id, cpu_capacity)
@@ -171,30 +169,7 @@ class Net(nx.Graph):
         else:
             
             return self.nodes_positions
-    def get_closer_server_by_position(self,x_user,y_user):
-        if self.kd_positions == 0:
-            self.get_all_node_positions
-        distances, closer_server_idx = self.kd_positions.query(np.array([x_user, y_user]))
-        closer_server = list(self.nodes_positions.keys())[closer_server_idx]   
-        return closer_server
-    
-    def get_map_area(self):
-        if self.map_area == 0:
-            x,y = [],[]
-            nodes_positions =self.get_all_node_positions()
-            for server,coord in nodes_positions.items():
-                x.append(coord[0])
-                y.append(coord[1])
-            min_x=min(x)
-            max_x=max(x)
-            min_y=min(y)
-            max_y=max(y)
-            vert =  [(min_x, min_y), (max_x, min_y), (max_x, max_y),(min_x,max_y) ]
-            self.map_area = vert
-            return vert
-        else:
-            return self.map_area
-
+   
     def set_node_cpu_capacity(self, node_id, cpu_capacity):
         self._set_node_attribute(node_id, cpu_capacity=cpu_capacity)
         return cpu_capacity
@@ -376,8 +351,10 @@ class Net(nx.Graph):
 
     def get_link_latency(self, u, v):
         return self._get_link_attribute(u, v, 'latency')
+    
     def set_link_latency(self, u, v, bw_l):
         self._set_link_attribute(u, v, latency=bw_l)
+    
     def init_link_latency(self, u, v, bw_l):
         self.set_link_latency(u, v, bw_l)
 
@@ -394,6 +371,7 @@ class Net(nx.Graph):
             return None
     def get_minimum_latency_path(self, src, dst):
         return self.get_shortest_paths(src, dst, 'latency')
+    
     def get_minimum_free_bandwidth(self, path):
         length = len(path)
         minimum_free_bandwidth = float('inf')
@@ -430,6 +408,7 @@ class Net(nx.Graph):
             self.sfc_dict[sfc.id] = sfc
         if sfc.id not in self.sfc_route_info:
             self.sfc_route_info[sfc.id] = route_info
+        rf = list(route_info.items())
         for vnf_id, path in list(route_info.items()):
             if vnf_id == 'dst':
                 #self.nodes[sfc.dst.substrate_node]['sfc_vnf_list'].append((sfc.id, sfc.dst))
@@ -800,23 +779,18 @@ class Net(nx.Graph):
         self.update_network_state()
 
     def get_cpu_utilization_rate(self):
-        #self.update()
         return self.total_cpu_used*1.0/self.total_cpu_capacity
     
     def get_cache_utilization_rate(self):
-        #self.update()
         return self.total_cache_used*1.0/self.total_cache_capacity
 
     def get_resilient_cpu_utilization(self):
-        #self.update()
         return self.total_cpu_used*1.0/1200
     
     def get_resilient_cache_utilization(self):
-        #self.update()
         return self.total_cache_used*1.0/1200
 
     def get_resilient_bandwidth_utilization(self):
-        #self.update()
         return self.total_bandwidth_used*1.0/35000
     
     def get_active_servers_cpu_rate(self):

@@ -155,14 +155,14 @@ class OutputWritter:
                 str(time_to_recover) + "\n"
             file.write(line)
 
-    def output_flows(self,substrate_network,wait_time,running_players_sessions,counter,remaining_time,current_time, sfc_id, latency, run_duration, is_success,fail_reason,backup_sfc,bw_transcode, latency_diff=None,crashing=False,alg_name='ga'):
+    def output_flows(self,substrate_network,wait_time,running_players_sessions,counter,remaining_time,current_time, sfc_id, latency, run_duration, is_success,fail_reason,bw_transcode, latency_diff=None,crashing=False,alg_name='ga'):
         cpu_utilization = round(substrate_network.get_cpu_utilization_rate(), 4)
         cache_utilization = round(substrate_network.get_cache_utilization_rate(), 4)
         bw_utilization = round(substrate_network.get_bandwidth_utilization_rate(), 4)
 
-        cpu_resilient = round(substrate_network.get_resilient_cpu_utilization(), 4)
-        cache_resilient = round(substrate_network.get_resilient_cache_utilization(), 4)
-        bw_resilient = round(substrate_network.get_resilient_bandwidth_utilization(), 4)
+        cpu_resilient = 0 #round(substrate_network.get_resilient_cpu_utilization(), 4)
+        cache_resilient = 0 # round(substrate_network.get_resilient_cache_utilization(), 4)
+        bw_resilient = 0 #round(substrate_network.get_resilient_bandwidth_utilization(), 4)
 
         # active_servers_cpu = round(substrate_network.get_active_servers_cpu_rate(), 4)
         # active_servers_cache = round(substrate_network.get_active_servers_cache_rate(), 4)
@@ -170,9 +170,9 @@ class OutputWritter:
 
         running_sfcs, running_players, running_sessions = running_players_sessions
 
-        cpu_saved = substrate_network.cpu_saved
-        cache_saved = substrate_network.cache_saved
-        shared_vnfs_count = substrate_network.shared_vnfs_count
+        cpu_saved =0 #substrate_network.cpu_saved
+        cache_saved =0 #substrate_network.cache_saved
+        shared_vnfs_count =0 #substrate_network.shared_vnfs_count
         
         sfc_recovery_time = 0
         sfc_recovered = None
@@ -196,12 +196,14 @@ class OutputWritter:
         else:        
             time_value = round(current_time - self.first_time,1)
         decision_time =  str(round(run_duration * 1000, 3))
-        if backup_sfc:
-            # backup_success = is_success
-            is_success = None
-            #if alg_name == 'ga':
-            latency = None
-            decision_time = None
+
+        
+        # if backup_sfc:
+        #     # backup_success = is_success
+        #     is_success = None
+        #     #if alg_name == 'ga':
+        #     latency = None
+        #     decision_time = None
         with open(self.flows_file, "a") as file:
             line = str(counter) + ',' + \
                    str(current_time) + ',' + \
@@ -325,17 +327,18 @@ class OutputWritter:
         Returns:
             None
         """
-        sf_nodes_util = np.array([len(substrate_network.get_node_sfc_vnf_list(node)) for node in self.nodes])
+        # sf_nodes_util = np.array([len(substrate_network.get_node_sfc_vnf_list(node)) for node in self.nodes])
 
-        string_sf_nodes_util = np.array2string(sf_nodes_util, suppress_small=True,
-                                               precision=3, separator=',', 
-                                               formatter={'float_kind': lambda x: "%.2f" % x})
+        # string_sf_nodes_util = np.array2string(sf_nodes_util, suppress_small=True,
+        #                                        precision=3, separator=',', 
+        #                                        formatter={'float_kind': lambda x: "%.2f" % x})
 
-        string_sf_nodes_util = re.sub(' ', '', string_sf_nodes_util)
-        string_sf_nodes_util = re.sub('\n', '', string_sf_nodes_util)
+        # string_sf_nodes_util = re.sub(' ', '', string_sf_nodes_util)
+        # string_sf_nodes_util = re.sub('\n', '', string_sf_nodes_util)
 
-        with open(self.sf_utilization_file, "a") as file:
-            file.write(str(deploy_time) + ',' + string_sf_nodes_util[1:-1] + '\n')
+        # with open(self.sf_utilization_file, "a") as file:
+        #     file.write(str(deploy_time) + ',' + string_sf_nodes_util[1:-1] + '\n')
+        pass
 
     def output_nodes_information(self, substrate_network,*args) -> None:
         substrate_network.print_out_nodes_information(args[0], args[1])

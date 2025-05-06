@@ -1,5 +1,7 @@
 import argparse
 from controllers.modules.sfcs_manager import SFCManager
+from controllers.modules.sfcs_instatiator import SFCInstatiator
+
 from controllers.substrate_network_controller import SubstrateNetworkController
 from datetime import datetime as dt
 from controllers.substrate_network_controller_parallel import SubstrateNetworkControllerP
@@ -21,22 +23,22 @@ from utils.manager_results import create_output_dir, OutputWritter
 # command line arguments
 parser = argparse.ArgumentParser(description='Select Immersive Service arguments') 
 parser.add_argument('--application', type=str, help='type of application', default='muar')
-parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='greedyb')
+parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='ga')
 parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
 parser.add_argument('--n_players', type=int, help='(int) number of players', default=4)
 #on: quebrar mais em funçoes
 #off: monolítico
 parser.add_argument('--sfc',   type=str, help='(str) on or off', default='on')
-parser.add_argument('--topology', type=str, help='(str) wich topology ex: luxembourg,small luxembourg ,paloalto', default='luxembourg')
+parser.add_argument('--topology', type=str, help='(str) wich topology ex: luxembourg,small luxembourg ,paloalto', default='luxembourgv2')
 parser.add_argument('--share',  type=str, help='(str) whether to share sfs or not', default='y')
 parser.add_argument('--shareband',  type=str, help='(str) whether to share sfs or not', default='n')
 parser.add_argument('--time',  type=int, help='(int) the total time for the simulation in seconds', default=120)
 parser.add_argument('--mobility',  type=str, help='(str) mobility', default='y')
 
 parser.add_argument('--allow_delay', type=str, help='(str) whether to allow delay or not', default='n')
-parser.add_argument('--backup', type=str, help='(str) whether to allow delay or not', default='y')
-parser.add_argument('--ava', type=str, help='(str) whether to allow delay or not', default='0.95')
-parser.add_argument('--number_of_fails', type=str, help='(str) whether to allow delay or not', default='1')
+parser.add_argument('--backup', type=str, help='(str) whether to allow delay or not', default='n')
+parser.add_argument('--ava', type=str, help='(str) whether to allow delay or not', default='1.0')
+parser.add_argument('--number_of_fails', type=str, help='(str) whether to allow delay or not', default='0')
 parser.add_argument('--verbose',   type=str, help='verbose log', default='y')
 
 #Coleta dos parâmetros da simulação
@@ -49,7 +51,9 @@ topology = TopologyInstantiator().instantiate_topology(args.topology)
 sfc_queue = SFCQueue()
 
 # Criando emissor Poisson
-sfc_poisson_emitter = PoissonEmitter(20)
+test = 10
+official = 20
+sfc_poisson_emitter = PoissonEmitter(test)
 
 # Criando instância da classe MuarScenario
 muar_scenario = MuarScenario(args, sfc_queue,topology, sfc_poisson_emitter)
@@ -60,7 +64,7 @@ sfc_poisson_emitter.start(muar_scenario.generate_sfc_session,(None))
 ALG = AlgorithmInstantiator().instantiate_algorithm(args.alg)
 
 network = topology.generate_substrate_network()
-network.set_verbose(verbose=(args.verbose == 'y'))
+network.verbose = 'y'
 
 parallel_run = False
 if parallel_run:
@@ -71,11 +75,14 @@ else:
 sbn_controller.substrate_network = network
 sbn_controller.sfc_queue = sfc_queue
 sbn_controller.sfc = args.sfc
-sbn_controller.alg = ALG
+sbn_controller.alg = ALG.name
 sbn_controller.fail_manager = Crasher(topology=topology,args=args,interval=200)
+
 # sbn_controller.backup_manager = BackupManager(args=args)
 sbn_controller.mobility_manager = MobilityManager(args)
 sbn_controller.sfc_manager = SFCManager(args,backup_manager=BackupManager(args=args),alg=ALG)
+sbn_controller.sfc_instantiator = SFCInstatiator(ALG)
+
 sbn_controller.sfc_manager.alg_name = args.alg
 sbn_controller.verbose = (args.verbose == 'y')
 sbn_controller.output_writter = OutputWritter(topology, *create_output_dir(args, topology))

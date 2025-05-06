@@ -98,26 +98,86 @@ class MuarScenario:
         players_unique_sf_list = []
 
         for i in range(1,n_players+1):
+            
             caching_sf_list = []
-            caching_sf_list.append({"type": 2, "name":"IA_DET_FT_" + counter, 
-                "CPU": IA_DET_FT, "cache": 0, "in_bw": IA_bw, "out_bw": IA_DET_FT_bw,"latency":round((IA_DET_FT*total_inst/servers_mips)*10,2)})
-            caching_sf_list.append({"type": 2, "name":"MA_region_" + str(dst_node),# + "_" + counter, 
-                "CPU": MA, "cache": CA_size, "in_bw": IA_DET_FT_bw, "out_bw": MA_bw,"latency":round((MA*total_inst/servers_mips)*10,2)})
-            caching_sf_list.append({"type": 2, "name":"RE_region_" + str(dst_node),# + "_" + counter, 
-                "CPU": RE*chr, "cache": 0, "in_bw": MA_bw, "out_bw": RE_bw*chr,"latency":round((RE*chr*total_inst/servers_mips)*10,2)})
-            caching_sf_list.append({"type": 2, "name":"EC_TC_p" + str(i) + "_" + counter, 
-                "CPU": EC_TC*chr, "cache": 0, "in_bw": RE_bw*chr, "out_bw": EC_TC_bw*chr,"latency":round((EC_TC*chr*total_inst/servers_mips)*10,2)})
+            caching_sf_list.append({ 
+                "type": 2, 
+                "name": "IA_DET_FT_" + counter, 
+                "CPU": round(IA_DET_FT, 2), 
+                "cache": 0, 
+                "in_bw": round(IA_bw, 2), 
+                "out_bw": round(IA_DET_FT_bw, 2),
+                "latency": round((IA_DET_FT * total_inst / servers_mips) * 10, 2)
+            })
+            caching_sf_list.append({
+                "type": 2, 
+                "name": "MA_region_" + str(dst_node), 
+                "CPU": round(MA, 2), 
+                "cache": round(CA_size, 2), 
+                "in_bw": round(IA_DET_FT_bw, 2), 
+                "out_bw": round(MA_bw, 2),
+                "latency": round((MA * total_inst / servers_mips) * 10, 2)
+            })
+            caching_sf_list.append({
+                "type": 2, 
+                "name": "RE_region_" + str(dst_node), 
+                "CPU": round(RE * chr, 2), 
+                "cache": 0, 
+                "in_bw": round(MA_bw, 2), 
+                "out_bw": round(RE_bw * chr, 2),
+                "latency": round((RE * chr * total_inst / servers_mips) * 10, 2)
+            })
+            caching_sf_list.append({
+                "type": 2, 
+                "name": "EC_TC_p" + str(i) + "_" + counter, 
+                "CPU": round(EC_TC * chr, 2), 
+                "cache": 0, 
+                "in_bw": round(RE_bw * chr, 2), 
+                "out_bw": round(EC_TC_bw * chr, 2),
+                "latency": round((EC_TC * chr * total_inst / servers_mips) * 10, 2)
+            })
             players_cache_sf_list.append(caching_sf_list)
+
             unique_sf_list = []
-            unique_sf_list.append({"type": 2, "name":"IA_DET_FT_" + counter, 
-                "CPU": IA_DET_FT, "cache": 0, "in_bw": IA_bw, "out_bw": IA_DET_FT_bw,"latency":round((IA_DET_FT*total_inst/servers_mips)*10,2)})
-            unique_sf_list.append({"type": 2, "name":"UNI_p" + str(i) + "_" + counter, 
-                "CPU": UNI, "cache": 0, "in_bw": IA_DET_FT_bw, "out_bw": UNI_bw,"latency":round((UNI*total_inst/servers_mips)*10,2)})
-            unique_sf_list.append({"type": 2, "name":"RE_p" + str(i) + "_"    + counter, 
-                "CPU": RE*(1-chr), "cache": 0, "in_bw": UNI_bw, "out_bw": RE_bw*(1-chr),"latency":round((RE*(1-chr)*total_inst/servers_mips)*10,2)})
-            unique_sf_list.append({"type": 2, "name":"EC_TC_p" + str(i) + "_" + counter, 
-                "CPU": EC_TC*(1-chr), "cache": 0, "in_bw": RE_bw*(1-chr), "out_bw": EC_TC_bw*(1-chr),"latency":round((EC_TC*(1-chr)*total_inst/servers_mips)*10,2)})
+            unique_sf_list.append({
+                "type": 2, 
+                "name": "IA_DET_FT_" + counter, 
+                "CPU": round(IA_DET_FT, 2), 
+                "cache": 0, 
+                "in_bw": round(IA_bw, 2), 
+                "out_bw": round(IA_DET_FT_bw, 2),
+                "latency": round((IA_DET_FT * total_inst / servers_mips) * 10, 2)
+            })
+            unique_sf_list.append({
+                "type": 2, 
+                "name": "UNI_p" + str(i) + "_" + counter, 
+                "CPU": round(UNI, 2), 
+                "cache": 0, 
+                "in_bw": round(IA_DET_FT_bw, 2), 
+                "out_bw": round(UNI_bw, 2),
+                "latency": round((UNI * total_inst / servers_mips) * 10, 2)
+            })
+            unique_sf_list.append({
+                "type": 2, 
+                "name": "RE_p" + str(i) + "_" + counter, 
+                "CPU": round(RE * (1 - chr), 2), 
+                "cache": 0, 
+                "in_bw": round(UNI_bw, 2), 
+                "out_bw": round(RE_bw * (1 - chr), 2),
+                "latency": round((RE * (1 - chr) * total_inst / servers_mips) * 10, 2)
+            })
+            unique_sf_list.append({
+                "type": 2, 
+                "name": "EC_TC_p" + str(i) + "_" + counter, 
+                "CPU": round(EC_TC * (1 - chr), 2), 
+                "cache": 0, 
+                "in_bw": round(RE_bw * (1 - chr), 2), 
+                "out_bw": round(EC_TC_bw * (1 - chr), 2),
+                "latency": round((EC_TC * (1 - chr) * total_inst / servers_mips) * 10, 2)
+            })
             players_unique_sf_list.append(unique_sf_list)
+
+
         lifetime = np.random.poisson(self.max_duration)
         #lifetime = int(round(np.random.exponential(max_duration)))
         duration = lifetime
@@ -132,6 +192,7 @@ class MuarScenario:
             player_cache_dict["dst_node"] = dst_node
             player_cache_dict["duration"] = duration
             player_cache_dict["latency"] = min_latency_acc
+            player_cache_dict['group_id'] = f"{i}{counter}"
             players_sfc_cache_dict_list.append(player_cache_dict)
             player_unique_dict = {}
             player_unique_dict['name'] = 'sfc_unique_p' + str(i) + '_' + counter
@@ -141,6 +202,7 @@ class MuarScenario:
             player_unique_dict["dst_node"] = dst_node
             player_unique_dict["duration"] = duration
             player_unique_dict["latency"] = min_latency_acc
+            player_unique_dict['group_id'] = f"{i}{counter}"
             players_sfc_unique_dict_list.append(player_unique_dict)
         
         players_sfc_list = []
