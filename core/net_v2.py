@@ -68,6 +68,7 @@ class Net2:
             if len(path) > 1:
                 for u, v in zip(path[:-1], path[1:]):
                     self.allocate_bandwidth(u, v, bw_req, ms_name)
+
         # if flag_test == 0:
         #     self.deploy_sfc(sfc,route_info,flag_test=1)
         # self.undeploy_sfc(sfc_id=sfc.id)
