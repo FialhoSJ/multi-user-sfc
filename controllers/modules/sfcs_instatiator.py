@@ -13,50 +13,54 @@ class SFCInstatiator:
         self.verbose = True
 
     def search_solution(self,sfc_list,substrate_network,is_backup=False):
-        solution = {}
-        for sfc in sfc_list:                    
-            algorithm = copy.deepcopy(self.alg)
-            algorithm.clear_all()
-            
-            shareable_sfs = substrate_network.get_shareable_sfs()
-            
-            algorithm.install_SFC(sfc)
-            algorithm.install_substrate_network(
-            substrate_network,
-            shareable_sfs=shareable_sfs if algorithm.name in ['ga','msf','goku'] else None)
+        default_solution_format = {sfc.id: {'route_info': None, 'latency': None, 'run_duration': None} for sfc in sfc_list}
 
-            
+        algorithm = copy.deepcopy(self.alg)
+        algorithm.clear_all()
+        # O algoritmo deve criar variáveis temporárias e não usar a rede 'oficial'.
+        algorithm.install_substrate_network(substrate_network)
+        
+        sequential_sub = True
+        if sequential_sub:
+            solution,is_success = self.sequential_search(algorithm,sfc_list,substrate_network,default_solution_format)
+        else:
+            # TODO  Isso pode ser necessário mudar caso o algoritmo não precise instanciar sequencialmente. Ou seja, ele pode instanciar em lotes
+            # EX: solution,is_success = self.batch_search(algorithm,sfc_list,substrate_network,default_solution_format)
+            pass
+        
+        if is_success:
+            self.deploy_success_message(sfc_list)
+        else:
+            self.deploy_failed_message(sfc_list)
+        return solution,is_success
+    
+    def sequential_search(self,algorithm,sfc_list: object,substrate_network:object,solution_format) -> None:
+        is_success = True
+        for sfc in sfc_list:     # TODO  Isso pode ser necessário mudar caso o algoritmo não precise instanciar sequencialmente              
+            algorithm.install_SFC(sfc)
+
             s = time.time()
-            if algorithm.name == 'ga':
-                algorithm.start_algorithm(shareable_sfs=shareable_sfs, is_backup=is_backup)
-            else:
-                algorithm.start_algorithm()
+            is_success = algorithm.start_algorithm()
             s2 = time.time()
 
-            route_info = algorithm.get_route_info() # Routes choosen by the alg
-            latency = algorithm.get_latency() # latency of the solution
-            
             # Validate latency
-            if not isinstance(latency, (int, float)) or latency < 0 or latency > sfc.get_latency_request() or not route_info:
-                self.deploy_failed(sfc_list)
-                return False
+            if not is_success:
+                break
 
-            solution[sfc.id] = {
-                'route_info': route_info,
-                'latency': latency,
+            solution_format[sfc.id] = {
+                'route_info': algorithm.get_route_info(),
+                'latency': algorithm.get_latency() ,
                 'run_duration': s2 - s
             }
-        self.deploy_success(sfc_list)
-        return solution
-    
+        return solution_format,is_success
 
-    def deploy_success(self, sfc_list: object) -> None:
+    def deploy_success_message(self, sfc_list: object) -> None:
         """Print success message."""
         if self.verbose == True:
             for sfc in sfc_list:
                 print("deploy succeed, sfc: ", sfc.id)
 
-    def deploy_failed(self, sfc_list: object) -> None:
+    def deploy_failed_message(self, sfc_list: object) -> None:
         """Print failure message."""
         if self.verbose == True:
             for sfc in sfc_list:

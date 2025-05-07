@@ -183,10 +183,8 @@ class SubstrateNetworkController():
         """Updates the network state and check for resource overhead."""
         self.substrate_network.update()
 
-    def output_results(self, results_dict, sfc_id,res_output=False) -> None:
+    def output_results(self, results_dict, sfc_id,is_success,res_output=False) -> None:
         current_time = time.time()
-        is_success = True if results_dict else False
-
         def output_network_resources(current_time):
             self.output_writter.output_cpu_utilization(self.substrate_network, current_time,self.fail_manager.nodes_crashed)
             self.output_writter.output_cache_utilization(self.substrate_network, current_time,self.fail_manager.nodes_crashed)
@@ -288,15 +286,15 @@ class SubstrateNetworkController():
         self.create_mobile_user(sfc_list)
        
         t_1 = time.time() 
-        solution = self.sfc_instantiator.search_solution(sfc_list,self.substrate_network)
+        solution,is_success = self.sfc_instantiator.search_solution(sfc_list,self.substrate_network)
         t_2 = time.time()
         print(f"Algorithm Take time     : {round(t_2-t_1,2)}")
-        if solution:
+        if is_success:
             self.sfc_manager.submit_solution(sfc_list,solution,self.substrate_network)
         else:
+            pass
             #self.remove_mobile_user(sfc_list)       
-            return False
-        return solution
+        return solution,is_success
 
     def create_mobile_user(self,sfc_list):
         self.mobility_manager.add_vehicle(sfc_list)
@@ -525,9 +523,9 @@ class SubstrateNetworkController():
                 if sfc.group_id in self.sfc_manager.sfcs_tracker:
                     raise ValueError(f"SFC já submetida")
 
-            log = self.deploy_sfc_list(sfc_list)
+            log,is_success = self.deploy_sfc_list(sfc_list)
             
             for sfc_id, result_dict in log.items():
                 processed_sfcs.append(sfc_id)
-                self.output_results(sfc_id=sfc_id,results_dict=result_dict)            
+                self.output_results(sfc_id=sfc_id,results_dict=result_dict,is_success=is_success)            
         return processed_sfcs
