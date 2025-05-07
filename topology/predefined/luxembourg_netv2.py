@@ -37,7 +37,7 @@ class LuxembourgV2(TopologyBase):
         net = Net2()
 
         # Adiciona os nós
-        net.add_node(0, node_type='server', cpu_capacity=0)
+        net.add_node(0, node_type='server', cpu_capacity=0.0)
         for node in self.nodes:
             if node in self.edge_computing_servers:
                 net.add_node(node, node_type='server', cpu_capacity=self.cpu_capacity,cache_capacity=self.cache_capacity)

@@ -10,12 +10,12 @@ class Net2:
         self.sfc_route_info = {} # sfc_id, route_info
         self.nodes_reliability = {}
 
-        self.total_cpu_used = 0
-        self.total_cpu_capacity = 0
-        self.total_cache_used = 0
-        self.total_cache_capacity = 0
-        self.total_bandwidth_used = 0  
-        self.total_bandwidth_capacity = 0
+        self.total_cpu_used = 0.00
+        self.total_cpu_capacity = 0.00
+        self.total_cache_used = 0.00
+        self.total_cache_capacity = 0.00
+        self.total_bandwidth_used = 0.00  
+        self.total_bandwidth_capacity = 0.00
 
         self.single_source_minimum_latency_path = None 
 
@@ -29,19 +29,19 @@ class Net2:
         self.verbose = False
     
     
-    def add_node(self, node_id, node_type, cpu_capacity=0,cache_capacity=0):
+    def add_node(self, node_id, node_type, cpu_capacity=0.00,cache_capacity=0.00):
         self.graph.add_node(node_id,
                             type=node_type,
                             cpu_capacity=cpu_capacity,
                             cache_capacity=cache_capacity,
-                            cpu_used=0,
-                            cache_used=0,
+                            cpu_used=0.00,
+                            cache_used=0.00,
                             services={})
 
-    def add_edge(self, node1, node2, bandwidth_capacity=1000, latency=1):
+    def add_edge(self, node1, node2, bandwidth_capacity=1000.00, latency=1):
         self.graph.add_edge(node1, node2,
                             bandwidth_capacity=bandwidth_capacity,
-                            bandwidth_used=0,
+                            bandwidth_used=0.00,
                             latency=latency,
                             services_in_transit={})
 
@@ -149,20 +149,20 @@ class Net2:
         if node['cpu_used'] + cpu_required > node['cpu_capacity'] or node['cache_used'] + cache_required > node['cache_capacity']:
             raise ValueError(f"Sem capacidade suficiente no nó {node_id}.")
         
+        def put_resource(cpu_required,cache_required):
+            node['cpu_used'] = round(node['cpu_used'] + cpu_required,2)
+            node['cache_used'] = round(node['cache_used'] + cache_required,2)
+            self.total_cpu_used = round(self.total_cpu_used + cpu_required,2)
+            self.total_cache_used = round(self.total_cache_used + cache_required,2)
+        
         if service_id in node['services']:
             node['services'][service_id]['copys'] += 1 # Serviço já instanciado, então incrementa o número de cópias
             if not self.is_shareable(service_id): # Se não for compartilhável, então aumenta os recursos usados
-                node['cpu_used'] += cpu_required
-                node['cache_used'] += cache_required
-                self.total_cpu_used += cpu_required
-                self.total_cache_used += cache_required
+                put_resource(cpu_required,cache_required)
         else:
             node['services'][service_id] = {'cpu': cpu_required,'cache': cache_required,'copys': 1}
-            node['cpu_used'] += cpu_required
-            node['cache_used'] += cache_required
-            self.total_cpu_used += cpu_required
-            self.total_cache_used += cache_required
-        
+            put_resource(cpu_required,cache_required)
+                    
     def deallocate_microservice(self, node_id, service_id):
         node = self.graph.nodes[node_id]
 
@@ -172,19 +172,20 @@ class Net2:
         service_info = node['services'][service_id]
         service_info['copys'] -= 1
 
+
+        def take_resource(cpu_required,cache_required):
+            node['cpu_used'] = round(node['cpu_used'] - cpu_required,2)
+            node['cache_used'] = round(node['cache_used'] - cache_required,2)
+            self.total_cpu_used = round(self.total_cpu_used - cpu_required,2)
+            self.total_cache_used = round(self.total_cache_used - cache_required,2)
+        
         if service_info['copys'] <= 0:
             del node['services'][service_id]
-            node['cpu_used'] -= service_info['cpu']
-            node['cache_used'] -= service_info['cache']
-            self.total_cpu_used -= service_info['cpu']
-            self.total_cache_used -= service_info['cache']
+            take_resource(service_info['cpu'],service_info['cache'])
         else:
             # Se não é compartilhável, libera os recursos mesmo em cada cópia
             if not self.is_shareable(service_id):
-                node['cpu_used'] -= service_info['cpu']
-                node['cache_used'] -= service_info['cache']
-                self.total_cpu_used -= service_info['cpu']
-                self.total_cache_used -= service_info['cache']
+                take_resource(service_info['cpu'],service_info['cache'])
 
     def allocate_bandwidth(self, node1, node2, bw_required, ms_name):
         if not self.graph.has_edge(node1, node2):
