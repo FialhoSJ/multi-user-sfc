@@ -62,16 +62,25 @@ class GreedyOptAlgorithm():
     def clear_all(self):
         self.substrate_network = None
         self.sfc = None
-        
         self.graph = None
 
         self.route_info = None
         self.latency = None
         self.is_backup = False
 
-    def install_substrate_network(self, substrate_network,shareable_sfs=[]):
+    def install_substrate_network(self, substrate_network, mobile_device, shareable_sfs=[]):
         self.substrate_network = substrate_network
+        
+        # Os recursos do Mobile Device devem estar disponíveis somente para sua SFC
+        md_info =  substrate_network.md_graph._node[mobile_device]
         self.graph = copy.deepcopy(substrate_network.graph)
+        self.graph.add_node(mobile_device,type='mobile_device',
+                                cpu_capacity=md_info['cpu_capacity'],
+                                cache_capacity=md_info['cache_capacity'],
+                                cpu_used=md_info['cpu_used'],
+                                cache_used=md_info['cache_used'],
+                                position=md_info['position'],
+                                services=md_info['services'])
         return self.substrate_network
     
     def install_SFC(self, sfc):
@@ -222,12 +231,10 @@ class GreedyOptAlgorithm():
         # Inicializa o dicionário de recursos dos servidores
         server_resources = {
             server: {
-                'cpu_capacity': self.substrate_network .get_node_cpu_capacity(server),
-                'cache_capacity':self.substrate_network .get_node_cache_capacity(server),
-                'cpu_used': self.substrate_network .get_node_cpu_used(server),
-                'cache_used': self.substrate_network .get_node_cache_used(server),
-                'cpu_free': self.substrate_network .get_node_cpu_free(server),
-                'cache_free': self.substrate_network .get_node_cache_free(server),
+                'cpu_capacity': self.graph.nodes[server]['cpu_capacity'],
+                'cache_capacity':self.graph.nodes[server]['cache_capacity'],
+                'cpu_used': self.graph.nodes[server]['cpu_used'],
+                'cache_used': self.graph.nodes[server]['cache_used'],
                 'reuse': []
             } for server in servers}
         first_vnf = True
@@ -267,15 +274,15 @@ class GreedyOptAlgorithm():
                 if forbidden:
                     continue
 
-                # Agora buscamos valores diretamente em server_resources:
-                cpu_available = server_resources[node_a]['cpu_free']
-                cache_available = server_resources[node_a]['cache_free']
-
                 cpu_used = server_resources[node_a]['cpu_used']
                 cache_used = server_resources[node_a]['cache_used']
 
                 cpu_cap = server_resources[node_a]['cpu_capacity']
                 cache_cap = server_resources[node_a]['cache_capacity']
+
+                # Agora buscamos valores diretamente em server_resources:
+                cpu_available = round(cpu_cap - cpu_used,2)  
+                cache_available = round(cache_cap - cache_used,2) 
 
                 if cpu_cap <= 0 or cache_cap <= 0:
                     continue
@@ -313,10 +320,7 @@ class GreedyOptAlgorithm():
                 nodes_used.append(node)
                 # Atualizamos o dicionário de recursos
                 server_resources[node]['cpu_used'] += cpu_request
-                server_resources[node]['cpu_free'] -= cpu_request
-
                 server_resources[node]['cache_used'] += cache_request
-                server_resources[node]['cache_free'] -= cache_request
                 
                 # Se for usar a banda, você também decrementa a banda do enlace
                 # se node != current_substrate_node, por exemplo

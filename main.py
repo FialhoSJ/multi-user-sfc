@@ -29,7 +29,7 @@ parser.add_argument('--n_players', type=int, help='(int) number of players', def
 #on: quebrar mais em funçoes
 #off: monolítico
 parser.add_argument('--sfc',   type=str, help='(str) on or off', default='on')
-parser.add_argument('--topology', type=str, help='(str) wich topology ex: luxembourg,small luxembourg ,paloalto', default='luxembourgv2')
+parser.add_argument('--topology', type=str, help='(str) wich topology ex: luxembourg,small luxembourg ,paloalto', default='luxembourgv2') #luxembourgv2
 parser.add_argument('--share',  type=str, help='(str) whether to share sfs or not', default='y')
 parser.add_argument('--shareband',  type=str, help='(str) whether to share sfs or not', default='n')
 parser.add_argument('--time',  type=int, help='(int) the total time for the simulation in seconds', default=30)

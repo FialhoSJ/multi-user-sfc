@@ -12,14 +12,14 @@ class SFCInstatiator:
         self.sfcs_that_crashed = []
         self.verbose = True
 
-    def search_solution(self,sfc_list,substrate_network,is_backup=False):
+    def search_solution(self,sfc_list, mobile_device, substrate_network, is_backup=False):
         default_solution_format = {sfc.id: {'route_info': None, 'latency': None, 'run_duration': None} for sfc in sfc_list}
 
         algorithm = copy.deepcopy(self.alg)
         algorithm.clear_all()
         # O algoritmo deve criar variáveis temporárias e não usar a rede 'oficial'.
-        algorithm.install_substrate_network(substrate_network)
-        
+        algorithm.install_substrate_network(substrate_network, mobile_device)
+
         sequential_sub = True
         if sequential_sub:
             solution,is_success = self.sequential_search(algorithm,sfc_list,substrate_network,default_solution_format)
@@ -35,24 +35,27 @@ class SFCInstatiator:
         return solution,is_success
     
     def sequential_search(self,algorithm,sfc_list: object,substrate_network:object,solution_format) -> None:
-        is_success = True
+        search_success = True
         for sfc in sfc_list:     # TODO  Isso pode ser necessário mudar caso o algoritmo não precise instanciar sequencialmente              
+            # algorithm = copy.deepcopy(self.alg)
+            # algorithm.clear_all()
+            # algorithm.install_substrate_network(substrate_network)
             algorithm.install_SFC(sfc)
-
             s = time.time()
-            is_success = algorithm.start_algorithm()
+            alg_success = algorithm.start_algorithm()
             s2 = time.time()
-
-            # Validate latency
-            if not is_success:
-                break
 
             solution_format[sfc.id] = {
                 'route_info': algorithm.get_route_info(),
                 'latency': algorithm.get_latency() ,
                 'run_duration': s2 - s
-            }
-        return solution_format,is_success
+                }
+            
+            # Validate latency
+            if not alg_success:
+                search_success = False
+
+        return solution_format,search_success
 
     def deploy_success_message(self, sfc_list: object) -> None:
         """Print success message."""

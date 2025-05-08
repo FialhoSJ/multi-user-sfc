@@ -283,10 +283,10 @@ class SubstrateNetworkController():
 
     def deploy_sfc_list(self, sfc_list) -> bool:
         # with self.lock:
-        self.create_mobile_user(sfc_list)
+        md = self.create_mobile_user(sfc_list)
        
         t_1 = time.time() 
-        solution,is_success = self.sfc_instantiator.search_solution(sfc_list,self.substrate_network)
+        solution,is_success = self.sfc_instantiator.search_solution(sfc_list, md, self.substrate_network)
         t_2 = time.time()
         print(f"Algorithm Take time     : {round(t_2-t_1,2)}")
         if is_success:
@@ -297,7 +297,11 @@ class SubstrateNetworkController():
         return solution,is_success
 
     def create_mobile_user(self,sfc_list):
-        self.mobility_manager.add_vehicle(sfc_list)
+        group_id = sfc_list[0].group_id
+        self.mobility_manager.add_vehicle(group_id)
+        md_position = self.mobility_manager.get_md_position(group_id)
+        self.substrate_network.add_node(group_id, 'mobile_device', cpu_capacity=10.00, cache_capacity=10.00,position=md_position)
+        return group_id
         # group_id = sfc_list[0].group_id
         # self.players_sfc_list[group_id] = {'sfc_list':sfc_list}
         # for sfc in sfc_list:
@@ -424,7 +428,6 @@ class SubstrateNetworkController():
             if elapsed_time >= info["duration"]: # Tempo do user acabou
                 self.sfc_manager.undeploy_sfc(sfc_list_id,self.substrate_network)
                 #self.mobility_manager.remove_sfc(sfc_list_id)#(sfc_id,new_status='blocked')
-        pass
         pass
         #self.update()
 

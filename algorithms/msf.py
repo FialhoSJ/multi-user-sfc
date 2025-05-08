@@ -117,25 +117,25 @@ class MSF():
     def get_route_info(self):
         return self.route_info
 
-    def start_algorithm(self,is_backup):
+    def start_algorithm(self):#,is_backup):
         substrate_network = self.substrate_network
         sfc = self.sfc
         #logger.info('Algorithm start')
         if self.algorithm(substrate_network, sfc):
             #logger.info('Algorithm end, success')
 
-            if is_backup:
-                for vnf, server_forbidden in self.forbidden_matches.items():
-                    try:
-                        server_used = self.route_info[vnf][0]
-                        if server_used == server_forbidden:
-                            self.route_info = False
-                            self.latency = None
-                            return False
-                    except:
-                        self.route_info = False
-                        self.latency = None
-                        return False
+            # if is_backup:
+            #     for vnf, server_forbidden in self.forbidden_matches.items():
+            #         try:
+            #             server_used = self.route_info[vnf][0]
+            #             if server_used == server_forbidden:
+            #                 self.route_info = False
+            #                 self.latency = None
+            #                 return False
+            #         except:
+            #             self.route_info = False
+            #             self.latency = None
+            #             return False
                         
             if self.latency is not None:
                 if self.latency < 0:

@@ -40,9 +40,9 @@ class LuxembourgV2(TopologyBase):
         net.add_node(0, node_type='server', cpu_capacity=0.0)
         for node in self.nodes:
             if node in self.edge_computing_servers:
-                net.add_node(node, node_type='server', cpu_capacity=self.cpu_capacity,cache_capacity=self.cache_capacity)
+                net.add_node(node, node_type='server', cpu_capacity=self.cpu_capacity,cache_capacity=self.cache_capacity,position=self.positions[node])
             else:
-                net.add_node(node, node_type='router')
+                net.add_node(node, node_type='router',position=self.positions[node])
 
         # Adiciona as arestas com latência baseada na distância euclidiana
         for u, v in self.topology:

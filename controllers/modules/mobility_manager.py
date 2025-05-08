@@ -27,44 +27,47 @@ class MobilityManager:
         """Inicia a simulação."""
         self.tracer.start_simulation()
 
+    def get_md_position(self,id):
+        return [0,0]
     def add_vehicle(self, sfc_list):
+        pass
         #try:
         # with self.lock:
-        for sfc in sfc_list:
-            player = sfc.id.split("_")[-2][1]
-            p_session = sfc.id.split("_")[-1]
-            player_id = int(player + p_session)
-            vehicle_id = f"veh_{player_id}"
+        # for sfc in sfc_list:
+        #     player = sfc.id.split("_")[-2][1]
+        #     p_session = sfc.id.split("_")[-1]
+        #     player_id = int(player + p_session)
+        #     vehicle_id = f"veh_{player_id}"
             
-            if vehicle_id in list(self.vehicle_to_service_map.keys()):  
-                # Não adiciona se o veh estiver bloqueado ou desconectado
-                if self.vehicle_to_service_map[vehicle_id]['connected'] == False:
-                    return
+        #     if vehicle_id in list(self.vehicle_to_service_map.keys()):  
+        #         # Não adiciona se o veh estiver bloqueado ou desconectado
+        #         if self.vehicle_to_service_map[vehicle_id]['connected'] == False:
+        #             return
                 
-                # Verificando se o SFC já está associado ao veículo
-                if sfc.id in self.vehicle_to_service_map[vehicle_id]['sfcs']:
-                    self.vehicle_to_service_map[vehicle_id]['status'] = 'available' # Redeploy bem sucedido
-                    self.vehicle_to_service_map[vehicle_id]['connected'] = True
-                    #pass  # As associações são feitas no deploy e, como pode ter vindo de um redeploy, não tem erro claro.
-                else:
-                    # Adiciona o SFC à lista de SFCS associada ao veículo
-                    self.vehicle_to_service_map[vehicle_id]['sfcs'].append(sfc.id)
-                    self.running_sfcs.append(sfc.id)
-            else:
-                # Caso o veículo não exista no mapeamento, cria o veículo e associa o SFC
-                server_start = sfc.dst_node
-                self.tracer.create_vehicle(vehicle_id, server_start)
+        #         # Verificando se o SFC já está associado ao veículo
+        #         if sfc.id in self.vehicle_to_service_map[vehicle_id]['sfcs']:
+        #             self.vehicle_to_service_map[vehicle_id]['status'] = 'available' # Redeploy bem sucedido
+        #             self.vehicle_to_service_map[vehicle_id]['connected'] = True
+        #             #pass  # As associações são feitas no deploy e, como pode ter vindo de um redeploy, não tem erro claro.
+        #         else:
+        #             # Adiciona o SFC à lista de SFCS associada ao veículo
+        #             self.vehicle_to_service_map[vehicle_id]['sfcs'].append(sfc.id)
+        #             self.running_sfcs.append(sfc.id)
+        #     else:
+        #         # Caso o veículo não exista no mapeamento, cria o veículo e associa o SFC
+        #         server_start = sfc.dst_node
+        #         self.tracer.create_vehicle(vehicle_id, server_start)
                 
-                self.running_sfcs.append(sfc.id)
-                # Adiciona o veículo com o SFC na lista de serviços
-                self.vehicle_to_service_map[vehicle_id] = {
-                    'sfcs': [sfc.id],         # Lista com o ID do SFC associado
-                    'veh_location': sfc.dst_node,   # A localização inicial do veículo
-                    'distance': self.tracer.get_server_distance_from_car(vehicle_id,server_start),
-                    'time': time.time(),
-                    'connected': True,
-                    'status':'available' # 'available': pode alterar de servidor,'moving': movendo de servidor,'blocked':não 'está' mais na simulação; 
-                }
+        #         self.running_sfcs.append(sfc.id)
+        #         # Adiciona o veículo com o SFC na lista de serviços
+        #         self.vehicle_to_service_map[vehicle_id] = {
+        #             'sfcs': [sfc.id],         # Lista com o ID do SFC associado
+        #             'veh_location': sfc.dst_node,   # A localização inicial do veículo
+        #             'distance': self.tracer.get_server_distance_from_car(vehicle_id,server_start),
+        #             'time': time.time(),
+        #             'connected': True,
+        #             'status':'available' # 'available': pode alterar de servidor,'moving': movendo de servidor,'blocked':não 'está' mais na simulação; 
+        #         }
         # except Exception as e:
         #     print(f"Erro ao adicionar veículo para o SFC {sfc.id}: {str(e)}")
 

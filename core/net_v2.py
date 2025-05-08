@@ -5,6 +5,7 @@ SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 class Net2:
     def __init__(self):
         self.graph = nx.Graph()
+        self.md_graph = nx.Graph()
 
         self.sfc_dict = {}
         self.sfc_route_info = {} # sfc_id, route_info
@@ -28,16 +29,28 @@ class Net2:
         self.shareable_node = True
         self.verbose = False
     
-    
-    def add_node(self, node_id, node_type, cpu_capacity=0.00,cache_capacity=0.00):
-        self.graph.add_node(node_id,
-                            type=node_type,
-                            cpu_capacity=cpu_capacity,
-                            cache_capacity=cache_capacity,
-                            cpu_used=0.00,
-                            cache_used=0.00,
-                            services={})
-
+    def add_node(self, node_id, node_type, cpu_capacity=0.00,cache_capacity=0.00,position=(0,0)):
+        if node_type in ['server','router']:
+            self.graph.add_node(node_id,
+                                type=node_type,
+                                cpu_capacity=cpu_capacity,
+                                cache_capacity=cache_capacity,
+                                cpu_used=0.00,
+                                cache_used=0.00,
+                                position=position,
+                                services={})
+        elif node_type == 'mobile_device':
+            self.md_graph.add_node(node_id,
+                                type=node_type,
+                                cpu_capacity=cpu_capacity,
+                                cache_capacity=cache_capacity,
+                                cpu_used=0.00,
+                                cache_used=0.00,
+                                position=position,
+                                services={})
+        else:
+            raise ValueError("Tipo de nó não reconhecido")
+            
     def add_edge(self, node1, node2, bandwidth_capacity=1000.00, latency=1):
         self.graph.add_edge(node1, node2,
                             bandwidth_capacity=bandwidth_capacity,
@@ -46,12 +59,14 @@ class Net2:
                             services_in_transit={})
 
     def deploy_sfc(self, sfc, route_info,flag_test=0):  
-        if sfc.id not in self.sfc_dict:
-            self.sfc_dict[sfc.id] = sfc
+        sfc_id = sfc.id
+        if sfc_id not in self.sfc_dict:
+            self.sfc_dict[sfc_id] = sfc
         
-        if sfc.id not in self.sfc_route_info:
-            self.sfc_route_info[sfc.id] = route_info
-
+        if sfc_id not in self.sfc_route_info:
+            self.sfc_route_info[sfc_id] = route_info
+        
+        session = sfc_id.split("_")[-1]
         #edge servers => [2, 5, 6, 8, 9, 14, 18, 23, 25, 28, 33, 34])
         for ms_name, path in route_info.items():
             if ms_name in ['src','dst']:
@@ -62,7 +77,7 @@ class Net2:
             
             cpu_req = vnf.get_cpu_request()
             cache_req = vnf.get_cache_request()   
-            self.allocate_microservice(node_allocated, ms_name, cpu_req,cache_req)
+            self.allocate_microservice(node_allocated, ms_name, session, cpu_req, cache_req)
             bw_req = vnf.get_outcome_interface_bandwidth()
 
             if len(path) > 1:
@@ -80,6 +95,7 @@ class Net2:
             raise ValueError(f"SFC {sfc_id} não encontrada.")
 
         sfc = self.sfc_dict[sfc_id]
+        session = sfc_id.split("_")[-1]
         route_info = self.sfc_route_info[sfc_id]
 
         for ms_name, path in route_info.items():
@@ -88,7 +104,7 @@ class Net2:
 
             vnf = sfc.get_vnf_by_id(ms_name)
             node_allocated = path[0]
-            self.deallocate_microservice(node_allocated, ms_name)
+            self.deallocate_microservice(node_allocated, ms_name,session)
             bw_req = vnf.get_outcome_interface_bandwidth()
             if len(path) > 1:
                 for u, v in zip(path[:-1], path[1:]):
@@ -101,49 +117,9 @@ class Net2:
         if self.total_cpu_used < 0  or self.total_cache_used < 0 or self.total_bandwidth_used < 0:
             raise ValueError(f"Recursos com valores Negativos")
 
-    def get_sfc_by_id(self, sfc_id):
-        return self.sfc_dict[sfc_id]
-
-    def update(self):
-        pass
-
-    def get_shareable_sfs(self):
-        return self.shared_sfs
-
-    def get_shortest_path_length(self, source, target):
-        try:
-            return nx.dijkstra_path_length(self.graph, source, target, weight='latency')
-        except nx.NetworkXNoPath:
-
-            return float('inf')
-
-    def get_shortest_path(self, source, target):
-        try:
-            return nx.dijkstra_path(self.graph, source, target, weight='latency')
-        except nx.NetworkXNoPath:
-            return []
-    
-    def get_single_source_minimum_latency_path(self, src):
-        return nx.single_source_dijkstra_path(self.graph, src, weight='latency')
-
-    def pre_get_single_source_minimum_latency_path(self):
-        # print "pre_get_single_source_minimum_latency_path"
-        single_source_minimum_latency_path = {}
-        for node in self.graph.nodes():
-            single_source_minimum_latency_path[node] = \
-            nx.single_source_dijkstra(self.graph, source=node, cutoff=None, weight='latency')
-        self.single_source_minimum_latency_path = single_source_minimum_latency_path
-        return single_source_minimum_latency_path
-
-    def is_shareable(self,service_name):
-        if self.shareable_node:
-            return service_name.startswith(SHAREABLE_PREFIXES)
-        else:
-            return False
-
-    def allocate_microservice(self, node_id, service_id, cpu_required,cache_required):
+    def allocate_microservice(self, node_id, service_id, session_id, cpu_required,cache_required):
         node = self.graph.nodes[node_id]
-        if node['type'] not in ['server', 'user']:
+        if node['type'] not in ['server', 'mobile_device']:
             raise ValueError(f"Serviços só podem ser alocados em servidores ou usuários, não em '{node['type']}'.")
 
         if node['cpu_used'] + cpu_required > node['cpu_capacity'] or node['cache_used'] + cache_required > node['cache_capacity']:
@@ -155,23 +131,25 @@ class Net2:
             self.total_cpu_used = round(self.total_cpu_used + cpu_required,2)
             self.total_cache_used = round(self.total_cache_used + cache_required,2)
         
-        if service_id in node['services']:
-            node['services'][service_id]['copys'] += 1 # Serviço já instanciado, então incrementa o número de cópias
-            if not self.is_shareable(service_id): # Se não for compartilhável, então aumenta os recursos usados
+        service_key = (service_id,session_id)
+        if service_key in node['services']:
+            node['services'][service_key]['copys'] += 1 # Serviço já instanciado, então incrementa o número de cópias
+            if not self.is_shareable(service_id): # Se não for compartilhável ou a sessão não for a mesma, aumenta os recursos usados
                 put_resource(cpu_required,cache_required)
         else:
-            node['services'][service_id] = {'cpu': cpu_required,'cache': cache_required,'copys': 1}
+            node['services'][service_key] = {'cpu': cpu_required,'cache': cache_required,'copys': 1}
             put_resource(cpu_required,cache_required)
-                    
-    def deallocate_microservice(self, node_id, service_id):
-        node = self.graph.nodes[node_id]
+            if self.is_shareable(service_id):
+                self.shared_sfs[node_id] = {'service_id':service_id, 'session':session_id}
 
-        if service_id not in node['services']:
+    def deallocate_microservice(self, node_id, service_id, session_id):
+        node = self.graph.nodes[node_id]
+        service_key = (service_id, session_id)
+        if service_key not in node['services']:
             raise ValueError(f"Serviço {service_id} não encontrado no nó {node_id}.")
 
-        service_info = node['services'][service_id]
+        service_info = node['services'][service_key]
         service_info['copys'] -= 1
-
 
         def take_resource(cpu_required,cache_required):
             node['cpu_used'] = round(node['cpu_used'] - cpu_required,2)
@@ -180,7 +158,7 @@ class Net2:
             self.total_cache_used = round(self.total_cache_used - cache_required,2)
         
         if service_info['copys'] <= 0:
-            del node['services'][service_id]
+            del node['services'][service_key]
             take_resource(service_info['cpu'],service_info['cache'])
         else:
             # Se não é compartilhável, libera os recursos mesmo em cada cópia
@@ -228,6 +206,47 @@ class Net2:
 
         if services[ms_name]['copys'] == 0:
             del services[ms_name]
+
+
+    def get_sfc_by_id(self, sfc_id):
+        return self.sfc_dict[sfc_id]
+
+    def update(self):
+        pass
+
+    def get_shareable_sfs(self):
+        return self.shared_sfs
+
+    def get_shortest_path_length(self, source, target):
+        try:
+            return nx.dijkstra_path_length(self.graph, source, target, weight='latency')
+        except nx.NetworkXNoPath:
+
+            return float('inf')
+
+    def get_shortest_path(self, source, target):
+        try:
+            return nx.dijkstra_path(self.graph, source, target, weight='latency')
+        except nx.NetworkXNoPath:
+            return []
+    
+    def get_single_source_minimum_latency_path(self, src):
+        return nx.single_source_dijkstra_path(self.graph, src, weight='latency')
+
+    def pre_get_single_source_minimum_latency_path(self):
+        # print "pre_get_single_source_minimum_latency_path"
+        single_source_minimum_latency_path = {}
+        for node in self.graph.nodes():
+            single_source_minimum_latency_path[node] = \
+            nx.single_source_dijkstra(self.graph, source=node, cutoff=None, weight='latency')
+        self.single_source_minimum_latency_path = single_source_minimum_latency_path
+        return single_source_minimum_latency_path
+
+    def is_shareable(self,service_name):
+        if self.shareable_node:
+            return service_name.startswith(SHAREABLE_PREFIXES)
+        else:
+            return False
 
     def get_link_info(self, node1, node2):
         return self.graph.edges[node1, node2]
