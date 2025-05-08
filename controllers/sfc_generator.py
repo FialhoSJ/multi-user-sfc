@@ -34,11 +34,11 @@ class SFCGenerator():
         self.sfc_name = sfc_dict["name"]
         self.vnf_id_list = sfc_dict["vnf_list"]
         self.bandwidth = sfc_dict["bandwidth"]
+        self.closer_router = sfc_dict['closer_router']
         self.src_substrate_node = sfc_dict["src_node"]
         self.dst_substrate_node = sfc_dict["dst_node"]
         self.latency = sfc_dict["latency"]
         self.duration = sfc_dict["duration"]
-        self.group_id = sfc_dict['group_id']
 
     def generate(self):
         vnfs_list = []
@@ -47,10 +47,12 @@ class SFCGenerator():
         sfc = SFC(src_vnf, dst_vnf)
         sfc.vnfs_dict = self.vnf_id_list
         sfc.id = self.sfc_name
+        
         sfc.set_src_substrate_node(self.src_substrate_node)
         sfc.set_dst_substrate_node(self.dst_substrate_node)
+
+        sfc.closer_router = self.closer_router
         sfc.duration = self.duration
-        sfc.group_id = self.group_id 
         vnfs_list.append(src_vnf)
 
         for vnf_dict in self.vnf_id_list:

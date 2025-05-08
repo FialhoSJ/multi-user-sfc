@@ -29,7 +29,7 @@ class Net2:
         self.shareable_node = True
         self.verbose = False
     
-    def add_node(self, node_id, node_type, cpu_capacity=0.00,cache_capacity=0.00,position=(0,0)):
+    def add_node(self, node_id, node_type, cpu_capacity=0.00,cache_capacity=0.00, channel_bw=None,position=(0,0)):
         if node_type in ['server','router']:
             self.graph.add_node(node_id,
                                 type=node_type,
@@ -180,8 +180,8 @@ class Net2:
                 raise ValueError(f"Banda insuficiente entre {node1} e {node2}.")
 
             edge['services_in_transit'][ms_name] = {
-                'copys': 1,
-                'bw_used': bw_required
+                 'copys' : 1,
+                 'bw_used': bw_required
             }
             edge['bandwidth_used'] += bw_required
             self.total_bandwidth_used += bw_required

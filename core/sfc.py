@@ -6,11 +6,12 @@ class SFC():
     def __init__(self, vnf_src, vnf_dst):
         self.number_of_vnfs = 0 # This is not include src and dst
         self.vnfs = {} #This is not include src and dst
-        self.group_id = None
         self.vnfs_dict = None 
         self.src = vnf_src
         self.dst = vnf_dst
         self.dst_node = None
+        self.closer_router = None
+        
         self.link_bandwidth_dict = {}
         self.latency_request = 0
         self.id = None
@@ -75,24 +76,32 @@ class SFC():
 
     def get_vnf_cpu_request(self, vnf):
         return vnf.get_cpu_request()
+    
     def get_vnf_cache_request(self, vnf):
         return vnf.get_cache_request()
+    
     def get_link_bandwidth_request(self, vnf1_id, vnf2_id):
         if not vnf1_id or not vnf2_id:
             return 0
         return self.link_bandwidth_dict[(vnf1_id, vnf2_id)]
+    
     def get_next_vnf(self, vnf):
         return vnf.get_next_vnf()
+    
     def get_previous_vnf(self, vnf):
         return vnf.get_previous_vnf()
+    
     def get_substrate_node(self, vnf):
         #print('vnf sfc.py')
         #print(vnf)
         return vnf.get_substrate_node()
+    
     def get_src_vnf(self):
         return self.src
+    
     def get_dst_vnf(self):
         return self.dst
+    
     def get_vnf_by_id(self, vnf_id):
         # This method could return the src and dst vnf
         if vnf_id == 'src':

@@ -12,13 +12,13 @@ class SFCInstatiator:
         self.sfcs_that_crashed = []
         self.verbose = True
 
-    def search_solution(self,sfc_list, mobile_device, substrate_network, is_backup=False):
+    def search_solution(self,sfc_list, substrate_network, is_backup=False):
         default_solution_format = {sfc.id: {'route_info': None, 'latency': None, 'run_duration': None} for sfc in sfc_list}
 
         algorithm = copy.deepcopy(self.alg)
         algorithm.clear_all()
         # O algoritmo deve criar variáveis temporárias e não usar a rede 'oficial'.
-        algorithm.install_substrate_network(substrate_network, mobile_device)
+        algorithm.install_substrate_network(substrate_network, sfc_list)
 
         sequential_sub = True
         if sequential_sub:

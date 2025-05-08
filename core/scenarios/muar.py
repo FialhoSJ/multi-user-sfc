@@ -93,12 +93,13 @@ class MuarScenario:
 
         print("Total Number of MUAR SFCs in session:", self.session_counter)
         routers = self.topology.get_topology_info()['routers']
-        dst_node = random.choice(routers)
+        
+        closer_router = random.choice(routers)
+
         players_cache_sf_list = []
         players_unique_sf_list = []
 
         for i in range(1,n_players+1):
-            
             caching_sf_list = []
             caching_sf_list.append({ 
                 "type": 2, 
@@ -111,7 +112,7 @@ class MuarScenario:
             })
             caching_sf_list.append({
                 "type": 2, 
-                "name": "MA_region_" + str(dst_node), 
+                "name": "MA_region_" + str(closer_router), 
                 "CPU": round(MA, 2), 
                 "cache": round(CA_size, 2), 
                 "in_bw": round(IA_DET_FT_bw, 2), 
@@ -120,7 +121,7 @@ class MuarScenario:
             })
             caching_sf_list.append({
                 "type": 2, 
-                "name": "RE_region_" + str(dst_node), 
+                "name": "RE_region_" + str(closer_router), 
                 "CPU": round(RE * chr, 2), 
                 "cache": 0, 
                 "in_bw": round(MA_bw, 2), 
@@ -190,20 +191,25 @@ class MuarScenario:
             player_cache_dict["vnf_list"] = players_cache_sf_list[i-1]
             player_cache_dict["bandwidth"] = EC_TC_bw
             player_cache_dict["src_node"] = self.src_node
-            player_cache_dict["dst_node"] = dst_node
+            player_cache_dict["dst_node"] = f"{i}{counter}"
+            player_cache_dict["closer_router"] = closer_router
+            
             player_cache_dict["duration"] = duration
             player_cache_dict["latency"] = min_latency_acc
-            player_cache_dict['group_id'] = f"{i}{counter}"
             players_sfc_cache_dict_list.append(player_cache_dict)
+            
+            
+            
             player_unique_dict = {}
             player_unique_dict['name'] = 'sfc_unique_p' + str(i) + '_' + counter
             player_unique_dict["vnf_list"] = players_unique_sf_list[i-1]
             player_unique_dict["bandwidth"] = EC_TC_bw
             player_unique_dict["src_node"] = self.src_node
-            player_unique_dict["dst_node"] = dst_node
+            player_unique_dict["dst_node"] = f"{i}{counter}"
+            player_unique_dict["closer_router"] = closer_router
+            
             player_unique_dict["duration"] = duration
             player_unique_dict["latency"] = min_latency_acc
-            player_unique_dict['group_id'] = f"{i}{counter}"
             players_sfc_unique_dict_list.append(player_unique_dict)
         
         players_sfc_list = []

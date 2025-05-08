@@ -18,12 +18,16 @@ route info :=
 import logging
 import random
 import copy
+import networkx as nx
+from algorithms.networkUtils import get_shortest_path_length,get_shortest_path,pre_get_single_source_minimum_latency_path, get_link_latency
+
 # create logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 # create console handler and set level to debug
 # ch = logging.StreamHandler()
+from algorithms.algorithm import Algorithm
 from config import ROOT_PATH
 ch = logging.FileHandler(ROOT_PATH + './logs/GreedyAlgorithm.log')
 ch.setLevel(logging.DEBUG)
@@ -36,7 +40,7 @@ logger.addHandler(ch)
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 
 
-class GreedyOptAlgorithm():
+class GreedyOptAlgorithm(Algorithm):
     '''Greedy Algorithm.
     This algorithm starts from the substrate network node which hosts src of an SFC, checks its neighbor nodes,
     finds the neighbor node with a shortest latency edge, and use the node to host the vnf.
@@ -56,33 +60,40 @@ class GreedyOptAlgorithm():
         self.old_greedy = True
         self.forbidden_matches = {}
         self.is_backup = False
-
         self.graph = None
+        self.single_source_minimum_latency_path = None
 
     def clear_all(self):
         self.substrate_network = None
         self.sfc = None
         self.graph = None
-
         self.route_info = None
         self.latency = None
         self.is_backup = False
+        self.single_source_minimum_latency_path = None
 
-    def install_substrate_network(self, substrate_network, mobile_device, shareable_sfs=[]):
+    def install_substrate_network(self, substrate_network, sfc_list, shareable_sfs=[]):
         self.substrate_network = substrate_network
-        
+        mobile_device_id = sfc_list[0].dst_node
+        closer_router    = sfc_list[0].closer_router
+
         # Os recursos do Mobile Device devem estar disponíveis somente para sua SFC
-        md_info =  substrate_network.md_graph._node[mobile_device]
+        md_info =  substrate_network.md_graph._node[mobile_device_id]
         self.graph = copy.deepcopy(substrate_network.graph)
-        self.graph.add_node(mobile_device,type='mobile_device',
+        
+        self.graph.add_node(mobile_device_id,type='mobile_device',
                                 cpu_capacity=md_info['cpu_capacity'],
                                 cache_capacity=md_info['cache_capacity'],
                                 cpu_used=md_info['cpu_used'],
                                 cache_used=md_info['cache_used'],
                                 position=md_info['position'],
                                 services=md_info['services'])
+        
+        # TODO verificar a banda disponível do roteador 
+        # TODO calcular a latência do sinal
+        self.graph.add_edge(mobile_device_id, closer_router, bandwidth_capacity=500, bandwidth_used=0.00 , latency=1, services_in_transit={})
         return self.substrate_network
-    
+
     def install_SFC(self, sfc):
         self.sfc = sfc
         return self.sfc
@@ -213,6 +224,8 @@ class GreedyOptAlgorithm():
         # Get substrate network nodes that src and dst are assigned in advance
         src_substrate_node = sfc.get_substrate_node(src_vnf)
         dst_substrate_node = sfc.get_substrate_node(dst_vnf)
+        
+        single_source_minimum_latency_path = pre_get_single_source_minimum_latency_path(self.graph)
 
         route_info = {}
         bandwidth_usage_info = {}
@@ -224,9 +237,7 @@ class GreedyOptAlgorithm():
         current_vnf = dst_vnf
         current_substrate_node = dst_substrate_node
 
-        net_info = self.substrate_network 
-        old_server_resources = net_info.graph._node
-        servers = list(old_server_resources.keys())
+        servers = list(self.graph.nodes())
         
         # Inicializa o dicionário de recursos dos servidores
         server_resources = {
@@ -235,13 +246,19 @@ class GreedyOptAlgorithm():
                 'cache_capacity':self.graph.nodes[server]['cache_capacity'],
                 'cpu_used': self.graph.nodes[server]['cpu_used'],
                 'cache_used': self.graph.nodes[server]['cache_used'],
-                'reuse': []
-            } for server in servers}
-        first_vnf = True
-        nodes_used = []
 
+                'cpu_capacity': self.graph.nodes[server]['cpu_capacity'],
+                'cache_capacity':self.graph.nodes[server]['cache_capacity'],
+                'cpu_used': self.graph.nodes[server]['cpu_used'],
+                'cache_used': self.graph.nodes[server]['cache_used'],
+                'reuse': []
+            } for server in servers if  self.graph.nodes[server]['cpu_capacity'] > 0 and self.graph.nodes[server]['cache_capacity']}
+        first_vnf = True
+
+        nodes_used = []
+        servers_to_check = list(server_resources.keys())
         for i in range(number_of_vnfs - 1, -1, -1):
-            edges = list(self.substrate_network.graph.edges(current_substrate_node))
+            edges = list(self.graph.edges(current_substrate_node))
             edges = list(set([x[1] for x in edges]))
             
             #edges.append((current_substrate_node, current_substrate_node))
@@ -254,15 +271,15 @@ class GreedyOptAlgorithm():
             min_latency = float("inf")
             node = None
 
-            if self.is_backup and first_vnf:
-                nodes_to_check = servers
-                first_vnf = False
-            else:
-                nodes_to_check = edges
+            # if self.is_backup and first_vnf:
+            #     nodes_to_check = servers
+            #     first_vnf = False
+            # else:
+            #     nodes_to_check = edges
 
-            random.shuffle(nodes_to_check)
+            random.shuffle(servers_to_check)
             
-            for node_a in nodes_to_check:
+            for node_a in servers_to_check:
                 #if not self.mono:
                 if node_a == current_substrate_node or node_a in nodes_used:
                     continue
@@ -308,7 +325,7 @@ class GreedyOptAlgorithm():
                     # if bandwidth_request > bandwidth_available:
                     #     logger.debug("Aresta (%s, %s) sem banda suficiente", e[0], e[1])
                     #     continue
-                    edge_latency = self.substrate_network.single_source_minimum_latency_path[current_substrate_node][0][node_a]
+                    edge_latency = single_source_minimum_latency_path[current_substrate_node][0][node_a]
 
                 # Verifica se a latência desse caminho é a menor
                 if edge_latency < min_latency:
@@ -328,7 +345,7 @@ class GreedyOptAlgorithm():
                 if node == current_substrate_node:
                     route_info[prev_vnf.id] = [node]
                 else:
-                    route_info[prev_vnf.id] = self.substrate_network.single_source_minimum_latency_path[node][1][current_substrate_node]
+                    route_info[prev_vnf.id] = single_source_minimum_latency_path[node][1][current_substrate_node]
                 used_node.append(node)
                 latency += min_latency
 
@@ -342,8 +359,8 @@ class GreedyOptAlgorithm():
             current_vnf = prev_vnf
 
         try:
-            path = self.substrate_network.get_shortest_path(src_substrate_node, node)
-            path_latency = self.substrate_network.get_shortest_path_length(src_substrate_node, node)
+            path = get_shortest_path(self.graph,src_substrate_node, node)
+            path_latency = get_shortest_path_length(self.graph,src_substrate_node, node)
         except:
             logger.warning('Não há caminho entre src e primeira VNF: %s - %s',
                         src_substrate_node, node)
@@ -363,7 +380,7 @@ class GreedyOptAlgorithm():
         # Se você precisa fazer algum ajuste de latência baseado em edges do path:
         path = self.route_info['src']
         for i in range(len(path) - 1):
-            edge_latency = self.substrate_network.get_link_latency(path[i], path[i + 1])
+            edge_latency = get_link_latency(self.graph,path[i], path[i + 1])
             self.latency = self.latency - edge_latency
 
 

@@ -167,9 +167,9 @@ class SubstrateNetworkController():
             new_sfc_dict["vnf_list"] = new_vnfs_list_dict
             new_sfc_dict["bandwidth"] = sfc.input_throughput
             new_sfc_dict["src_node"] = sfc.src.substrate_node
-            new_sfc_dict["dst_node"] = location
+            new_sfc_dict["dst_node"] = sfc.dst_node
             new_sfc_dict["duration"] = duration
-            new_sfc_dict["group_id"] = sfc.group_id
+            new_sfc_dict["closer_router"] = location
             new_sfc_dict["latency"] = sfc.latency_request
             self.sfc_manager.undeploy_sfc(sfc_id,self.substrate_network) # retira a sfc antig
             #self.backup_manager.take_off_backup_if_exist([sfc_id])    
@@ -283,10 +283,9 @@ class SubstrateNetworkController():
 
     def deploy_sfc_list(self, sfc_list) -> bool:
         # with self.lock:
-        md = self.create_mobile_user(sfc_list)
-       
+        self.create_mobile_user(sfc_list)
         t_1 = time.time() 
-        solution,is_success = self.sfc_instantiator.search_solution(sfc_list, md, self.substrate_network)
+        solution,is_success = self.sfc_instantiator.search_solution(sfc_list, self.substrate_network)
         t_2 = time.time()
         print(f"Algorithm Take time     : {round(t_2-t_1,2)}")
         if is_success:
@@ -297,7 +296,7 @@ class SubstrateNetworkController():
         return solution,is_success
 
     def create_mobile_user(self,sfc_list):
-        group_id = sfc_list[0].group_id
+        group_id = sfc_list[0].dst_node
         self.mobility_manager.add_vehicle(group_id)
         md_position = self.mobility_manager.get_md_position(group_id)
         self.substrate_network.add_node(group_id, 'mobile_device', cpu_capacity=10.00, cache_capacity=10.00,position=md_position)
@@ -523,7 +522,7 @@ class SubstrateNetworkController():
             sfc_list = self.sfc_queue.peek_sfc()                      
             
             for sfc in sfc_list:
-                if sfc.group_id in self.sfc_manager.sfcs_tracker:
+                if sfc.dst_node in self.sfc_manager.sfcs_tracker:
                     raise ValueError(f"SFC já submetida")
 
             log,is_success = self.deploy_sfc_list(sfc_list)
