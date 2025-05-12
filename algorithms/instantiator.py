@@ -14,6 +14,7 @@ from algorithms.bruno_alg import BrunoAlg
 from algorithms.bruno_alg_2 import BrunoAlgNew
 from algorithms.rodrigo_alg import Rodrigo
 from algorithms.vegeta import Vegeta
+from algorithms.Kuririn_Prototype import Kuririn
 
 class AlgorithmInstantiator:
     def instantiate_algorithm(self, type):
@@ -47,6 +48,8 @@ class AlgorithmInstantiator:
             alg = Goku()
         elif type ==  'vegeta':
             alg = Vegeta()
+        elif type == 'kuririn':
+            alg = Kuririn()
         else:
             raise ValueError('algorithm not found')
         return alg

@@ -15,8 +15,9 @@ fator = 0.33 # 1 players consumes fator*100 percentage of resources of an Edge S
 cpb = 10e6 #10 cycles per Mbit
 #print(cpb, "cycles per Mbit")
 IA_bw = 150# * n_players
-IA = IA_bw * cpb #
+IA = IA_bw * cpb # total cycles
 IA = 0
+
 # 400x400 pixels RGB with about 0.48 MB per frame
 DET_bw = 0.230 # 480 KB * 8 * 60 fps
 DET = DET_bw * cpb
@@ -30,12 +31,15 @@ CA_size = 240 # 2500 KB * 8 * 12 objects 240 for 12 VOs
 chr = 1/3 # cache hit ratio
 MA_bw = int(CA_size * chr)
 MA = MA_bw * cpb #
+
 # not in cache
 UNI_bw = int(CA_size * (1-chr))
 UNI = UNI_bw * cpb # 
+
 # matched and non-matched objects
 RE_bw = MA_bw + UNI_bw 
 RE = int(RE_bw * cpb) #
+
 #https://ieeexplore.ieee.org/document/9316983
 # final out put 
 EC_TC_bw = int(IA_bw*0.9*0.9*0.8) 
