@@ -33,14 +33,17 @@ class SFCManager:
         # if sfc.id in self.sfc_list:
         #     return False
         for sfc in sfc_list:
-            substrate_network.deploy_sfc(sfc, solution[sfc.id]['route_info'])
-        
-        group_id = sfc_list[0].group_id
+            rf = solution[sfc.id]['route_info']
+            substrate_network.deploy_sfc(sfc, rf)
+            self.sfcs_routing_info[sfc.id] = copy.deepcopy(rf) # Importante somente por conta do musfico
+
+        group_id = sfc_list[0].dst_node
         duration = sfc_list[0].duration
         if group_id in self.sfcs_tracker:
             raise ValueError("SFC já instanciada")
         else:
             self.sfcs_tracker[group_id] = {"sfc_list":sfc_list,'solution':solution,'duration':duration,'timer':time.time()}
+            
 
         self.counter += 1 # at this time all verifications are done. So we add 1 to counter of sfc
         #return {"current_time":current_time,"latency":latency,"run_duration":run_duration,"resource_info":r_info,"is_success":is_success,"route_info":route_info,"fail_reason":fail_reason,"backup_sfc":is_backup}

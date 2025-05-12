@@ -17,7 +17,7 @@ class MobilityManager:
         """
         self.activated = (args.mobility == 'y')
         self.tracer : Optional[Sumo_Luxembourg] = TracerInstantiator().instantiate_tracer(args.topology) if (args.mobility == 'y') else None
-        self.vehicle_to_service_map = {}
+        self.players_tracker = {}
         self.to_remove_vehicles = []
         self.running_sfcs = []
         self.lock = threading.Lock()
@@ -29,8 +29,67 @@ class MobilityManager:
 
     def get_md_position(self,id):
         return [0,0]
-    def add_vehicle(self, sfc_list):
-        pass
+    
+    def add_player(self, group_id, closer_router, sfc_id_list):
+        if group_id in self.players_tracker:  
+            self.players_tracker[group_id]['redeploying'] = False
+            return
+        else:
+            self.tracer.create_vehicle(group_id, closer_router)
+            self.players_tracker[group_id] = {'sfc_list':sfc_id_list,
+                                              'connected_router':closer_router,
+                                              'redeploying':False}
+            
+    def stop_simulation(self):
+        """Encerra a simulação."""
+        self.tracer.stop_simulation()
+
+    def remove_player(self, player_id):
+        if player_id in self.players_tracker:  
+            self.tracer.disconnect_vehicle(player_id) # Veh ainda existirá no tracer, porém não será mais reroteado
+            del self.players_tracker[player_id]
+        else:
+            raise ValueError(f'Veh do player {player_id} não encontrado na simulação')
+
+    def check_all_vehicles_position_changes(self):
+        """
+        Verifica se algum veículo mudou de posição e retorna os IDs das SFCs associadas a eles.
+
+        Retorna:
+            dict: Dicionário onde as chaves são os IDs dos veículos que se moveram e os valores são listas
+                de SFCs associadas a cada veículo.
+        """
+        moved_sfcs = []
+        new_locations = []
+
+        #for vehicle_id in list(self.tracer.vehicles_info.keys()):  # Fazendo uma cópia dos itens
+        for vehicle_id, vehicle_info in self.players_tracker.items():
+
+            if  not vehicle_info['redeploying']:
+                closest_router, dist_from_router = self.tracer.get_closest_server(vehicle_id)
+
+                # Posição registrada do veículo no mapeamento
+                connected_router = self.players_tracker[vehicle_id]['connected_router']
+                distance_from_connected_router = self.tracer.get_server_distance_from_car(vehicle_id, connected_router)
+
+                # Verificar se a posição mudou e a nova distância é pelo menos 35% menor
+                if closest_router != connected_router: 
+                    reduction_percent = (distance_from_connected_router - dist_from_router) / distance_from_connected_router
+                    # A nova distância é pelo menos 30% menor
+                    if reduction_percent >= 0.30:
+                        # Atualiza a posição e a distância do veículo no mapeamento
+                        self.players_tracker[vehicle_id]['connected_router'] = closest_router      
+                        # Marca esse veh fazendo redeploy
+                        self.players_tracker[vehicle_id]['redeploying'] = True
+
+                        # Coleta os SFCs associados ao veículo
+                        sfcs_ids = self.players_tracker[vehicle_id]['sfc_list']
+                        
+                        # Adiciona o veículo e os SFCs à lista de veículos que se moveram
+                        moved_sfcs.append(sfcs_ids)
+                        new_locations.append(closest_router)
+        return moved_sfcs, new_locations
+
         #try:
         # with self.lock:
         # for sfc in sfc_list:
@@ -70,77 +129,3 @@ class MobilityManager:
         #         }
         # except Exception as e:
         #     print(f"Erro ao adicionar veículo para o SFC {sfc.id}: {str(e)}")
-
-    def check_all_vehicles_position_changes(self):
-        """
-        Verifica se algum veículo mudou de posição e retorna os IDs das SFCs associadas a eles.
-
-        Retorna:
-            dict: Dicionário onde as chaves são os IDs dos veículos que se moveram e os valores são listas
-                de SFCs associadas a cada veículo.
-        """
-        moved_sfcs = []
-        new_locations = []
-
-        #for vehicle_id in list(self.tracer.vehicles_info.keys()):  # Fazendo uma cópia dos itens
-        for vehicle_id, vehicle_info in self.vehicle_to_service_map.items():
-            #try:  # Criar log desses casos
-            #vehicle_info = self.vehicle_to_service_map[vehicle_id]
-
-            if vehicle_info['connected'] and vehicle_info['status'] == 'available':
-                current_position, current_distance = self.tracer.get_closest_server(vehicle_id)
-
-                # Posição registrada do veículo no mapeamento
-                previous_position = int(self.vehicle_to_service_map[vehicle_id]['veh_location'])
-                previous_distance = self.tracer.get_server_distance_from_car(vehicle_id, previous_position)
-
-                # Verificar se a posição mudou e a nova distância é pelo menos 35% menor
-                if int(current_position) != previous_position:
-                    # Calcular a redução percentual da distância
-                    reduction_percentage = ((previous_distance - current_distance) / previous_distance) * 100
-
-                    # Verificar se a redução é de pelo menos 35%
-                    if reduction_percentage > 50:
-                        # Atualiza a posição e a distância do veículo no mapeamento
-                        self.vehicle_to_service_map[vehicle_id]['veh_location'] = int(current_position)
-                        self.vehicle_to_service_map[vehicle_id]['status'] = 'moving'        
-                        # Coleta os SFCs associados ao veículo
-                        sfc_ids = self.vehicle_to_service_map[vehicle_id]['sfcs']
-                        # Adiciona o veículo e os SFCs à lista de veículos que se moveram
-                        moved_sfcs.append(sfc_ids)
-                        new_locations.append(current_position)
-                
-                self.vehicle_to_service_map[vehicle_id]['time'] = time.time()
-        return moved_sfcs, new_locations
-
-    def remove_vehicle(self, vehicle_id):
-        """
-        Remove um veículo da simulação e dissocia os serviços relacionados.
-
-        Args:
-            vehicle_id: Identificação do veículo.
-        """
-        self.vehicle_to_service_map[vehicle_id] = {'sfcs':[],'connected':False,'status':'blocked'}
-        self.tracer.disconnect_vehicle(vehicle_id)
-
-
-    def remove_sfc(self, sfc_id,all=True):
-        """
-        Remove um SFC de todos os veículos que estão associados a ele.
-
-        Args:
-            sfc_id: ID do SFC que deve ser removido.
-        """
-        
-        #running_sfcs = self.running_sfcs.copy()
-        #if sfc_id in running_sfcs:
-        for vehicle_id, vehicle_info in list(self.vehicle_to_service_map.items()):
-            sfcs_in_veh = vehicle_info['sfcs']
-            if sfc_id in sfcs_in_veh :
-                self.running_sfcs.remove(sfc_id)
-                self.remove_vehicle(vehicle_id)  
-                break
-
-    def stop_simulation(self):
-        """Encerra a simulação."""
-        self.tracer.stop_simulation()

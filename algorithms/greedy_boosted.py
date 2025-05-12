@@ -74,13 +74,16 @@ class GreedyOptAlgorithm(Algorithm):
 
     def install_substrate_network(self, substrate_network, sfc_list, shareable_sfs=[]):
         self.substrate_network = substrate_network
+        self.graph = copy.deepcopy(substrate_network.graph)
+        self.add_mobile_user_to_graph(substrate_network,sfc_list)
+        return self.substrate_network
+
+    def add_mobile_user_to_graph(self,substrate_network,sfc_list):
         mobile_device_id = sfc_list[0].dst_node
         closer_router    = sfc_list[0].closer_router
 
         # Os recursos do Mobile Device devem estar disponíveis somente para sua SFC
         md_info =  substrate_network.md_graph._node[mobile_device_id]
-        self.graph = copy.deepcopy(substrate_network.graph)
-        
         self.graph.add_node(mobile_device_id,type='mobile_device',
                                 cpu_capacity=md_info['cpu_capacity'],
                                 cache_capacity=md_info['cache_capacity'],
@@ -88,11 +91,13 @@ class GreedyOptAlgorithm(Algorithm):
                                 cache_used=md_info['cache_used'],
                                 position=md_info['position'],
                                 services=md_info['services'])
+        router = self.graph._node[closer_router]
+        wireless_free = router['w_channel_capacity'] - router['w_channel_used']
         
-        # TODO verificar a banda disponível do roteador 
+        # TODO Permitir que o próprio algoritmo escolha o roteador
         # TODO calcular a latência do sinal
-        self.graph.add_edge(mobile_device_id, closer_router, bandwidth_capacity=500, bandwidth_used=0.00 , latency=1, services_in_transit={})
-        return self.substrate_network
+        signal_latency = 1
+        self.graph.add_edge(mobile_device_id, closer_router, bandwidth_capacity=wireless_free, bandwidth_used=0.00 , latency=signal_latency, services_in_transit={})
 
     def install_SFC(self, sfc):
         self.sfc = sfc
@@ -113,6 +118,13 @@ class GreedyOptAlgorithm(Algorithm):
     def submit_solution(self):
         def allocate_microservice(node_id, service_id, cpu_required, cache_required):
             node = self.graph.nodes[node_id]
+
+            # Verifica se há recursos disponíveis
+            if node['cpu_used'] + cpu_required > node['cpu_capacity']:
+                raise ValueError(f"CPU excedida no nó {node_id} para serviço {service_id}")
+            if node['cache_used'] + cache_required > node['cpu_capacity']:
+                raise ValueError(f"Cache excedido no nó {node_id} para serviço {service_id}")
+
             if service_id in node['services']:
                 node['services'][service_id]['copys'] += 1  # Serviço já instanciado
                 if not self.is_shareable(service_id):  # Se não for compartilhável
@@ -125,6 +137,11 @@ class GreedyOptAlgorithm(Algorithm):
 
         def allocate_bandwidth(node1, node2, bw_required, ms_name):
             edge = self.graph.edges[node1, node2]
+
+            # Verifica se há banda disponível
+            if edge['bandwidth_used'] + bw_required > edge['bandwidth_capacity']:
+                raise ValueError(f"Banda excedida entre os nós {node1} e {node2} para serviço {ms_name}")
+
             if ms_name in edge['services_in_transit']:
                 edge['services_in_transit'][ms_name]['copys'] += 1
                 edge['bandwidth_used'] += bw_required
@@ -148,7 +165,6 @@ class GreedyOptAlgorithm(Algorithm):
             if len(path) > 1:
                 for u, v in zip(path[:-1], path[1:]):
                     allocate_bandwidth(u, v, bw_req, ms_name)
-
 
     def is_shareable(self,service_name):
         # TODO Mudar para a informação de compartilháveis estar em uma variável separável.
@@ -177,7 +193,7 @@ class GreedyOptAlgorithm(Algorithm):
         #         self.latency = None
         #         return False
 
-    def handle_failure(self,route_info):
+    def handle_failure(self):
         self.route_info = False
         self.latency = None
     
@@ -202,9 +218,13 @@ class GreedyOptAlgorithm(Algorithm):
         self.algorithm(sfc)
         is_success = self.check_solution()
         if is_success:
-            self.submit_solution()
-            logger.info("Finished algorithm, success")
-            return True    
+            try:
+                self.submit_solution()
+                logger.info("Finished algorithm, success")
+                return True  
+            except:
+                self.handle_failure() 
+                return False
         else:
             self.handle_failure() 
             logger.info("End algorithm, failed")
@@ -258,10 +278,6 @@ class GreedyOptAlgorithm(Algorithm):
         nodes_used = []
         servers_to_check = list(server_resources.keys())
         for i in range(number_of_vnfs - 1, -1, -1):
-            edges = list(self.graph.edges(current_substrate_node))
-            edges = list(set([x[1] for x in edges]))
-            
-            #edges.append((current_substrate_node, current_substrate_node))
             prev_vnf = current_vnf.get_previous_vnf()
             vnf_id = prev_vnf.id
             cpu_request = sfc.get_vnf_cpu_request(prev_vnf)
@@ -270,20 +286,13 @@ class GreedyOptAlgorithm(Algorithm):
 
             min_latency = float("inf")
             node = None
-
-            # if self.is_backup and first_vnf:
-            #     nodes_to_check = servers
-            #     first_vnf = False
-            # else:
-            #     nodes_to_check = edges
-
             random.shuffle(servers_to_check)
-            
             for node_a in servers_to_check:
                 #if not self.mono:
-                if node_a == current_substrate_node or node_a in nodes_used:
-                    continue
-            
+                if not first_vnf:
+                    if node_a == current_substrate_node or node_a in nodes_used:
+                        continue
+                
                 forbidden = False
                 for vnf_f,node_f in self.forbidden_matches.items():
                     if node_f == node_a and vnf_f == vnf_id:
@@ -331,7 +340,7 @@ class GreedyOptAlgorithm(Algorithm):
                 if edge_latency < min_latency:
                     min_latency = edge_latency
                     node = node_a
-
+            
             # Se encontrou um nó para alocar
             if node is not None:
                 nodes_used.append(node)
@@ -357,7 +366,7 @@ class GreedyOptAlgorithm(Algorithm):
 
             current_substrate_node = node
             current_vnf = prev_vnf
-
+            first_vnf = False
         try:
             path = get_shortest_path(self.graph,src_substrate_node, node)
             path_latency = get_shortest_path_length(self.graph,src_substrate_node, node)

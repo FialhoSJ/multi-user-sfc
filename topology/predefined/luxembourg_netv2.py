@@ -5,6 +5,7 @@ from topology.base.topology_base import TopologyBase
 LIGHT_SPEED = 3 * 10e8
 CLOUD_LATENCY = 1
 BANDWIDTH_CAPACITY = 5000.0
+W_BANDWIDTH_CAPACITY = 2000.0
 CPU_CAPACITY = 100.0
 CACHE_CAPACITY = 100.0
 RELIABILITY_RANGE = [0.95,0.99]
@@ -13,6 +14,7 @@ class LuxembourgV2(TopologyBase):
     def __init__(self) -> None:
         self.latency = 1
         self.bandwidth_capacity = BANDWIDTH_CAPACITY
+        self.w_bandwidth_capacity = W_BANDWIDTH_CAPACITY
         self.cpu_capacity = CPU_CAPACITY
         self.cache_capacity = CACHE_CAPACITY
         self.number_of_nodes = 35
@@ -42,7 +44,7 @@ class LuxembourgV2(TopologyBase):
             if node in self.edge_computing_servers:
                 net.add_node(node, node_type='server', cpu_capacity=self.cpu_capacity,cache_capacity=self.cache_capacity,position=self.positions[node])
             else:
-                net.add_node(node, node_type='router',position=self.positions[node])
+                net.add_node(node, node_type='router',w_channel_capacity=self.w_bandwidth_capacity,position=self.positions[node])
 
         # Adiciona as arestas com latência baseada na distância euclidiana
         for u, v in self.topology:

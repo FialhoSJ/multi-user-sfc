@@ -7,7 +7,7 @@ from core.poisson_emitter import PoissonEmitter
 from controllers.sfc_queue import SFCQueue
 
 
-min_latency_acc = 7
+min_latency_acc = 1000
 
 fator = 0.33 # 1 players consumes fator*100 percentage of resources of an Edge Server
 #https://ieeexplore.ieee.org/document/9417376

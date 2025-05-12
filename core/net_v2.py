@@ -13,8 +13,14 @@ class Net2:
 
         self.total_cpu_used = 0.00
         self.total_cpu_capacity = 0.00
+
         self.total_cache_used = 0.00
         self.total_cache_capacity = 0.00
+
+        self.mobile_cpu_used = 0.0
+        self.mobile_cache_used = 0.0
+        #self.mobile_energy_used = 0.0
+
         self.total_bandwidth_used = 0.00  
         self.total_bandwidth_capacity = 0.00
 
@@ -29,17 +35,16 @@ class Net2:
         self.shareable_node = True
         self.verbose = False
     
-    def add_node(self, node_id, node_type, cpu_capacity=0.00,cache_capacity=0.00, channel_bw=None,position=(0,0)):
-        if node_type in ['server','router']:
-            self.graph.add_node(node_id,
-                                type=node_type,
+    def add_node(self, node_id, node_type, cpu_capacity=0.00,cache_capacity=0.00, w_channel_capacity=0.0, position=(0,0)):
+        if node_type  == 'server':
+            self.graph.add_node(node_id,type=node_type,
                                 cpu_capacity=cpu_capacity,
                                 cache_capacity=cache_capacity,
                                 cpu_used=0.00,
                                 cache_used=0.00,
                                 position=position,
                                 services={})
-        elif node_type == 'mobile_device':
+        elif node_type == 'mobile_device': # Grafo separado
             self.md_graph.add_node(node_id,
                                 type=node_type,
                                 cpu_capacity=cpu_capacity,
@@ -48,9 +53,32 @@ class Net2:
                                 cache_used=0.00,
                                 position=position,
                                 services={})
+        elif node_type == 'router':
+            self.graph.add_node(node_id,type=node_type,
+                                cpu_capacity=cpu_capacity,
+                                cache_capacity=cache_capacity,
+                                cpu_used=0.00,
+                                cache_used=0.00,
+                                w_channel_capacity=w_channel_capacity,
+                                w_channel_used=0.0,
+                                position=position,
+                                services={},
+                                w_services={})            
         else:
             raise ValueError("Tipo de nó não reconhecido")
-            
+
+    def remove_node(self, node_id):
+        # OBS: Por enquanto não removemos nós da rede principal
+        self.md_graph.remove_node(node_id)
+
+        # if node_id in self.graph.nodes:
+        #     self.graph.remove_node(node_id)
+        # # Tenta remover do grafo de dispositivos móveis
+        # elif node_id in self.md_graph.nodes:
+        #     self.md_graph.remove_node(node_id)
+        # else:
+        #     raise ValueError(f"Nó {node_id} não encontrado em nenhum dos grafos.")
+        
     def add_edge(self, node1, node2, bandwidth_capacity=1000.00, latency=1):
         self.graph.add_edge(node1, node2,
                             bandwidth_capacity=bandwidth_capacity,
@@ -82,11 +110,14 @@ class Net2:
 
             if len(path) > 1:
                 for u, v in zip(path[:-1], path[1:]):
-                    self.allocate_bandwidth(u, v, bw_req, ms_name)
+                    if isinstance(v, str):
+                        self.allocate_wireless_bandwidth(u,v,bw_req,ms_name)
+                    else:
+                        self.allocate_bandwidth(u, v, bw_req, ms_name)
 
-        # if flag_test == 0:
+        #if flag_test == 0:
         #     self.deploy_sfc(sfc,route_info,flag_test=1)
-        # self.undeploy_sfc(sfc_id=sfc.id)
+        #self.undeploy_sfc(sfc_id=sfc.id)
         # self.undeploy_sfc(sfc_id=sfc.id)
         return True
 
@@ -108,7 +139,10 @@ class Net2:
             bw_req = vnf.get_outcome_interface_bandwidth()
             if len(path) > 1:
                 for u, v in zip(path[:-1], path[1:]):
-                    self.release_bandwidth(u, v, ms_name)
+                    if isinstance(v, str):
+                        self.release_wireless_bandwidth(u, v, ms_name)
+                    else:
+                        self.release_bandwidth(u, v, ms_name)
 
         # Remover registros da SFC
         del self.sfc_dict[sfc_id]
@@ -118,32 +152,49 @@ class Net2:
             raise ValueError(f"Recursos com valores Negativos")
 
     def allocate_microservice(self, node_id, service_id, session_id, cpu_required,cache_required):
-        node = self.graph.nodes[node_id]
+        # TODO melhorar essa verificação. Funciona por agora, mas caso o código mude talvez seja necessário mudar
+        mobile = False
+        if isinstance(node_id, str):
+            node = self.md_graph.nodes[node_id]
+            mobile = True
+        else:
+            node = self.graph.nodes[node_id]
+        
         if node['type'] not in ['server', 'mobile_device']:
             raise ValueError(f"Serviços só podem ser alocados em servidores ou usuários, não em '{node['type']}'.")
 
         if node['cpu_used'] + cpu_required > node['cpu_capacity'] or node['cache_used'] + cache_required > node['cache_capacity']:
             raise ValueError(f"Sem capacidade suficiente no nó {node_id}.")
         
-        def put_resource(cpu_required,cache_required):
+        def put_resource(cpu_required,cache_required,mobile):
             node['cpu_used'] = round(node['cpu_used'] + cpu_required,2)
             node['cache_used'] = round(node['cache_used'] + cache_required,2)
-            self.total_cpu_used = round(self.total_cpu_used + cpu_required,2)
-            self.total_cache_used = round(self.total_cache_used + cache_required,2)
-        
+            if mobile:
+                self.mobile_cpu_used = round(self.mobile_cpu_used + cpu_required,2)  
+                self.mobile_cache_used = round(self.mobile_cache_used + cache_required,2)
+            else:
+                self.total_cpu_used = round(self.total_cpu_used + cpu_required,2)
+                self.total_cache_used = round(self.total_cache_used + cache_required,2)
+
         service_key = (service_id,session_id)
         if service_key in node['services']:
             node['services'][service_key]['copys'] += 1 # Serviço já instanciado, então incrementa o número de cópias
             if not self.is_shareable(service_id): # Se não for compartilhável ou a sessão não for a mesma, aumenta os recursos usados
-                put_resource(cpu_required,cache_required)
+                put_resource(cpu_required,cache_required,mobile)
         else:
             node['services'][service_key] = {'cpu': cpu_required,'cache': cache_required,'copys': 1}
-            put_resource(cpu_required,cache_required)
+            put_resource(cpu_required,cache_required,mobile)
             if self.is_shareable(service_id):
                 self.shared_sfs[node_id] = {'service_id':service_id, 'session':session_id}
 
     def deallocate_microservice(self, node_id, service_id, session_id):
-        node = self.graph.nodes[node_id]
+        mobile = False
+        if isinstance(node_id, str):
+            mobile = True
+            node = self.md_graph.nodes[node_id]
+        else:
+            node = self.graph.nodes[node_id]
+        
         service_key = (service_id, session_id)
         if service_key not in node['services']:
             raise ValueError(f"Serviço {service_id} não encontrado no nó {node_id}.")
@@ -154,8 +205,12 @@ class Net2:
         def take_resource(cpu_required,cache_required):
             node['cpu_used'] = round(node['cpu_used'] - cpu_required,2)
             node['cache_used'] = round(node['cache_used'] - cache_required,2)
-            self.total_cpu_used = round(self.total_cpu_used - cpu_required,2)
-            self.total_cache_used = round(self.total_cache_used - cache_required,2)
+            if mobile:
+                self.mobile_cpu_used = round(self.mobile_cpu_used - cpu_required,2)  
+                self.mobile_cache_used = round(self.mobile_cache_used - cache_required,2)
+            else:
+                self.total_cpu_used = round(self.total_cpu_used - cpu_required,2)
+                self.total_cache_used = round(self.total_cache_used - cache_required,2)
         
         if service_info['copys'] <= 0:
             del node['services'][service_key]
@@ -170,7 +225,6 @@ class Net2:
             raise ValueError(f"Aresta entre {node1} e {node2} não existe.")
 
         edge = self.graph.edges[node1, node2]
-
         if ms_name in edge['services_in_transit']:
             edge['services_in_transit'][ms_name]['copys'] += 1
             edge['bandwidth_used'] += bw_required
@@ -179,10 +233,7 @@ class Net2:
             if edge['bandwidth_used'] + bw_required > edge['bandwidth_capacity']:
                 raise ValueError(f"Banda insuficiente entre {node1} e {node2}.")
 
-            edge['services_in_transit'][ms_name] = {
-                 'copys' : 1,
-                 'bw_used': bw_required
-            }
+            edge['services_in_transit'][ms_name] = {'copys' : 1,'bw_used': bw_required}
             edge['bandwidth_used'] += bw_required
             self.total_bandwidth_used += bw_required
         return True
@@ -199,7 +250,6 @@ class Net2:
 
         services[ms_name]['copys'] -= 1
 
-
         bw_to_release = services[ms_name]['bw_used']
         edge['bandwidth_used'] = max(0, edge['bandwidth_used'] - bw_to_release)
         self.total_bandwidth_used = max(0, self.total_bandwidth_used - bw_to_release)
@@ -207,6 +257,36 @@ class Net2:
         if services[ms_name]['copys'] == 0:
             del services[ms_name]
 
+    def allocate_wireless_bandwidth(self, node1, node2, bw_required, ms_name):
+        router = self.graph.nodes[node1]
+        if ms_name in router['w_services']:
+            router['w_services'][ms_name]['copys'] += 1
+            router['w_channel_used'] += bw_required
+            self.total_bandwidth_used += bw_required
+        else:
+            if router['w_channel_used'] + bw_required > router['w_channel_capacity']:
+                raise ValueError(f"Banda insuficiente entre {node1} e {node2}.")
+            router['w_services'][ms_name] = {'copys' : 1,'bw_used': bw_required}
+            router['w_channel_used'] += bw_required
+            self.total_bandwidth_used += bw_required
+        return True
+
+    def release_wireless_bandwidth(self, node1, node2, ms_name):
+        router = self.graph.nodes[node1]
+        services = router.get('w_services', {})
+
+        if ms_name not in services:
+            raise ValueError(f"Serviço {ms_name} não está em trânsito entre {node1} e {node2}.")
+
+        services[ms_name]['copys'] -= 1
+        
+        bw_to_release = services[ms_name]['bw_used']
+
+        router['w_channel_used'] = max(0.0, router['w_channel_used'] - bw_to_release)
+        self.total_bandwidth_used = max(0.0, self.total_bandwidth_used - bw_to_release)
+
+        if services[ms_name]['copys'] == 0:
+            del services[ms_name]
 
     def get_sfc_by_id(self, sfc_id):
         return self.sfc_dict[sfc_id]

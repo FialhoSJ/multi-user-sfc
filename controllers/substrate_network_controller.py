@@ -120,21 +120,21 @@ class SubstrateNetworkController():
         if self.timer:
             self.timer.cancel()
         sys.exit()
-
+# 13 novo e 22 antigo
     def send_back_to_qeue(self,sfc_list,changed_location=False,new_location=False,punishment=10):
         # A duração deve ser a mesma para as duas 
-        sfc_id_duration = self.sfc_manager.sfc_id_duration
-        first_sfc = sfc_list[0]
-        duration = sfc_id_duration[first_sfc.id]["duration"]-(time.time()-sfc_id_duration[first_sfc.id]["timer"]) 
+        sfcs_tracker_info = self.sfc_manager.sfcs_tracker[sfc_list[0].dst_node]
+        duration = sfcs_tracker_info["duration"]-(time.time()-sfcs_tracker_info["timer"]) 
         new_sfc_list = []
         for sfc in sfc_list:
             sfc_id = sfc.id
-            location = sfc.dst.substrate_node if new_location == False else new_location
+            location = sfc.closer_router if changed_location == False else new_location
             new_vnfs_list_dict = copy.deepcopy(sfc.vnfs_dict)
-            if changed_location == True: # Checar depois se esse procedimento não é necessário também para Unique
+            
+            if changed_location == True: # TODO Checar depois se esse procedimento não é necessário também para Unique
                 if re.search('cache', sfc_id) is not None: 
-                    old_loc = str(sfc.dst.substrate_node)
-                    new_loc = str(location)
+                    old_loc = str(sfc.closer_router)
+                    new_loc = str(new_location)
 
                     ma_old_key = 'MA_region_' + old_loc
                     re_old_key = 'RE_region_' + old_loc
@@ -171,11 +171,15 @@ class SubstrateNetworkController():
             new_sfc_dict["duration"] = duration
             new_sfc_dict["closer_router"] = location
             new_sfc_dict["latency"] = sfc.latency_request
-            self.sfc_manager.undeploy_sfc(sfc_id,self.substrate_network) # retira a sfc antig
             #self.backup_manager.take_off_backup_if_exist([sfc_id])    
-            new_sfc = SFCGenerator(new_sfc_dict).generate() # gera uma nova e coloca de volta na fila
-            new_sfc_list.append(new_sfc)
-        self.sfc_queue.put_begin(new_sfc_list) # coloca a nova
+            new_sfc_list.append(new_sfc_dict)
+
+        self.sfc_manager.undeploy_sfc(sfc_list[0].dst_node,self.substrate_network)
+        new_sfcs = []
+        for sfc_dict in new_sfc_list:
+            new_sfcs.append(SFCGenerator(sfc_dict).generate())
+        # self.remove_mobile_user(first_sfc.dst_node)
+        self.sfc_queue.put_begin(new_sfcs) # coloca a nova
         #except Exception as e:
         #    print(f"Erro na tentativa de mandar de volta pra fila: {e}")
 
@@ -283,29 +287,16 @@ class SubstrateNetworkController():
 
     def deploy_sfc_list(self, sfc_list) -> bool:
         # with self.lock:
-        self.create_mobile_user(sfc_list)
+        mob_player_id = self.create_mobile_user(sfc_list)
         t_1 = time.time() 
         solution,is_success = self.sfc_instantiator.search_solution(sfc_list, self.substrate_network)
         t_2 = time.time()
-        print(f"Algorithm Take time     : {round(t_2-t_1,2)}")
+        print(f"Algorithm Take time     :   {round((t_2-t_1)*1000,3)} ms")
         if is_success:
             self.sfc_manager.submit_solution(sfc_list,solution,self.substrate_network)
         else:
-            pass
-            #self.remove_mobile_user(sfc_list)       
+            self.remove_mobile_user(mob_player_id)
         return solution,is_success
-
-    def create_mobile_user(self,sfc_list):
-        group_id = sfc_list[0].dst_node
-        self.mobility_manager.add_vehicle(group_id)
-        md_position = self.mobility_manager.get_md_position(group_id)
-        self.substrate_network.add_node(group_id, 'mobile_device', cpu_capacity=10.00, cache_capacity=10.00,position=md_position)
-        return group_id
-        # group_id = sfc_list[0].group_id
-        # self.players_sfc_list[group_id] = {'sfc_list':sfc_list}
-        # for sfc in sfc_list:
-        #     sfc.id
-        pass
 
     def server_fail_operation(self):
         servers_failed = self.fail_manager.activate_crasher(self.substrate_network,self.sfc_manager,self.alg)
@@ -409,7 +400,7 @@ class SubstrateNetworkController():
                 for entry in self.timer_qeue_sfcs:
                     self.sfc_queue.put_begin(entry["new_sfc_list"])  # Coloca na fila
                 self.timer_qeue_sfcs = {}
-    
+
     def check_mobility(self, interval=5):
         if self.sfc_manager.sfcs_tracker != {}:# Se não houver mais SFC's não faz nada
             sfcs_moved, new_locations = self.mobility_manager.check_all_vehicles_position_changes() # Checagem dos Veh que mudaram de posição 
@@ -417,6 +408,21 @@ class SubstrateNetworkController():
                 print(f"SFCs moved: {sfc_list} | New Location: {new_location}")
                 obj_sfc_list = [self.substrate_network.get_sfc_by_id(sfc_id) for sfc_id in sfc_list]
                 self.send_back_to_qeue(obj_sfc_list, changed_location=True, new_location=new_location)
+
+    def create_mobile_user(self,sfc_list):
+        group_id = sfc_list[0].dst_node
+        closer_router = sfc_list[0].closer_router
+        sfc_id_list = [sfc.id for sfc in sfc_list]
+
+        self.mobility_manager.add_player(group_id,closer_router,sfc_id_list)
+        # TODO futuramente essa posição vai ser importante para que o algoritmo decida ativamente o roteador.
+        md_position = self.mobility_manager.get_md_position(group_id)
+        self.substrate_network.add_node(group_id, 'mobile_device', cpu_capacity=10.00, cache_capacity=10.00,position=md_position)
+        return group_id
+    
+    def remove_mobile_user(self,sfc_list_id):
+        self.mobility_manager.remove_player(sfc_list_id)
+        self.substrate_network.remove_node(sfc_list_id)
 
     def check_duration(self):
         #TODO Continuar daqui#
@@ -426,10 +432,9 @@ class SubstrateNetworkController():
             elapsed_time = current_time - info["timer"] 
             if elapsed_time >= info["duration"]: # Tempo do user acabou
                 self.sfc_manager.undeploy_sfc(sfc_list_id,self.substrate_network)
-                #self.mobility_manager.remove_sfc(sfc_list_id)#(sfc_id,new_status='blocked')
+                self.remove_mobile_user(sfc_list_id)
         pass
         #self.update()
-
 
     def sequential_operation(self):
         """
@@ -446,7 +451,6 @@ class SubstrateNetworkController():
             if self.check_simulation_end(processed_sfcs):
                 self.stop()
             self.iteration_counter += 1
-
 
     def initialize_timers(self):
         """Inicializa variáveis de controle e intervalos de tempo."""
