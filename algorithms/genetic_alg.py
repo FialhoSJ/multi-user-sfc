@@ -67,7 +67,7 @@ class Genetic(Algorithm):
         self.min_latency = 0
         self.elapsed_time = None
         self.latency_minus_dst =  0
-        self.edge_computing_servers =[2, 5, 6, 8, 9, 14, 18, 23, 25, 28, 33, 34]
+        self.edge_computing_servers = [2, 5, 6, 8, 9, 14, 18, 23, 25, 28, 33, 34]
         self.services_requirements = 0
         self.G = 0 
         self.services = 0
@@ -89,6 +89,7 @@ class Genetic(Algorithm):
         self.src_substrate_node = None
         self.dst_substrate_node = None
         self.route_info = {}
+        self.node_info = {}
         self.single_source_minimum_latency_path = None
         self.latency = None
         self.edge_computing_servers =[2, 5, 6, 8, 9, 14, 18, 23, 25, 28, 33, 34]
@@ -100,69 +101,39 @@ class Genetic(Algorithm):
         self.crossover_time = 0
         self.mutation_time = 0
 
-    def install_substrate_network(self, substrate_network,shareable_sfs=[],crashed_servers=[]):
+    def install_substrate_network(self, substrate_network,sfc_list,shareable_sfs=[]):
         self.substrate_network = substrate_network
-        net_info = substrate_network
-        server_resources = net_info.graph._node
-        self.edge_computing_servers = list(set(self.edge_computing_servers) - set(crashed_servers))
-
-        shareable_sfs = shareable_sfs if shareable_sfs is not None else {node_id: [] for node_id in server_resources.keys()}
-        # Adicionando o campo 'reuse' no node_table
-        for node_id, node_info in server_resources.items():
-            if node_id in crashed_servers:
-                continue
-            node_info['reuse'] = []
-            if node_id in shareable_sfs:
-                for vnf in shareable_sfs[node_id]:
-                    node_info['reuse'].append(vnf.id)  # Acessando o atributo 'id' da VNF
-
-        self.shareable_sfs = shareable_sfs      
-        self.server_resources = server_resources  
-
-        for node in self.substrate_network.graph.nodes():
-            self.node_info[node] = {}
-            cpu_capacity = server_resources[node]['cpu_capacity']
-            cache_capacity = server_resources[node]['cache_capacity']
-
-            cpu_used = server_resources[node]['cpu_used']
-            cache_used = server_resources[node]['cache_used']
-
-            cpu_free = cpu_capacity - cpu_used
-            cache_free = cache_capacity - cache_used
-
-            reuse_list = server_resources[node]['reuse']  # Obter lista de VNFs reutilizáveis para o nó atual
-
-            for vnf_id, vnf in list(self.sfc.vnfs.items()):
-                if cpu_capacity == 0:
-                    continue
-                is_reusable = vnf_id in reuse_list
-                cpu_request = 0 if is_reusable else vnf.get_cpu_request() 
-                cache_request = 0 if is_reusable else vnf.get_cache_request()
-                
-                # Verificar se os recursos estão disponíveis e se o VNF pode ser reutilizado
-                resources_sufficient = (cpu_free >= cpu_request) and (cache_free >= cache_request)
-                
-                # Adicionar a informação de reuso na estrutura self.node_info
-                if node in crashed_servers:
-                    resources_sufficient = False
-                    is_reusable = False
-                
-                self.node_info[node][vnf_id] = {
-                    'resources_sufficient': resources_sufficient,
-                    'is_reusable': is_reusable}
-    
-        # Construir o dicionário de alocação de SFs
-        sf_allocation = {vnf_id: [] for vnf_id in self.sfc.vnfs.keys()}
-        for node, vnfs in self.node_info.items():
-            for vnf_id, info in vnfs.items():
-                if info['resources_sufficient']:
-                    sf_allocation[vnf_id].append(node)
-        self.can_alocate_sf_in_node = sf_allocation
+        self.graph = copy.deepcopy(substrate_network.graph)
+        self.add_mobile_user_to_graph(substrate_network,sfc_list)
         return self.substrate_network
+
+
+    def add_mobile_user_to_graph(self,substrate_network,sfc_list):
+        mobile_device_id = sfc_list[0].dst_node
+        closer_router    = sfc_list[0].closer_router
+        self.edge_computing_servers.append(mobile_device_id)
+        # Os recursos do Mobile Device devem estar disponíveis somente para sua SFC
+        md_info =  substrate_network.md_graph._node[mobile_device_id]
+        self.graph.add_node(mobile_device_id,type='mobile_device',
+                                cpu_capacity=md_info['cpu_capacity'],
+                                cache_capacity=md_info['cache_capacity'],
+                                cpu_used=md_info['cpu_used'],
+                                cache_used=md_info['cache_used'],
+                                position=md_info['position'],
+                                services=md_info['services'])
+        router = self.graph._node[closer_router]
+        wireless_free = router['w_channel_capacity'] - router['w_channel_used']
+        
+        # TODO Permitir que o próprio algoritmo escolha o roteador
+        # TODO calcular a latência do sinal
+        signal_latency = 1
+        self.graph.add_edge(mobile_device_id, closer_router, bandwidth_capacity=wireless_free, bandwidth_used=0.00 , latency=signal_latency, services_in_transit={})
 
     def install_SFC(self, sfc):
         self.sfc = sfc
-        
+        self.route_info = {}
+        self.node_info = {}
+        self.latency = None
         is_backup = True if sfc.id.split("_")[2]=='backup' else False
 
         self.latency_request = sfc.get_latency_request()
@@ -187,6 +158,62 @@ class Genetic(Algorithm):
         
         self.service_requirements = service_requirements
         self.services = services
+        #################################################################################################################################################
+        server_resources = self.graph._node
+        #self.edge_computing_servers = list(set(self.edge_computing_servers) - set(crashed_servers))
+
+        shareable_sfs = {node_id: [] for node_id in server_resources.keys()}
+        # Adicionando o campo 'reuse' no node_table
+        for node_id, node_info in server_resources.items():
+            #if node_id in crashed_servers:
+            #    continue
+            node_info['reuse'] = []
+            if node_id in shareable_sfs:
+                for vnf in shareable_sfs[node_id]:
+                    node_info['reuse'].append(vnf.id)  # Acessando o atributo 'id' da VNF
+
+        self.shareable_sfs = shareable_sfs      
+        self.server_resources = server_resources  
+
+        for node in self.graph.nodes():
+            self.node_info[node] = {}
+            cpu_capacity = server_resources[node]['cpu_capacity']
+            cache_capacity = server_resources[node]['cache_capacity']
+
+            cpu_used = server_resources[node]['cpu_used']
+            cache_used = server_resources[node]['cache_used']
+
+            cpu_free = cpu_capacity - cpu_used
+            cache_free = cache_capacity - cache_used
+
+            reuse_list = server_resources[node]['reuse']  # Obter lista de VNFs reutilizáveis para o nó atual
+
+            for vnf_id, vnf in list(self.sfc.vnfs.items()):
+                if cpu_capacity == 0:
+                    continue
+                is_reusable = vnf_id in reuse_list
+                cpu_request = 0 if is_reusable else vnf.get_cpu_request() 
+                cache_request = 0 if is_reusable else vnf.get_cache_request()
+                
+                # Verificar se os recursos estão disponíveis e se o VNF pode ser reutilizado
+                resources_sufficient = (cpu_free >= cpu_request) and (cache_free >= cache_request)
+                
+                # Adicionar a informação de reuso na estrutura self.node_info
+                # if node in crashed_servers:
+                #     resources_sufficient = False
+                #     is_reusable = False
+                self.node_info[node][vnf_id] = {
+                    'resources_sufficient': resources_sufficient,
+                    'is_reusable': is_reusable}
+    
+        # Construir o dicionário de alocação de SFs
+        sf_allocation = {vnf_id: [] for vnf_id in self.sfc.vnfs.keys()}
+        for node, vnfs in self.node_info.items():
+            for vnf_id, info in vnfs.items():
+                if info['resources_sufficient']:
+                    sf_allocation[vnf_id].append(node)
+        self.can_alocate_sf_in_node = sf_allocation
+
         return self.sfc
 
     def get_latency(self):
@@ -195,19 +222,35 @@ class Genetic(Algorithm):
     def get_route_info(self):
         return self.route_info
 
-    def start_algorithm(self, shareable_sfs=None,is_backup=False, **kwargs):
-        substrate_network = self.substrate_network
-        sfc = self.sfc
-        #logger.info('Algorithm start')
-        if is_backup:
-            self.backup_algorithm(substrate_network,sfc,shareable_sfs)
-        else: 
-            if self.algorithm(substrate_network, sfc, shareable_sfs):
-                #logger.info('Algorithm end, success')
-                return True
-        #logger.info('Algorithm end, failed')
-        return False
     
+    def start_algorithm(self):
+        sfc = self.sfc
+        logger.info("Start algorithm")
+        self.algorithm(sfc)
+        is_success = self.check_solution()
+        if is_success:
+            try:
+                self.submit_solution()
+                logger.info("Finished algorithm, success")
+                return True  
+            except:
+                self.handle_failure() 
+                return False
+        else:
+            self.handle_failure() 
+            logger.info("End algorithm, failed")
+            return False
+
+    def handle_failure(self):
+        self.route_info = False
+        self.latency = None
+
+    def check_solution(self):
+        if not isinstance(self.latency, (int, float)) or self.latency < 0 or self.latency > self.sfc.get_latency_request() or not self.route_info:
+            return False
+        if len(list(self.route_info.keys()))!=6:
+            return False
+        return True
 
     def cut_topology(self,G_complex, complex_network_topology, server_resources_complex, node_reference, hops_cuff):
         self.edge_computing_servers.append(node_reference)
@@ -445,7 +488,7 @@ class Genetic(Algorithm):
 
 
 
-    def algorithm(self,substrate_network, sfc, shareable_sfs=None):
+    def algorithm(self, sfc):
         # Get src and dst vnf
         src_vnf = sfc.get_src_vnf()
         dst_vnf = sfc.get_dst_vnf()
@@ -454,9 +497,8 @@ class Genetic(Algorithm):
         src = sfc.get_substrate_node(src_vnf)
         dst = sfc.get_substrate_node(dst_vnf)
         
-        net_info = substrate_network
         server_resources = self.server_resources
-        network_topology = net_info.graph._adj
+        network_topology = self.graph._adj
 
         service_requirements = self.service_requirements
         services = self.services
@@ -505,7 +547,7 @@ class Genetic(Algorithm):
             del creator.FitnessMin
         if hasattr(creator, "Individual"):
             del creator.Individual
-
+        valid_servers = self.edge_computing_servers.remove(dst)
         if dst in self.edge_computing_servers:
             self.edge_computing_servers.remove(dst)
         
@@ -663,18 +705,6 @@ class Genetic(Algorithm):
             print(f"Tempo de execução: {elapsed_time_ms:.2f} ms")
             
             #[2, 5, 6, 8, 9, 14, 18, 23, 25, 28, 33, 34]
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
             return route_info, total_latency
 
 
