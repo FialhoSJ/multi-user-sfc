@@ -52,7 +52,6 @@ class GreedyOptAlgorithm(Algorithm):
     '''
     def __init__(self):
         self.name = "Greedy Algorithm"
-        self.substrate_network = None
         self.sfc = None
         self.route_info = None
         self.latency = None
@@ -64,7 +63,6 @@ class GreedyOptAlgorithm(Algorithm):
         self.single_source_minimum_latency_path = None
 
     def clear_all(self):
-        self.substrate_network = None
         self.sfc = None
         self.graph = None
         self.route_info = None
@@ -72,33 +70,10 @@ class GreedyOptAlgorithm(Algorithm):
         self.is_backup = False
         self.single_source_minimum_latency_path = None
 
-    def install_substrate_network(self, substrate_network, sfc_list, shareable_sfs=[]):
-        self.substrate_network = substrate_network
-        self.graph = copy.deepcopy(substrate_network.graph)
-        self.add_mobile_user_to_graph(substrate_network,sfc_list)
-        return self.substrate_network
-
-    def add_mobile_user_to_graph(self,substrate_network,sfc_list):
-        mobile_device_id = sfc_list[0].dst_node
-        closer_router    = sfc_list[0].closer_router
-
-        # Os recursos do Mobile Device devem estar disponíveis somente para sua SFC
-        md_info =  substrate_network.md_graph._node[mobile_device_id]
-        self.graph.add_node(mobile_device_id,type='mobile_device',
-                                cpu_capacity=md_info['cpu_capacity'],
-                                cache_capacity=md_info['cache_capacity'],
-                                cpu_used=md_info['cpu_used'],
-                                cache_used=md_info['cache_used'],
-                                position=md_info['position'],
-                                services=md_info['services'])
-        router = self.graph._node[closer_router]
-        wireless_free = router['w_channel_capacity'] - router['w_channel_used']
-        
-        # TODO Permitir que o próprio algoritmo escolha o roteador
-        # TODO calcular a latência do sinal
-        signal_latency = 1
-        self.graph.add_edge(mobile_device_id, closer_router, bandwidth_capacity=wireless_free, bandwidth_used=0.00 , latency=signal_latency, services_in_transit={})
-
+    def install_substrate_network(self,graph, shareable_sfs=[]):
+        self.graph = graph
+        return self.graph
+    
     def install_SFC(self, sfc):
         self.sfc = sfc
         self.route_info = {}
@@ -117,71 +92,16 @@ class GreedyOptAlgorithm(Algorithm):
         #             self.forbidden_matches[correct_name] = node_used
         #return self.sfc
 
-    def submit_solution(self):
-        def allocate_microservice(node_id, service_id, cpu_required, cache_required):
-            node = self.graph.nodes[node_id]
-
-            # Verifica se há recursos disponíveis
-            if node['cpu_used'] + cpu_required > node['cpu_capacity']:
-                raise ValueError(f"CPU excedida no nó {node_id} para serviço {service_id}")
-            if node['cache_used'] + cache_required > node['cpu_capacity']:
-                raise ValueError(f"Cache excedido no nó {node_id} para serviço {service_id}")
-
-            if service_id in node['services']:
-                node['services'][service_id]['copys'] += 1  # Serviço já instanciado
-                if not self.is_shareable(service_id):  # Se não for compartilhável
-                    node['cpu_used'] += cpu_required
-                    node['cache_used'] += cache_required
-            else:
-                node['services'][service_id] = {'cpu': cpu_required, 'cache': cache_required, 'copys': 1}
-                node['cpu_used'] += cpu_required
-                node['cache_used'] += cache_required
-
-        def allocate_bandwidth(node1, node2, bw_required, ms_name):
-            edge = self.graph.edges[node1, node2]
-
-            # Verifica se há banda disponível
-            if edge['bandwidth_used'] + bw_required > edge['bandwidth_capacity']:
-                raise ValueError(f"Banda excedida entre os nós {node1} e {node2} para serviço {ms_name}")
-
-            if ms_name in edge['services_in_transit']:
-                edge['services_in_transit'][ms_name]['copys'] += 1
-                edge['bandwidth_used'] += bw_required
-            else:
-                edge['services_in_transit'][ms_name] = {'copys': 1, 'bw_used': bw_required}
-                edge['bandwidth_used'] += bw_required
-
-        for ms_name, path in self.route_info.items():
-            if ms_name in ['src', 'dst']:
-                continue
-
-            vnf = self.sfc.get_vnf_by_id(ms_name)
-            node_allocated = path[0]
-
-            cpu_req = vnf.get_cpu_request()
-            cache_req = vnf.get_cache_request()
-            allocate_microservice(node_allocated, ms_name, cpu_req, cache_req)
-
-            bw_req = vnf.get_outcome_interface_bandwidth()
-
-            if len(path) > 1:
-                for u, v in zip(path[:-1], path[1:]):
-                    allocate_bandwidth(u, v, bw_req, ms_name)
-
-    def is_shareable(self,service_name):
-        # TODO Mudar para a informação de compartilháveis estar em uma variável separável.
-        #if self.shareable_node:
-        if True:
-            return service_name.startswith(SHAREABLE_PREFIXES)
-        else:
-            return False
-        
     def check_solution(self):
         if not isinstance(self.latency, (int, float)) or self.latency < 0 or self.latency > self.sfc.get_latency_request() or not self.route_info:
             return False
         if len(list(self.route_info.keys()))!=6:
             return False
         return True
+    
+    def handle_failure(self):
+        self.route_info = False
+        self.latency = None
 
         # for vnf, server_forbidden in self.forbidden_matches.items():
         #     try:
@@ -194,10 +114,6 @@ class GreedyOptAlgorithm(Algorithm):
         #         self.route_info = False
         #         self.latency = None
         #         return False
-
-    def handle_failure(self):
-        self.route_info = False
-        self.latency = None
     
     # def install_SFC(self, sfc):
     #     self.sfc = sfc
@@ -215,13 +131,12 @@ class GreedyOptAlgorithm(Algorithm):
     #     return self.sfc
 
     def start_algorithm(self):
-        sfc = self.sfc
+
         logger.info("Start algorithm")
-        self.algorithm(sfc)
+        self.algorithm()
         is_success = self.check_solution()
         if is_success:
             try:
-                self.submit_solution()
                 logger.info("Finished algorithm, success")
                 return True  
             except:
@@ -238,14 +153,14 @@ class GreedyOptAlgorithm(Algorithm):
     def get_route_info(self):
         return self.route_info
 
-    def algorithm(self, sfc):
+    def algorithm(self):
         # Get src and dst vnf
-        src_vnf = sfc.get_src_vnf()
-        dst_vnf = sfc.get_dst_vnf()
+        src_vnf = self.sfc.get_src_vnf()
+        dst_vnf = self.sfc.get_dst_vnf()
 
         # Get substrate network nodes that src and dst are assigned in advance
-        src_substrate_node = sfc.get_substrate_node(src_vnf)
-        dst_substrate_node = sfc.get_substrate_node(dst_vnf)
+        src_substrate_node = self.sfc.get_substrate_node(src_vnf)
+        dst_substrate_node = self.sfc.get_substrate_node(dst_vnf)
         
         single_source_minimum_latency_path = pre_get_single_source_minimum_latency_path(self.graph)
 
@@ -255,7 +170,7 @@ class GreedyOptAlgorithm(Algorithm):
         latency = 0
         used_node = [dst_substrate_node, src_substrate_node]
 
-        number_of_vnfs = sfc.get_number_of_vnfs()
+        number_of_vnfs = self.sfc.get_number_of_vnfs()
         current_vnf = dst_vnf
         current_substrate_node = dst_substrate_node
 
@@ -282,9 +197,9 @@ class GreedyOptAlgorithm(Algorithm):
         for i in range(number_of_vnfs - 1, -1, -1):
             prev_vnf = current_vnf.get_previous_vnf()
             vnf_id = prev_vnf.id
-            cpu_request = sfc.get_vnf_cpu_request(prev_vnf)
-            cache_request = sfc.get_vnf_cache_request(prev_vnf)
-            bandwidth_request = sfc.get_link_bandwidth_request(prev_vnf.id, current_vnf.id)
+            cpu_request = self.sfc.get_vnf_cpu_request(prev_vnf)
+            cache_request = self.sfc.get_vnf_cache_request(prev_vnf)
+            bandwidth_request = self.sfc.get_link_bandwidth_request(prev_vnf.id, current_vnf.id)
 
             min_latency = float("inf")
             node = None

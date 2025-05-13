@@ -1,6 +1,7 @@
 import copy
 import time
 from utils.k_shortest_paths import k_shortest_paths
+SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 
 class SFCInstatiator:
     def __init__(self,alg):
@@ -18,11 +19,13 @@ class SFCInstatiator:
         algorithm = copy.deepcopy(self.alg)
         algorithm.clear_all()
         # O algoritmo deve criar variáveis temporárias e não usar a rede 'oficial'.
-        algorithm.install_substrate_network(substrate_network, sfc_list)
-
+        graph =  copy.deepcopy(substrate_network.graph)
+        algorithm.install_substrate_network(graph)
+        self.add_mobile_user_to_graph(graph,substrate_network,sfc_list)
+        
         sequential_sub = True
         if sequential_sub:
-            solution,is_success = self.sequential_search(algorithm,sfc_list,substrate_network,default_solution_format)
+            solution,is_success = self.sequential_search(algorithm,sfc_list,graph,default_solution_format)
         else:
             # TODO  Isso pode ser necessário mudar caso o algoritmo não precise instanciar sequencialmente. Ou seja, ele pode instanciar em lotes
             # EX: solution,is_success = self.batch_search(algorithm,sfc_list,substrate_network,default_solution_format)
@@ -34,7 +37,7 @@ class SFCInstatiator:
             self.deploy_failed_message(sfc_list)
         return solution,is_success
     
-    def sequential_search(self,algorithm,sfc_list: object,substrate_network:object,solution_format) -> None:
+    def sequential_search(self,algorithm,sfc_list: object,graph:object,solution_format) -> None:
         search_success = True
         for sfc in sfc_list:     # TODO  Isso pode ser necessário mudar caso o algoritmo não precise instanciar sequencialmente              
             # algorithm = copy.deepcopy(self.alg)
@@ -44,6 +47,12 @@ class SFCInstatiator:
             s = time.time()
             alg_success = algorithm.start_algorithm()
             s2 = time.time()
+            
+            if alg_success:
+                try:
+                    self.submit_solution(graph,sfc,algorithm.get_route_info())
+                except:
+                    self.alg.handle_failure()
 
             solution_format[sfc.id] = {
                 'route_info': algorithm.get_route_info(),
@@ -57,6 +66,86 @@ class SFCInstatiator:
 
         return solution_format,search_success
 
+    def add_mobile_user_to_graph(self,graph,substrate_network,sfc_list):
+        mobile_device_id = sfc_list[0].dst_node
+        closer_router    = sfc_list[0].closer_router
+
+        # Os recursos do Mobile Device devem estar disponíveis somente para sua SFC
+        md_info =  substrate_network.md_graph._node[mobile_device_id]
+        graph.add_node(mobile_device_id,type='mobile_device',
+                                cpu_capacity=md_info['cpu_capacity'],
+                                cache_capacity=md_info['cache_capacity'],
+                                cpu_used=md_info['cpu_used'],
+                                cache_used=md_info['cache_used'],
+                                position=md_info['position'],
+                                services=md_info['services'])
+        router = graph._node[closer_router]
+        wireless_free = router['w_channel_capacity'] - router['w_channel_used']
+        
+        # TODO Permitir que o próprio algoritmo escolha o roteador
+        # TODO calcular a latência do sinal
+        signal_latency = 1
+        graph.add_edge(mobile_device_id, closer_router, bandwidth_capacity=wireless_free, bandwidth_used=0.00 , latency=signal_latency, services_in_transit={})
+
+    def submit_solution(self,graph,sfc,route_info):
+        def allocate_microservice(node_id, service_id, cpu_required, cache_required):
+            node = graph.nodes[node_id]
+
+            # Verifica se há recursos disponíveis
+            if node['cpu_used'] + cpu_required > node['cpu_capacity']:
+                raise ValueError(f"CPU excedida no nó {node_id} para serviço {service_id}")
+            if node['cache_used'] + cache_required > node['cpu_capacity']:
+                raise ValueError(f"Cache excedido no nó {node_id} para serviço {service_id}")
+
+            if service_id in node['services']:
+                node['services'][service_id]['copys'] += 1  # Serviço já instanciado
+                if not self.is_shareable(service_id):  # Se não for compartilhável
+                    node['cpu_used'] += cpu_required
+                    node['cache_used'] += cache_required
+            else:
+                node['services'][service_id] = {'cpu': cpu_required, 'cache': cache_required, 'copys': 1}
+                node['cpu_used'] += cpu_required
+                node['cache_used'] += cache_required
+
+        def allocate_bandwidth(node1, node2, bw_required, ms_name):
+            edge = graph.edges[node1, node2]
+
+            # Verifica se há banda disponível
+            if edge['bandwidth_used'] + bw_required > edge['bandwidth_capacity']:
+                raise ValueError(f"Banda excedida entre os nós {node1} e {node2} para serviço {ms_name}")
+
+            if ms_name in edge['services_in_transit']:
+                edge['services_in_transit'][ms_name]['copys'] += 1
+                edge['bandwidth_used'] += bw_required
+            else:
+                edge['services_in_transit'][ms_name] = {'copys': 1, 'bw_used': bw_required}
+                edge['bandwidth_used'] += bw_required
+
+        for ms_name, path in route_info.items():
+            if ms_name in ['src', 'dst']:
+                continue
+
+            vnf = sfc.get_vnf_by_id(ms_name)
+            node_allocated = path[0]
+
+            cpu_req = vnf.get_cpu_request()
+            cache_req = vnf.get_cache_request()
+            allocate_microservice(node_allocated, ms_name, cpu_req, cache_req)
+
+            bw_req = vnf.get_outcome_interface_bandwidth()
+
+            if len(path) > 1:
+                for u, v in zip(path[:-1], path[1:]):
+                    allocate_bandwidth(u, v, bw_req, ms_name)
+
+    def is_shareable(self,service_name):
+        # TODO Mudar para a informação de compartilháveis estar em uma variável separável.
+        #if self.shareable_node:
+        if True:
+            return service_name.startswith(SHAREABLE_PREFIXES)
+        else:
+            return False
+
     def deploy_success_message(self, sfc_list: object) -> None:
         """Print success message."""
         if self.verbose == True:
@@ -68,6 +157,32 @@ class SFCInstatiator:
         if self.verbose == True:
             for sfc in sfc_list:
                 print(" deploy FAILED, sfc: ", sfc.id)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 ###########################################################################################
