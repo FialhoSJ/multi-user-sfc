@@ -101,6 +101,8 @@ class GreedyOptAlgorithm(Algorithm):
 
     def install_SFC(self, sfc):
         self.sfc = sfc
+        self.route_info = {}
+        self.latency = None
         return self.sfc
         #is_backup = True if sfc.id.split("_")[2] == 'backup' else False
         # self.is_backup = is_backup
@@ -175,9 +177,9 @@ class GreedyOptAlgorithm(Algorithm):
             return False
         
     def check_solution(self):
-        if len(list(self.route_info.keys()))!=6:
-            return False
         if not isinstance(self.latency, (int, float)) or self.latency < 0 or self.latency > self.sfc.get_latency_request() or not self.route_info:
+            return False
+        if len(list(self.route_info.keys()))!=6:
             return False
         return True
 
