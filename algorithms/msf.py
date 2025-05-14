@@ -23,7 +23,6 @@ SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 class MSF():
     def __init__(self):
         self.name = "msf"
-        self.substrate_network = None
         self.sfc = None
         self.node_info = {}
         self.src_substrate_node = None
@@ -33,9 +32,10 @@ class MSF():
         self.latency = None
         self.graph = None
         self.forbidden_matches = {}
+        self.shareable_sfs = None
+
     def clear_all(self):
         #logger.debug('clear all')
-        self.substrate_network = None
         self.sfc = None
         self.node_info = {}
         self.src_substrate_node = None
@@ -44,34 +44,12 @@ class MSF():
         self.single_source_minimum_latency_path = None
         self.graph = None
         self.latency = None
+        self.shareable_sfs = None
    
-    def install_substrate_network(self, substrate_network,sfc_list,shareable_sfs=[]):
-        self.substrate_network = substrate_network
-        self.graph = copy.deepcopy(substrate_network.graph)
-        self.add_mobile_user_to_graph(substrate_network,sfc_list)
+    def install_substrate_network(self,graph, shareable_sfs=[]):
+        self.graph = graph
         self.single_source_minimum_latency_path = pre_get_single_source_minimum_latency_path(self.graph)
-        return self.substrate_network
-
-    def add_mobile_user_to_graph(self,substrate_network,sfc_list):
-        mobile_device_id = sfc_list[0].dst_node
-        closer_router    = sfc_list[0].closer_router
-
-        # Os recursos do Mobile Device devem estar disponíveis somente para sua SFC
-        md_info =  substrate_network.md_graph._node[mobile_device_id]
-        self.graph.add_node(mobile_device_id,type='mobile_device',
-                                cpu_capacity=md_info['cpu_capacity'],
-                                cache_capacity=md_info['cache_capacity'],
-                                cpu_used=md_info['cpu_used'],
-                                cache_used=md_info['cache_used'],
-                                position=md_info['position'],
-                                services=md_info['services'])
-        router = self.graph._node[closer_router]
-        wireless_free = router['w_channel_capacity'] - router['w_channel_used']
-        
-        # TODO Permitir que o próprio algoritmo escolha o roteador
-        # TODO calcular a latência do sinal
-        signal_latency = 1
-        self.graph.add_edge(mobile_device_id, closer_router, bandwidth_capacity=wireless_free, bandwidth_used=0.00 , latency=signal_latency, services_in_transit={})
+        return self.graph
 
     def install_SFC(self, sfc):
         self.sfc = sfc
@@ -117,65 +95,6 @@ class MSF():
 
         return self.sfc
 
-    def submit_solution(self):
-        def allocate_microservice(node_id, service_id, cpu_required, cache_required):
-            node = self.graph.nodes[node_id]
-
-            # Verifica se há recursos disponíveis
-            if node['cpu_used'] + cpu_required > node['cpu_capacity']:
-                raise ValueError(f"CPU excedida no nó {node_id} para serviço {service_id}")
-            if node['cache_used'] + cache_required > node['cpu_capacity']:
-                raise ValueError(f"Cache excedido no nó {node_id} para serviço {service_id}")
-
-            if service_id in node['services']:
-                node['services'][service_id]['copys'] += 1  # Serviço já instanciado
-                if not self.is_shareable(service_id):  # Se não for compartilhável
-                    node['cpu_used'] += cpu_required
-                    node['cache_used'] += cache_required
-            else:
-                node['services'][service_id] = {'cpu': cpu_required, 'cache': cache_required, 'copys': 1}
-                node['cpu_used'] += cpu_required
-                node['cache_used'] += cache_required
-
-        def allocate_bandwidth(node1, node2, bw_required, ms_name):
-            edge = self.graph.edges[node1, node2]
-
-            # Verifica se há banda disponível
-            if edge['bandwidth_used'] + bw_required > edge['bandwidth_capacity']:
-                raise ValueError(f"Banda excedida entre os nós {node1} e {node2} para serviço {ms_name}")
-
-            if ms_name in edge['services_in_transit']:
-                edge['services_in_transit'][ms_name]['copys'] += 1
-                edge['bandwidth_used'] += bw_required
-            else:
-                edge['services_in_transit'][ms_name] = {'copys': 1, 'bw_used': bw_required}
-                edge['bandwidth_used'] += bw_required
-
-        for ms_name, path in self.route_info.items():
-            if ms_name in ['src', 'dst']:
-                continue
-
-            vnf = self.sfc.get_vnf_by_id(ms_name)
-            node_allocated = path[0]
-
-            cpu_req = vnf.get_cpu_request()
-            cache_req = vnf.get_cache_request()
-            allocate_microservice(node_allocated, ms_name, cpu_req, cache_req)
-
-            bw_req = vnf.get_outcome_interface_bandwidth()
-
-            if len(path) > 1:
-                for u, v in zip(path[:-1], path[1:]):
-                    allocate_bandwidth(u, v, bw_req, ms_name)
-
-    def is_shareable(self,service_name):
-        # TODO Mudar para a informação de compartilháveis estar em uma variável separável.
-        #if self.shareable_node:
-        if True:
-            return service_name.startswith(SHAREABLE_PREFIXES)
-        else:
-            return False
-
     def handle_failure(self):
         self.route_info = False
         self.latency = None
@@ -185,6 +104,17 @@ class MSF():
             return False
         if len(list(self.route_info.keys()))!=6:
             return False
+        
+        prev_path_end = None
+        for sf, path in self.route_info.items():
+            if sf == 'dst':
+                continue
+            if prev_path_end is not None:
+                if path[-1] != prev_path_end:
+                    print(f"Inconsistência entre {prev_sf} e {sf}: {prev_path_end} != {path[0]}")
+                    return False  # ou raise Exception se quiser abortar
+            prev_path_end = path[0]
+            prev_sf = sf
         return True
 
     def get_latency(self):
@@ -194,13 +124,10 @@ class MSF():
         return self.route_info
 
     def start_algorithm(self):#,is_backup):
-        #substrate_network = self.substrate_network
-        sfc = self.sfc
-        self.algorithm(sfc)
+        self.algorithm()
         is_success = self.check_solution()
         if is_success:
             try:
-                self.submit_solution()
                 logger.info("Finished algorithm, success")
                 return True  
             except:
@@ -211,15 +138,15 @@ class MSF():
             logger.info("End algorithm, failed")
             return False
 
-    def algorithm(self,sfc):
+    def algorithm(self):
         nodes = self.graph.nodes()
         # Get src and dst vnf
-        src_vnf = sfc.get_src_vnf()
-        dst_vnf = sfc.get_dst_vnf()
+        src_vnf = self.sfc.get_src_vnf()
+        dst_vnf = self.sfc.get_dst_vnf()
 
         # Get substrate network nodes that src and dst are assigned in advanced
-        src_substrate_node = sfc.get_substrate_node(src_vnf)
-        dst_substrate_node = sfc.get_substrate_node(dst_vnf)
+        src_substrate_node = self.sfc.get_substrate_node(src_vnf)
+        dst_substrate_node = self.sfc.get_substrate_node(dst_vnf)
 
         self.src_substrate_node = src_substrate_node
         self.dst_substrate_node = dst_substrate_node
@@ -239,10 +166,10 @@ class MSF():
         # For dst:
 
         # here node in latency and path results is the node host previous vnf
-        previous_vnf = sfc.get_previous_vnf(dst_vnf)
+        previous_vnf = self.sfc.get_previous_vnf(dst_vnf)
         previous_vnf_id = previous_vnf.id
 
-        bandwidth_request = sfc.get_link_bandwidth_request(previous_vnf_id, dst_vnf.id)
+        bandwidth_request = self.sfc.get_link_bandwidth_request(previous_vnf_id, dst_vnf.id)
 
         for node, latency in list(node_latency.items()):
             if node == dst_substrate_node or node == src_substrate_node:
@@ -293,7 +220,7 @@ class MSF():
                 if not path:
                     break
                 previous_substrate_node = path[0]
-                previous_vnf = sfc.get_previous_vnf(previous_vnf)
+                previous_vnf = self.sfc.get_previous_vnf(previous_vnf)
                 if previous_vnf:
                     self.route_info[previous_vnf.id] = path
                 else:
@@ -311,7 +238,7 @@ class MSF():
                 self.latency = self.latency - edge_latency
             #TODO ajustar o MSF e o MusFICo para que eles lidem melhor com a queda de servidores e não deem latencia negativa
             
-            if self.latency > sfc.get_latency_request() or self.latency < 0: #
+            if self.latency > self.sfc.get_latency_request() or self.latency < 0: #
                 self.route_info = {}
                 self.latency = None
                 return False
@@ -375,8 +302,10 @@ class MSF():
             cpu_available = self.graph.nodes[node]['cpu_capacity'] - self.graph.nodes[node]['cpu_used']
             cache_available = self.graph.nodes[node]['cache_capacity'] - self.graph.nodes[node]['cache_used']
             
+            if self.graph.nodes[node]['type'] == ['router']:
+                continue
 
-            if cpu_request > cpu_available or cache_request > cache_available:
+            if cpu_request > cpu_available + 0.00001 or cache_request > cache_available + 0.00001:
                 # if node has not sufficient cpu, check next node. 
                 continue
 

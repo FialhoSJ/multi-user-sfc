@@ -20,9 +20,9 @@ class SFCInstatiator:
         algorithm.clear_all()
         # O algoritmo deve criar variáveis temporárias e não usar a rede 'oficial'.
         graph =  copy.deepcopy(substrate_network.graph)
-        algorithm.install_substrate_network(graph)
         self.add_mobile_user_to_graph(graph,substrate_network,sfc_list)
-        
+        algorithm.install_substrate_network(graph)
+
         sequential_sub = True
         if sequential_sub:
             solution,is_success = self.sequential_search(algorithm,sfc_list,graph,default_solution_format)
@@ -88,24 +88,33 @@ class SFCInstatiator:
         graph.add_edge(mobile_device_id, closer_router, bandwidth_capacity=wireless_free, bandwidth_used=0.00 , latency=signal_latency, services_in_transit={})
 
     def submit_solution(self,graph,sfc,route_info):
-        def allocate_microservice(node_id, service_id, cpu_required, cache_required):
+        def allocate_microservice(vnf, node_id, session_id):
+            service_id = vnf.id
+            service_key = (service_id,session_id)
+            cpu_required = vnf.get_cpu_request()
+            cache_required = vnf.get_cache_request()
             node = graph.nodes[node_id]
-
+    
+            if node['type'] not in ['server', 'mobile_device']:
+                raise ValueError(f"Serviços só podem ser alocados em servidores ou usuários, não em '{node['type']}'.")
             # Verifica se há recursos disponíveis
             if node['cpu_used'] + cpu_required > node['cpu_capacity']:
                 raise ValueError(f"CPU excedida no nó {node_id} para serviço {service_id}")
             if node['cache_used'] + cache_required > node['cpu_capacity']:
                 raise ValueError(f"Cache excedido no nó {node_id} para serviço {service_id}")
 
-            if service_id in node['services']:
+            if service_key in node['services']:
                 node['services'][service_id]['copys'] += 1  # Serviço já instanciado
                 if not self.is_shareable(service_id):  # Se não for compartilhável
                     node['cpu_used'] += cpu_required
                     node['cache_used'] += cache_required
             else:
-                node['services'][service_id] = {'cpu': cpu_required, 'cache': cache_required, 'copys': 1}
+                node['services'][service_key] = {'cpu': cpu_required, 'cache': cache_required, 'copys': 1}
                 node['cpu_used'] += cpu_required
                 node['cache_used'] += cache_required
+                
+                if self.is_shareable(service_id):
+                    node['reuse'].append(vnf)
 
         def allocate_bandwidth(node1, node2, bw_required, ms_name):
             edge = graph.edges[node1, node2]
@@ -121,16 +130,14 @@ class SFCInstatiator:
                 edge['services_in_transit'][ms_name] = {'copys': 1, 'bw_used': bw_required}
                 edge['bandwidth_used'] += bw_required
 
+        session = sfc.id.split("_")[-1]
         for ms_name, path in route_info.items():
             if ms_name in ['src', 'dst']:
                 continue
 
             vnf = sfc.get_vnf_by_id(ms_name)
             node_allocated = path[0]
-
-            cpu_req = vnf.get_cpu_request()
-            cache_req = vnf.get_cache_request()
-            allocate_microservice(node_allocated, ms_name, cpu_req, cache_req)
+            allocate_microservice(vnf, node_allocated,session)
 
             bw_req = vnf.get_outcome_interface_bandwidth()
 

@@ -23,7 +23,7 @@ from utils.manager_results import create_output_dir, OutputWritter
 # command line arguments
 parser = argparse.ArgumentParser(description='Select Immersive Service arguments') 
 parser.add_argument('--application', type=str, help='type of application', default='muar')
-parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='greedyb')
+parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='msf')
 parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
 parser.add_argument('--n_players', type=int, help='(int) number of players', default=4)
 #on: quebrar mais em funçoes

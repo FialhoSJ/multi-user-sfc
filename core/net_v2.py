@@ -43,6 +43,7 @@ class Net2:
                                 cpu_used=0.00,
                                 cache_used=0.00,
                                 position=position,
+                                reuse=[],
                                 services={})
         elif node_type == 'mobile_device': # Grafo separado
             self.md_graph.add_node(node_id,
@@ -52,6 +53,7 @@ class Net2:
                                 cpu_used=0.00,
                                 cache_used=0.00,
                                 position=position,
+                                reuse=[],
                                 services={})
         elif node_type == 'router':
             self.graph.add_node(node_id,type=node_type,
@@ -96,25 +98,26 @@ class Net2:
         
         session = sfc_id.split("_")[-1]
         #edge servers => [2, 5, 6, 8, 9, 14, 18, 23, 25, 28, 33, 34])
-        for ms_name, path in route_info.items():
-            if ms_name in ['src','dst']:
-                continue
-            
-            vnf = sfc.get_vnf_by_id(ms_name)
-            node_allocated = path[0]
-            
-            cpu_req = vnf.get_cpu_request()
-            cache_req = vnf.get_cache_request()   
-            self.allocate_microservice(node_allocated, ms_name, session, cpu_req, cache_req)
-            bw_req = vnf.get_outcome_interface_bandwidth()
+        try:
+            for ms_name, path in route_info.items():
+                if ms_name in ['src','dst']:
+                    continue
+                vnf = sfc.get_vnf_by_id(ms_name)
+                node_allocated = path[0]
 
-            if len(path) > 1:
-                for u, v in zip(path[:-1], path[1:]):
-                    if isinstance(v, str):
-                        self.allocate_wireless_bandwidth(u,v,bw_req,ms_name)
-                    else:
-                        self.allocate_bandwidth(u, v, bw_req, ms_name)
+                self.allocate_microservice(vnf, node_allocated, session)
+                bw_req = vnf.get_outcome_interface_bandwidth()
 
+                if len(path) > 1:
+                    for u, v in zip(path[:-1], path[1:]):
+                        if isinstance(v, str):
+                            self.allocate_wireless_bandwidth(u,v,bw_req,ms_name)
+                        elif isinstance(u,str):
+                            self.allocate_wireless_bandwidth(v,u,bw_req,ms_name)
+                        else:
+                            self.allocate_bandwidth(u, v, bw_req, ms_name)
+        except:
+            print("aaaaa")
         #if flag_test == 0:
         #     self.deploy_sfc(sfc,route_info,flag_test=1)
         #self.undeploy_sfc(sfc_id=sfc.id)
@@ -135,12 +138,14 @@ class Net2:
 
             vnf = sfc.get_vnf_by_id(ms_name)
             node_allocated = path[0]
-            self.deallocate_microservice(node_allocated, ms_name,session)
+            self.deallocate_microservice(node_allocated, vnf, session)
             bw_req = vnf.get_outcome_interface_bandwidth()
             if len(path) > 1:
                 for u, v in zip(path[:-1], path[1:]):
                     if isinstance(v, str):
-                        self.release_wireless_bandwidth(u, v, ms_name)
+                        self.release_wireless_bandwidth(u,v,ms_name)
+                    elif isinstance(u,str):
+                        self.release_wireless_bandwidth(v,u,ms_name)
                     else:
                         self.release_bandwidth(u, v, ms_name)
 
@@ -151,7 +156,7 @@ class Net2:
         if self.total_cpu_used < 0  or self.total_cache_used < 0 or self.total_bandwidth_used < 0:
             raise ValueError(f"Recursos com valores Negativos")
 
-    def allocate_microservice(self, node_id, service_id, session_id, cpu_required,cache_required):
+    def allocate_microservice(self, vnf,node_id, session_id):
         # TODO melhorar essa verificação. Funciona por agora, mas caso o código mude talvez seja necessário mudar
         mobile = False
         if isinstance(node_id, str):
@@ -160,6 +165,10 @@ class Net2:
         else:
             node = self.graph.nodes[node_id]
         
+        service_id = vnf.id
+        cpu_required = vnf.get_cpu_request()
+        cache_required = vnf.get_cache_request()   
+
         if node['type'] not in ['server', 'mobile_device']:
             raise ValueError(f"Serviços só podem ser alocados em servidores ou usuários, não em '{node['type']}'.")
 
@@ -185,9 +194,10 @@ class Net2:
             node['services'][service_key] = {'cpu': cpu_required,'cache': cache_required,'copys': 1}
             put_resource(cpu_required,cache_required,mobile)
             if self.is_shareable(service_id):
-                self.shared_sfs[node_id] = {'service_id':service_id, 'session':session_id}
+                node['reuse'].append(vnf)
+                #self.shared_sfs[node_id].append(vnf) # Deve ser retura
 
-    def deallocate_microservice(self, node_id, service_id, session_id):
+    def deallocate_microservice(self, node_id, vnf, session_id):
         mobile = False
         if isinstance(node_id, str):
             mobile = True
@@ -195,6 +205,8 @@ class Net2:
         else:
             node = self.graph.nodes[node_id]
         
+        service_id = vnf.id
+
         service_key = (service_id, session_id)
         if service_key not in node['services']:
             raise ValueError(f"Serviço {service_id} não encontrado no nó {node_id}.")
@@ -215,6 +227,10 @@ class Net2:
         if service_info['copys'] <= 0:
             del node['services'][service_key]
             take_resource(service_info['cpu'],service_info['cache'])
+            
+            if self.is_shareable(service_id):
+                if vnf in node['reuse']:
+                    node['reuse'].remove(vnf)
         else:
             # Se não é compartilhável, libera os recursos mesmo em cada cópia
             if not self.is_shareable(service_id):
