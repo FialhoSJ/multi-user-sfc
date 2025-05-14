@@ -12,7 +12,7 @@ MAGENTA = "\033[35m"
 RESET = "\033[0m"
 
 class NetworkEnv(gym.Env):
-    def __init__(self,graph, server_resources, services ,service_requirements,latency_request,dst,valid_nodes,pesos=None):
+    def __init__(self,graph='',substrate_network=1, server_resources=1, services=[0] ,service_requirements=1,latency_request =1,dst=1,valid_nodes=1,pesos=None):
         super().__init__()
         
         self.G = graph
@@ -21,6 +21,8 @@ class NetworkEnv(gym.Env):
         self.show_allocation = True
         self.valid_nodes = valid_nodes
         # self.min_cost = float('inf')
+        self.graph = substrate_network
+
         # Parâmetros dos serviços
         self.service_requirements = service_requirements
         self.services = services
@@ -55,6 +57,10 @@ class NetworkEnv(gym.Env):
         
         # Cache de paths para evitar recalculá-los frequentemente
         self.cached_paths = {}
+    
+    def set_server_resources(self,server_resources):
+        self.server_resources_backup = server_resources
+        self.server_resources = copy.deepcopy(self.server_resources_backup)
 
     def reset(self, seed=None, options=None):
         self.server_resources = copy.deepcopy(self.server_resources_backup)
@@ -108,8 +114,8 @@ class NetworkEnv(gym.Env):
             self.reward = -self.total_cost
             self.total_reward += self.reward
 
-            if self.server in self.servers_used:
-                return self._fail_step('mesmo nó escolhido')
+            # if self.server in self.servers_used:
+            #     return self._fail_step('mesmo nó escolhido')
             self.servers_used.append(self.server)
             # self.print_info_of_allocation()
 

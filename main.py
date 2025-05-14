@@ -15,7 +15,10 @@ from controllers.modules.crasher import Crasher
 from core.scenarios.muar import MuarScenario
 from topology.instantiator import TopologyInstantiator
 from utils.manager_results import create_output_dir, OutputWritter
-
+import signal
+import sys
+# Restaura o handler padrão de Ctrl+C
+signal.signal(signal.SIGINT, signal.default_int_handler)
 
 # seed = 42
 # random.seed(seed)
@@ -23,7 +26,7 @@ from utils.manager_results import create_output_dir, OutputWritter
 # command line arguments
 parser = argparse.ArgumentParser(description='Select Immersive Service arguments') 
 parser.add_argument('--application', type=str, help='type of application', default='muar')
-parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='msf')
+parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='kuririn')
 parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
 parser.add_argument('--n_players', type=int, help='(int) number of players', default=4)
 #on: quebrar mais em funçoes
@@ -88,5 +91,12 @@ sbn_controller.verbose = (args.verbose == 'y')
 sbn_controller.output_writter = OutputWritter(topology, *create_output_dir(args, topology))
 sbn_controller.flows = int(args.n_sessions)
 sbn_controller.players = int(args.n_players)
-sbn_controller.start()
+
+
+try:
+    sbn_controller.start()
+except KeyboardInterrupt:
+    print("Execução interrompida pelo usuário (Ctrl+C).")
+    sys.exit(0)
+    # Aqui você pode fazer algum cleanup, se necessário
 # sbn_controller.allow_high_latency = allow_delay

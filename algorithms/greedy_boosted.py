@@ -184,8 +184,6 @@ class GreedyOptAlgorithm(Algorithm):
                 'cpu_used': self.graph.nodes[server]['cpu_used'],
                 'cache_used': self.graph.nodes[server]['cache_used'],
 
-                'cpu_capacity': self.graph.nodes[server]['cpu_capacity'],
-                'cache_capacity':self.graph.nodes[server]['cache_capacity'],
                 'cpu_used': self.graph.nodes[server]['cpu_used'],
                 'cache_used': self.graph.nodes[server]['cache_used'],
                 'reuse': []

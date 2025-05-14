@@ -216,8 +216,8 @@ class Sumo_Luxembourg(AbstractTracer):
                     # except Exception as e:
                     #     print(f"Erro não esperado na movimentação do veículo: {e}")
                     #     traceback.print_exc()
-        except FatalTraCIError as e:
-            pass
+        except:
+            sys.exit(0)
             #self.stop_simulation()
     def start_simulation(self):
         self.connect_to_sumo()
@@ -226,6 +226,7 @@ class Sumo_Luxembourg(AbstractTracer):
         movement_thread.start()
         # permite o movimento dos veículos
         self.moving = True
+
 
 if __name__ == "__main__":
     sim = Sumo_Luxembourg()
