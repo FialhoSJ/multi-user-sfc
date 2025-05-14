@@ -78,7 +78,8 @@ class SFCInstatiator:
                                 cpu_used=md_info['cpu_used'],
                                 cache_used=md_info['cache_used'],
                                 position=md_info['position'],
-                                services=md_info['services'])
+                                services=md_info['services'],
+                                reuse=md_info['reuse'])
         router = graph._node[closer_router]
         wireless_free = router['w_channel_capacity'] - router['w_channel_used']
         
