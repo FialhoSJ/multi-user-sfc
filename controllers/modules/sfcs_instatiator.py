@@ -1,5 +1,9 @@
 import copy
+import logging
 import time
+import math
+import random
+import traceback
 from utils.k_shortest_paths import k_shortest_paths
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 
@@ -50,13 +54,22 @@ class SFCInstatiator:
             
             if alg_success:
                 try:
-                    self.submit_solution(graph,sfc,algorithm.get_route_info())
-                except:
+                    total_latency = self.submit_solution(graph, sfc, algorithm.get_route_info())
+                except ValueError as ve:
+                    logging.error(f"Falha na submissão da solução para SFC {sfc.id}: {ve}")
                     self.alg.handle_failure()
+                    search_success = False
+                except Exception as e:
+                    logging.error(f"Erro inesperado ao submeter solução para SFC {sfc.id}: {e}")
+                    logging.error(traceback.format_exc())
+                    self.alg.handle_failure()
+                    search_success = False
+            else:
+                search_success = False
 
             solution_format[sfc.id] = {
                 'route_info': algorithm.get_route_info(),
-                'latency': algorithm.get_latency() ,
+                'latency': total_latency,
                 'run_duration': s2 - s
                 }
             
@@ -95,7 +108,14 @@ class SFCInstatiator:
             cpu_required = vnf.get_cpu_request()
             cache_required = vnf.get_cache_request()
             node = graph.nodes[node_id]
-    
+
+            if isinstance(node_id, str): # Se é um mobile device 
+                ips_vm_capacity = 0.1*10e10
+            else:
+                ips_vm_capacity = 0.2*10e10
+
+            latency = (vnf.get_income_interface_bandwidth()/60 * 10e6) * 10 *1000/ips_vm_capacity   
+
             if node['type'] not in ['server', 'mobile_device']:
                 raise ValueError(f"Serviços só podem ser alocados em servidores ou usuários, não em '{node['type']}'.")
             # Verifica se há recursos disponíveis
@@ -105,7 +125,7 @@ class SFCInstatiator:
                 raise ValueError(f"Cache excedido no nó {node_id} para serviço {service_id}")
 
             if service_key in node['services']:
-                node['services'][service_id]['copys'] += 1  # Serviço já instanciado
+                node['services'][service_key]['copys'] += 1  # Serviço já instanciado
                 if not self.is_shareable(service_id):  # Se não for compartilhável
                     node['cpu_used'] += cpu_required
                     node['cache_used'] += cache_required
@@ -116,8 +136,14 @@ class SFCInstatiator:
                 
                 if self.is_shareable(service_id):
                     node['reuse'].append(vnf)
-
+            return latency
+        
         def allocate_bandwidth(node1, node2, bw_required, ms_name):
+            if isinstance(node1,str) or isinstance(node2,str):
+                data_packet = bw_required*10e6/60
+                latency  = self.calcular_latencia_5g(data_packet)
+            else:
+                latency = graph.edges[node1, node2]['latency']
             edge = graph.edges[node1, node2]
 
             # Verifica se há banda disponível
@@ -130,22 +156,26 @@ class SFCInstatiator:
             else:
                 edge['services_in_transit'][ms_name] = {'copys': 1, 'bw_used': bw_required}
                 edge['bandwidth_used'] += bw_required
-
+            return latency
+        
         session = sfc.id.split("_")[-1]
+        total_latency = 0
         for ms_name, path in route_info.items():
             if ms_name in ['src', 'dst']:
                 continue
 
             vnf = sfc.get_vnf_by_id(ms_name)
             node_allocated = path[0]
-            allocate_microservice(vnf, node_allocated,session)
-
+            comp_latency = allocate_microservice(vnf, node_allocated,session)
+            total_latency += comp_latency
             bw_req = vnf.get_outcome_interface_bandwidth()
 
             if len(path) > 1:
                 for u, v in zip(path[:-1], path[1:]):
-                    allocate_bandwidth(u, v, bw_req, ms_name)
-
+                    comm_latency = allocate_bandwidth(u, v, bw_req, ms_name)
+                    total_latency += comm_latency
+        return total_latency
+    
     def is_shareable(self,service_name):
         # TODO Mudar para a informação de compartilháveis estar em uma variável separável.
         #if self.shareable_node:
@@ -153,6 +183,46 @@ class SFCInstatiator:
             return service_name.startswith(SHAREABLE_PREFIXES)
         else:
             return False
+        
+    def calcular_latencia_5g(
+        self,
+        data,
+        distancia_m=750,
+        potencia_transmissao_dbm=30.0,
+        largura_banda_hz=100e6,
+        temperatura_kelvin=290,
+        figura_ruido_db=10.0,
+        eficiencia_codec=0.5,
+        snr_minimo_db=0.0,
+        freq_portadora_hz=3.5e9,
+        sigma_shadowing_db=0.001,
+    ):
+        """
+        Calcula latência (ms) para uma dada distância em 5G, considerando path loss com shadowing.
+
+        Parâmetro:
+        - distancia_m: distância em metros (float ou lista/tupla de floats)
+
+        Retorna latência em ms (float ou lista de floats, conforme input)
+        """
+        BOLTZMANN = 1.380649e-23
+
+        def path_loss_5g(distancia_m):
+            pl_db = 28.0 + 22 * math.log10(distancia_m) + 20 * math.log10(freq_portadora_hz / 1e9) #+ random.gauss(0, sigma_shadowing_db)
+            return 10 ** (-pl_db / 10)  # ganho linear
+
+        def calcular_latencia_um_ponto(dado):
+            ganho = path_loss_5g(distancia_m)
+            potencia_w = 10 ** (potencia_transmissao_dbm / 10) / 1000
+            ruido_w_hz = BOLTZMANN * temperatura_kelvin * (10 ** (figura_ruido_db / 10))
+            snr_linear = (ganho * potencia_w) / (ruido_w_hz * largura_banda_hz)
+            snr_linear = max(snr_linear, 10 ** (snr_minimo_db / 10))
+            taxa_bps = largura_banda_hz * math.log2(1 + snr_linear)
+            latencia_ms = (dado / taxa_bps) * 1000  
+            return latencia_ms
+        
+        return calcular_latencia_um_ponto(data)
+
 
     def deploy_success_message(self, sfc_list: object) -> None:
         """Print success message."""

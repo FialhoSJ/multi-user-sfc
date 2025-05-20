@@ -1,4 +1,4 @@
-import numpy as np
+import random
 from core.net_v2 import Net2
 from topology.base.topology_base import TopologyBase
 
@@ -18,8 +18,8 @@ class LuxembourgV2(TopologyBase):
         self.cpu_capacity = CPU_CAPACITY
         self.cache_capacity = CACHE_CAPACITY
         self.number_of_nodes = 35
-        self.nodes = np.arange(1, 35)
-        self.edge_computing_servers = np.array([25, 8, 14, 28, 2, 5, 9, 23, 18, 6, 33, 34])
+        self.nodes = list(range(1, 35))
+        self.edge_computing_servers = [25, 8, 14, 28, 2, 5, 9, 23, 18, 6, 33, 34]
 
         self.positions = {0: (5000, 6000), 1: (2884, 6739), 2: (8081, 4302), 3: (8881, 4995), 4: (8956, 2900),
                     5: (9693, 4040), 6: (4351, 6749), 7: (5341, 7590), 8: (6053, 8420), 9: (6230, 5831),
@@ -48,7 +48,8 @@ class LuxembourgV2(TopologyBase):
 
         # Adiciona as arestas com latência baseada na distância euclidiana
         for u, v in self.topology:
-            net.add_edge(u, v, bandwidth_capacity=self.bandwidth_capacity, latency=1)
+            latency_ms = random.uniform(1, 2)
+            net.add_edge(u, v, bandwidth_capacity=self.bandwidth_capacity, latency=latency_ms)
 
         net.total_cpu_capacity = len(self.edge_computing_servers) * CPU_CAPACITY
         net.total_cache_capacity = len(self.edge_computing_servers) * CACHE_CAPACITY
@@ -59,9 +60,9 @@ class LuxembourgV2(TopologyBase):
     
     def get_topology_info(self):
         """Retorna informações da topologia."""
-        nodes = list(np.arange(1, self.number_of_nodes))
+        nodes = list(range(1, self.number_of_nodes))
         edges = self.topology  # Lista de arestas
-        edge_computing_servers = self.edge_computing_servers.tolist()  # Nós de processamento
+        edge_computing_servers = self.edge_computing_servers  # Nós de processamento
 
         return {
             "nodes": nodes,

@@ -9,11 +9,12 @@ from controllers.sfc_queue import SFCQueue
 
 min_latency_acc = 1000
 
-fator = 0.33 # 1 players consumes fator*100 percentage of resources of an Edge Server
+fator = 0.25 # 1 players consumes fator*100 percentage of resources of an Edge Server
 #https://ieeexplore.ieee.org/document/9417376
 
 cpb = 10e6 #10 cycles per Mbit
 #print(cpb, "cycles per Mbit")
+
 IA_bw = 150# * n_players
 IA = IA_bw * cpb # total cycles
 IA = 0
@@ -25,6 +26,7 @@ DET = DET_bw * cpb
 FT_bw = 0.144 # 300 KB * 8 * 60  [48,144] 
 FT = FT_bw * cpb
 IA_DET_FT_bw = int(IA_bw + DET_bw + FT_bw)
+
 # each AR VO have 2500 KB in average, 2500 * 12
 CA_size = 240 # 2500 KB * 8 * 12 objects 240 for 12 VOs
 
