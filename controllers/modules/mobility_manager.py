@@ -27,8 +27,9 @@ class MobilityManager:
         """Inicia a simulação."""
         self.tracer.start_simulation()
 
-    def get_md_position(self,id):
-        return [0,0]
+    def get_md_distance_from_router(self,id,router):
+        distance_from_connected_router = self.tracer.get_server_distance_from_car(id, router)
+        return distance_from_connected_router
     
     def add_player(self, group_id, closer_router, sfc_id_list):
         if group_id in self.players_tracker:  

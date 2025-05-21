@@ -42,7 +42,7 @@ class LuxembourgV2(TopologyBase):
         net.add_node(0, node_type='server', cpu_capacity=0.0)
         for node in self.nodes:
             if node in self.edge_computing_servers:
-                net.add_node(node, node_type='server', cpu_capacity=self.cpu_capacity,cache_capacity=self.cache_capacity,position=self.positions[node])
+                net.add_node(node, node_type='server', cpu_capacity=self.cpu_capacity,cache_capacity=self.cache_capacity,position=self.positions[node],ips=random.uniform(0.1, 0.2))
             else:
                 net.add_node(node, node_type='router',w_channel_capacity=self.w_bandwidth_capacity,position=self.positions[node])
 

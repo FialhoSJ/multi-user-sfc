@@ -13,6 +13,7 @@ from scipy.spatial import KDTree
 import sys
 from traci.exceptions import FatalTraCIError
 from sumo.luxembourg.config_routes import topology,positions,server_ids,server_tree,routers
+import traci.step
 # Tracer utilizando SUMO.
 # Autor: Rodrigo Flexa 
 # Data: 17/09/2023
@@ -92,8 +93,16 @@ class Sumo_Luxembourg(AbstractTracer):
         server_coords = self.topology[server]  # Supondo que isso seja uma tupla (x, y)
         
         # Calculando a distância euclidiana
+        ####
+        # Sumo não atualiza automaticamente a posição do usuário na simulação quando ele é criado. 
+        # Caso ele não atualiza, então iremos considerar ou a distância da Edge ou 500m 
+        ####
         distance = math.sqrt((server_coords[0] - x)**2 + (server_coords[1] - y)**2)
-        
+        if distance > 10000 or distance < -10000:
+            traci.simulationStep()
+            distance = math.sqrt((server_coords[0] - x)**2 + (server_coords[1] - y)**2)
+            if distance > 10000 or distance < -10000:
+                distance = 1000
         return distance
 
         #distance, index = server_tree.query([x, y])
@@ -110,29 +119,24 @@ class Sumo_Luxembourg(AbstractTracer):
         #     return False
         
     def create_vehicle(self,vehicle_id,server_start):
-        #try:
-        with self.lock:
-            server_end = random.choice(routers)    
-            server_start, server_end =  self.check_route(server_start,server_end)
+        server_end = random.choice(routers)    
+        server_start, server_end =  self.check_route(server_start,server_end)
 
-            start_edge = random.choice(self.positions[server_start])
-            end_edge = random.choice(self.positions[server_end])
-            way = [start_edge,end_edge]
-            
-            traci.route.add(vehicle_id, way)
-            traci.vehicle.add(vehicle_id, vehicle_id) 
-
-            x, y = traci.vehicle.getPosition(vehicle_id)
-            self.vehicles_info[vehicle_id] = {  'closest_server': server_start,
-                                                'server_end':server_end,
-                                                'end_edge':end_edge,
-                                                'connected':True}
-                                                #'coord': (x,y)}
-            #traci.simulationStep()
-                                                
-        # except Exception as e:
-        #     print(f"Error in vehicle creation: {str(e)}")
-
+        start_edge = random.choice(self.positions[server_start])
+        end_edge = random.choice(self.positions[server_end])
+        way = [start_edge,end_edge]
+        
+        traci.route.add(vehicle_id, way)
+        traci.vehicle.add(vehicle_id, vehicle_id) 
+        traci.simulationStep()
+        x, y = traci.vehicle.getPosition(vehicle_id)
+        self.vehicles_info[vehicle_id] = {  'closest_server': server_start,
+                                            'server_end':server_end,
+                                            'start_edge':start_edge,
+                                            'end_edge':end_edge,
+                                            'connected':True}
+                                            #'coord': (x,y)}
+                                        
     def disconnect_vehicle(self, vehicle_id):
         #try:
         # Check if the vehicle exists in the simulation

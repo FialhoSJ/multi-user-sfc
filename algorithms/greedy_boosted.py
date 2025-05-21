@@ -173,7 +173,6 @@ class GreedyOptAlgorithm(Algorithm):
         number_of_vnfs = self.sfc.get_number_of_vnfs()
         current_vnf = dst_vnf
         current_substrate_node = dst_substrate_node
-
         servers = list(self.graph.nodes())
         
         # Inicializa o dicionário de recursos dos servidores

@@ -53,17 +53,17 @@ class SFCInstatiator:
             s2 = time.time()
             
             if alg_success:
-                try:
-                    total_latency = self.submit_solution(graph, sfc, algorithm.get_route_info())
-                except ValueError as ve:
-                    logging.error(f"Falha na submissão da solução para SFC {sfc.id}: {ve}")
-                    self.alg.handle_failure()
-                    search_success = False
-                except Exception as e:
-                    logging.error(f"Erro inesperado ao submeter solução para SFC {sfc.id}: {e}")
-                    logging.error(traceback.format_exc())
-                    self.alg.handle_failure()
-                    search_success = False
+                #try:
+                total_latency = self.submit_solution(graph, sfc, algorithm.get_route_info())
+                # except ValueError as ve:
+                #     logging.error(f"Falha na submissão da solução para SFC {sfc.id}: {ve}")
+                #     self.alg.handle_failure()
+                #     search_success = False
+                # except Exception as e:
+                #     logging.error(f"Erro inesperado ao submeter solução para SFC {sfc.id}: {e}")
+                #     logging.error(traceback.format_exc())
+                #     self.alg.handle_failure()
+                #     search_success = False
             else:
                 search_success = False
 
@@ -92,6 +92,7 @@ class SFCInstatiator:
                                 cache_used=md_info['cache_used'],
                                 position=md_info['position'],
                                 services=md_info['services'],
+                                ips=md_info['ips'],
                                 reuse=md_info['reuse'])
         router = graph._node[closer_router]
         wireless_free = router['w_channel_capacity'] - router['w_channel_used']
@@ -108,13 +109,8 @@ class SFCInstatiator:
             cpu_required = vnf.get_cpu_request()
             cache_required = vnf.get_cache_request()
             node = graph.nodes[node_id]
-
-            if isinstance(node_id, str): # Se é um mobile device 
-                ips_vm_capacity = 0.1*10e10
-            else:
-                ips_vm_capacity = 0.2*10e10
-
-            latency = (vnf.get_income_interface_bandwidth()/60 * 10e6) * 10 *1000/ips_vm_capacity   
+            ips = graph.nodes[node_id]['ips']
+            latency = (vnf.get_income_interface_bandwidth() * cpu_required/60 * 1e6) * 10 *1000/ips
 
             if node['type'] not in ['server', 'mobile_device']:
                 raise ValueError(f"Serviços só podem ser alocados em servidores ou usuários, não em '{node['type']}'.")
@@ -126,7 +122,7 @@ class SFCInstatiator:
 
             if service_key in node['services']:
                 node['services'][service_key]['copys'] += 1  # Serviço já instanciado
-                if not self.is_shareable(service_id):  # Se não for compartilhável
+                if not self.is_shareable(service_id):        # Se não for compartilhável
                     node['cpu_used'] += cpu_required
                     node['cache_used'] += cache_required
             else:
@@ -139,11 +135,14 @@ class SFCInstatiator:
             return latency
         
         def allocate_bandwidth(node1, node2, bw_required, ms_name):
-            if isinstance(node1,str) or isinstance(node2,str):
-                data_packet = bw_required*10e6/60
-                latency  = self.calcular_latencia_5g(data_packet)
+            if isinstance(node1,str):
+                data_packet = (bw_required/60)*1e6 
+                latency  = self.calcular_latencia_5g(data_packet,graph.nodes[node1]['position'])  * 2
+            elif isinstance(node2,str):
+                data_packet = (bw_required/60)*1e6 
+                latency  = self.calcular_latencia_5g(data_packet,graph.nodes[node2]['position'])  * 2
             else:
-                latency = graph.edges[node1, node2]['latency']
+                latency = graph.edges[node1, node2]['latency'] * 2
             edge = graph.edges[node1, node2]
 
             # Verifica se há banda disponível
@@ -160,21 +159,44 @@ class SFCInstatiator:
         
         session = sfc.id.split("_")[-1]
         total_latency = 0
+        
+        # Debugger
+        tsaber = {
+        'computacao': {},   # latência computacional por microsserviço (vnf)
+        'comunicacao': {}   # latência de comunicação por enlace (u->v)
+        }
+        
         for ms_name, path in route_info.items():
             if ms_name in ['src', 'dst']:
                 continue
-
+        
             vnf = sfc.get_vnf_by_id(ms_name)
             node_allocated = path[0]
             comp_latency = allocate_microservice(vnf, node_allocated,session)
             total_latency += comp_latency
+
+            tsaber['computacao'][ms_name] = {
+                'node': node_allocated,
+                'latencia_comp': comp_latency
+            }
+            
             bw_req = vnf.get_outcome_interface_bandwidth()
 
             if len(path) > 1:
                 for u, v in zip(path[:-1], path[1:]):
                     comm_latency = allocate_bandwidth(u, v, bw_req, ms_name)
                     total_latency += comm_latency
-        return total_latency
+
+                    if ms_name not in tsaber['comunicacao']:
+                        tsaber['comunicacao'][ms_name] = []
+                    tsaber['comunicacao'][ms_name].append({
+                        'de': u,
+                        'para': v,
+                        'latencia_comm': comm_latency
+                    })
+        if total_latency> 100:
+            print(total_latency)
+        return round(total_latency,2)
     
     def is_shareable(self,service_name):
         # TODO Mudar para a informação de compartilháveis estar em uma variável separável.
@@ -195,7 +217,7 @@ class SFCInstatiator:
         eficiencia_codec=0.5,
         snr_minimo_db=0.0,
         freq_portadora_hz=3.5e9,
-        sigma_shadowing_db=0.001,
+        sigma_shadowing_db=2.00, #8.00
     ):
         """
         Calcula latência (ms) para uma dada distância em 5G, considerando path loss com shadowing.
@@ -208,7 +230,7 @@ class SFCInstatiator:
         BOLTZMANN = 1.380649e-23
 
         def path_loss_5g(distancia_m):
-            pl_db = 28.0 + 22 * math.log10(distancia_m) + 20 * math.log10(freq_portadora_hz / 1e9) #+ random.gauss(0, sigma_shadowing_db)
+            pl_db = 28.0 + 22 * math.log10(distancia_m) + 20 * math.log10(freq_portadora_hz / 1e9)  #+ random.gauss(0, sigma_shadowing_db)
             return 10 ** (-pl_db / 10)  # ganho linear
 
         def calcular_latencia_um_ponto(dado):
@@ -220,9 +242,7 @@ class SFCInstatiator:
             taxa_bps = largura_banda_hz * math.log2(1 + snr_linear)
             latencia_ms = (dado / taxa_bps) * 1000  
             return latencia_ms
-        
         return calcular_latencia_um_ponto(data)
-
 
     def deploy_success_message(self, sfc_list: object) -> None:
         """Print success message."""

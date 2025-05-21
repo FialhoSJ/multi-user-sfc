@@ -37,13 +37,14 @@ class Net2:
         self.shareable_node = True
         self.verbose = False
     
-    def add_node(self, node_id, node_type, cpu_capacity=0.00,cache_capacity=0.00, w_channel_capacity=0.0, position=(0,0)):
+    def add_node(self, node_id, node_type, cpu_capacity=0.00,cache_capacity=0.00, w_channel_capacity=0.0, position=(0,0),ips=0):
         if node_type  == 'server':
             self.graph.add_node(node_id,type=node_type,
                                 cpu_capacity=cpu_capacity,
                                 cache_capacity=cache_capacity,
                                 cpu_used=0.00,
                                 cache_used=0.00,
+                                ips=ips*10e10,
                                 position=position,
                                 reuse=[],
                                 services={})
@@ -54,6 +55,7 @@ class Net2:
                                 cache_capacity=cache_capacity,
                                 cpu_used=0.00,
                                 cache_used=0.00,
+                                ips=ips*10e10,
                                 position=position,
                                 reuse=[],
                                 services={})
