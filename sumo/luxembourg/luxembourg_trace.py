@@ -102,7 +102,7 @@ class Sumo_Luxembourg(AbstractTracer):
             traci.simulationStep()
             distance = math.sqrt((server_coords[0] - x)**2 + (server_coords[1] - y)**2)
             if distance > 10000 or distance < -10000:
-                distance = 1000
+                distance = 250
         return distance
 
         #distance, index = server_tree.query([x, y])

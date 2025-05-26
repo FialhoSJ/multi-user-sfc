@@ -52,18 +52,18 @@ class SFCInstatiator:
             alg_success = algorithm.start_algorithm()
             s2 = time.time()
             
-            if alg_success:
-                #try:
-                total_latency = self.submit_solution(graph, sfc, algorithm.get_route_info())
-                # except ValueError as ve:
-                #     logging.error(f"Falha na submissão da solução para SFC {sfc.id}: {ve}")
-                #     self.alg.handle_failure()
-                #     search_success = False
-                # except Exception as e:
-                #     logging.error(f"Erro inesperado ao submeter solução para SFC {sfc.id}: {e}")
-                #     logging.error(traceback.format_exc())
-                #     self.alg.handle_failure()
-                #     search_success = False
+            if alg_success: # No geral o algoritmo só vai dar erro caso tenha feito alocação indevida
+                try:
+                    total_latency = self.submit_solution(graph, sfc, algorithm.get_route_info())
+                except ValueError as ve:
+                    logging.error(f"Falha na submissão da solução para SFC {sfc.id}: {ve}")
+                    self.alg.handle_failure()
+                    search_success = False
+                except Exception as e:
+                    logging.error(f"Erro inesperado ao submeter solução para SFC {sfc.id}: {e}")
+                    logging.error(traceback.format_exc())
+                    self.alg.handle_failure()
+                    search_success = False
             else:
                 search_success = False
 
@@ -217,7 +217,7 @@ class SFCInstatiator:
         eficiencia_codec=0.5,
         snr_minimo_db=0.0,
         freq_portadora_hz=3.5e9,
-        sigma_shadowing_db=2.00, #8.00
+        sigma_shadowing_db=6.00, #8.00
     ):
         """
         Calcula latência (ms) para uma dada distância em 5G, considerando path loss com shadowing.
@@ -229,8 +229,10 @@ class SFCInstatiator:
         """
         BOLTZMANN = 1.380649e-23
 
+        # Função de perda de caminho com shadowing
         def path_loss_5g(distancia_m):
-            pl_db = 28.0 + 22 * math.log10(distancia_m) + 20 * math.log10(freq_portadora_hz / 1e9)  #+ random.gauss(0, sigma_shadowing_db)
+            pl_db = 28.0 + 22 * math.log10(distancia_m) + 20 * math.log10(freq_portadora_hz / 1e9)
+            pl_db += random.gauss(0, sigma_shadowing_db)
             return 10 ** (-pl_db / 10)  # ganho linear
 
         def calcular_latencia_um_ponto(dado):
@@ -239,7 +241,7 @@ class SFCInstatiator:
             ruido_w_hz = BOLTZMANN * temperatura_kelvin * (10 ** (figura_ruido_db / 10))
             snr_linear = (ganho * potencia_w) / (ruido_w_hz * largura_banda_hz)
             snr_linear = max(snr_linear, 10 ** (snr_minimo_db / 10))
-            taxa_bps = largura_banda_hz * math.log2(1 + snr_linear)
+            taxa_bps = largura_banda_hz * math.log2(1 + snr_linear) * eficiencia_codec
             latencia_ms = (dado / taxa_bps) * 1000  
             return latencia_ms
         return calcular_latencia_um_ponto(data)
