@@ -66,7 +66,9 @@ class SFCInstatiator:
                     search_success = False
             else:
                 search_success = False
-
+                total_latency = None
+            
+            
             solution_format[sfc.id] = {
                 'route_info': algorithm.get_route_info(),
                 'latency': total_latency,

@@ -70,3 +70,23 @@ class LuxembourgV2(TopologyBase):
             "ec_servers": edge_computing_servers,
             "routers":[node for node in nodes if node not in edge_computing_servers and node != 0]
         }
+    
+if __name__ == "__main__":
+    lux = LuxembourgV2()
+    net = lux.generate_substrate_network()
+    info = lux.get_topology_info()
+
+    print("=== Topologia LuxembourgV2 ===")
+    print(f"Nós totais: {lux.number_of_nodes}")
+    print(f"Nós da rede (1 a {lux.number_of_nodes-1}): {info['nodes']}")
+    print(f"Servidores de borda (Edge Computing): {info['ec_servers']}")
+    print(f"Roteadores: {info['routers']}")
+    print(f"Arestas (conexões): {info['edges']}")
+    print(f"Capacidade total CPU: {net.total_cpu_capacity}")
+    print(f"Capacidade total Cache: {net.total_cache_capacity}")
+    print(f"Capacidade total Banda: {net.total_bandwidth_capacity}")
+
+    # Se quiser mostrar as posições dos nós
+    print("\nPosições dos nós:")
+    for node, pos in lux.positions.items():
+        print(f"  Nó {node}: {pos}")

@@ -20,7 +20,7 @@ class NetworkEnv(gym.Env):
         self.server_resources = copy.deepcopy(self.server_resources_backup)
         self.show_allocation = True
         self.valid_nodes = valid_nodes
-        # self.min_cost = float('inf')
+        self.session_number = ''
         self.graph = substrate_network
 
         # Parâmetros dos serviços
@@ -96,7 +96,18 @@ class NetworkEnv(gym.Env):
 
         self.path = self.cached_paths[(self.current_location, self.server)]
         
-        self.reuse = self.service in self.server_resources[self.server]['reuse']
+        # for service_r, session in self.server_resources[self.server]['reuse']:
+        #     if self.service.startwith(service_r) and session == self.session_number:
+        #         self.reuse = True
+        #         break
+
+        if (self.service,self.session_number) in self.server_resources[self.server]['reuse']:
+            self.reuse = True
+        else:
+            self.reuse = False
+
+
+
 
         self.latency_used += len(self.path) - 1
 
@@ -251,7 +262,7 @@ class NetworkEnv(gym.Env):
         for node_id in self.valid_nodes:
             cost_latency = (len(nx.shortest_path(self.G, self.current_location, node_id, weight='weight')) - 1 + self.latency_used) / self.latency_request
             state.append(min(cost_latency, 1))
-            if (not self._has_resources(node_id, self.service) and not self.service in self.server_resources[node_id]["reuse"]) or cost_latency>1:
+            if (not self._has_resources(node_id, self.service) and not (self.service,self.session_number) in self.server_resources[node_id]['reuse']) or cost_latency>1:
                 state.append(0)
             else:
                 state.append(1)
