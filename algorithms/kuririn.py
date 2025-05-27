@@ -68,7 +68,7 @@ class Kuririn:
         self.cpu_factor = 3
         self.cache_factor = 3
         self.band_factor = 1
-        self.latency_factor = 5
+        self.latency_factor = 1.5
 
         self.boot_factor = 0        
         self.env = None
@@ -256,6 +256,7 @@ class Kuririn:
                     action, _ = self.model.predict(state, deterministic = True)
                     state, _, done, _, _ = self.env.step(action)             
             if not self.env.success:
+                print(f"Server da falha: {self.env.server}\n{self.env.fail_reason}")
                 self.fail_reason = self.env.fail_reason
             return [], None
 
