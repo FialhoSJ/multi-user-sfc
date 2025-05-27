@@ -110,7 +110,7 @@ class SFCInstatiator:
             cache_required = vnf.get_cache_request()
             node = graph.nodes[node_id]
             ips = graph.nodes[node_id]['ips']
-            latency = (vnf.get_income_interface_bandwidth() * cpu_required/60 * 1e6) * 10 *1000/ips
+            latency = (vnf.get_income_interface_bandwidth() /60 * 1e6) * 10 *1000/ips
 
             if node['type'] not in ['server', 'mobile_device']:
                 raise ValueError(f"Serviços só podem ser alocados em servidores ou usuários, não em '{node['type']}'.")
@@ -210,8 +210,8 @@ class SFCInstatiator:
         self,
         data,
         distancia_m=750,
-        potencia_transmissao_dbm=30.0,
-        largura_banda_hz=100e6,
+        potencia_transmissao_dbm=20.0,
+        largura_banda_hz=50e6,
         temperatura_kelvin=290,
         figura_ruido_db=10.0,
         eficiencia_codec=0.5,
