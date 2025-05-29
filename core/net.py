@@ -457,9 +457,6 @@ class Net(nx.Graph):
         # Caso a VNF não seja encontrada, levanta um erro
         raise ValueError(f"VNF {vnf_id} da SFC {sfc_id} não encontrada no nó {node_id}.")
 
-
-
-
     def undeploy_sfc(self, sfc_id):
         if sfc_id not in self.sfc_route_info or sfc_id not in self.sfc_dict:
             print("Not in both")

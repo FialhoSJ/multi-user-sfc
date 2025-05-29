@@ -1,4 +1,5 @@
 import random
+import math
 import re 
 
 from numpy import copy
@@ -8,14 +9,14 @@ class Crasher():
     def __init__(self,topology,args,interval=200,time=30):
         self.time = time
         self.activated = (float(args.ava) != 1.0)
+        self.number_of_fails = 0 if not (float(args.ava) != 1.0) else int(args.number_of_fails)
+        self.availability = float(args.ava)
         self.ec_servers = topology.get_topology_info()['ec_servers']
         self.edges_vnf = {key: [] for key in topology.get_topology_info()['edges']}
         self.crash_links = False
         self.trials = 0
         self.nodes_crashed = []
         self.cluster_to_crash = []
-        self.availability = float(args.ava)
-        self.number_of_fails = 0 if not (float(args.ava) != 1.0) else int(args.number_of_fails)
         self.fail_interval = interval
         
         
@@ -142,53 +143,105 @@ class Crasher():
             node_choose = self.cluster_to_crash.pop(0) 
         return node_choose
 
+
+    def update_node_rel(self, network):
+        nodes_rel = network.nodes_reliability
+        updated_rel = {}
+
+        for node, rel in nodes_rel.items():
+            time = 0.01 # padrão por simplificação
+            base_failure_rate = 1 - rel
+
+            alpha_base = 1000
+            alpha_cpu = 1
+            alpha_mem = 1.5
+
+            # TODO pode ser que diferenciar o uso de recurso de backup pra normal seja mais eficiente
+            cpu_used =  network.graph.nodes[node]['cpu_used']
+            cache_used =  network.graph.nodes[node]['cache_used']
+
+            lambda_total = (alpha_base * base_failure_rate +
+                            alpha_cpu * cpu_used +
+                            alpha_mem * cache_used)
+            
+            reliability = math.exp(-lambda_total * time)
+            p_falha = 1-reliability
+            updated_rel[node] = p_falha
+        return updated_rel
+
     def activate_crasher(self, network,sfc_manager,alg_name):
         """Activates the crasher on the given network, excluding specific nodes."""
-        nodes_info = {}
-        
-        node_choose = None
-        h_rel = 0
 
-        # #node_choose = 5
-        #     #print(rel)
-        node_choose = None
-        if alg_name not in ['vegeta','msf','g']:
-            #node_choose = self.cluster_method(network=network)
-            #node_choose = self.most_sf_type(network,sf_type='RE')
-            node_choose = self.highest_resource_consumer(network)
-            #node_choose = self.crash_cluster(network)
 
-        if alg_name in ['g']:
-            node_choose = random.choice(self.ec_servers)
-            while node_choose in [33,34,9]:
-                node_choose = random.choice(self.ec_servers)
-
-        if alg_name in ['msf']:
-            node_choose = None
-            max_resource_usage = -1  # Variável para rastrear o maior consumo de recursos
-            
-            for node in [9,33,34]:
-                # Obtém o consumo de CPU e cache para o nó
-                cpu_used   = network.get_node_cpu_used(node)  
-                total_resource_usage = cpu_used   # Soma dos recursos usados
-                if total_resource_usage > max_resource_usage:
-                    max_resource_usage = total_resource_usage
-                    node_choose = node
-# Após o loop, `node_more_sfc` terá o nó com mais SFCs únicas
-        # if node_choose == None:
-        #     return False
-        # if alg_name == 'ga':
-    ###############################################################
+        ###############################################################
         node_choose = None
         h_rel = 0
         
-        nodes_rel = network.nodes_reliability.copy()
+        nodes_rel = self.update_node_rel(network)
         for node,rel in nodes_rel.items():
             if rel > h_rel:
                 h_rel = rel
                 node_choose = node
-    ###############################################################
 
+        #reuse_quantity 
+        if self.crash_links:
+            nodes_to_crash = [node_choose]
+            
+            # Coleta todas as edges (conexões) da rede
+            edges = network.sfs_flux_info.keys()
+
+            # Lista para armazenar as edges do servidor escolhido
+            edges_to_crash = []
+            
+            for edge in edges:
+                # Verifica se o node escolhido (node_choose) está na edge
+                if node_choose in edge:
+                    # Identifica o servidor parceiro na edge
+                    server_par = edge[0] if node_choose != edge[0] else edge[1]
+                    
+                    # Se o servidor parceiro não estiver na lista de servidores de edges ou for um valor específico, adicione-o
+                    if server_par not in self.ec_servers and server_par != 0 and server_par != 34:
+                        nodes_to_crash.append(server_par)
+
+                    edges_to_crash.append(edge)  # Armazena a edge na lista de edges a serem derrubadas
+            # Remove duplicatas da lista de nós a serem derrubados
+            nodes_to_crash = list(set(nodes_to_crash))
+            self.nodes_crashed = nodes_to_crash
+            return nodes_to_crash
+        else:
+            self.nodes_crashed.append(node_choose)
+            return [node_choose]
+
+        ###############################################################
+        # # #node_choose = 5
+        # #     #print(rel)
+        # node_choose = None
+        # if alg_name not in ['vegeta','msf','g']:
+        #     #node_choose = self.cluster_method(network=network)
+        #     #node_choose = self.most_sf_type(network,sf_type='RE')
+        #     node_choose = self.highest_resource_consumer(network)
+        #     #node_choose = self.crash_cluster(network)
+
+        # if alg_name in ['g']:
+        #     node_choose = random.choice(self.ec_servers)
+        #     while node_choose in [33,34,9]:
+        #         node_choose = random.choice(self.ec_servers)
+
+        # if alg_name in ['msf']:
+        #     node_choose = None
+        #     max_resource_usage = -1  # Variável para rastrear o maior consumo de recursos
+            
+        #     for node in [9,33,34]:
+        #         # Obtém o consumo de CPU e cache para o nó
+        #         cpu_used   = network.get_node_cpu_used(node)  
+        #         total_resource_usage = cpu_used   # Soma dos recursos usados
+        #         if total_resource_usage > max_resource_usage:
+        #             max_resource_usage = total_resource_usage
+        #             node_choose = node
+        # Após o loop, `node_more_sfc` terá o nó com mais SFCs únicas
+        # if node_choose == None:
+        #     return False
+        # if alg_name == 'ga':
                 
         # sfcs_with_backup = list(sfc_manager.sfs_backup.keys())
         # server_backup_count = {}
@@ -226,36 +279,6 @@ class Crasher():
 
         # Define o servidor escolhido
         # node_choose = node_more_sfc
-
-
-        #reuse_quantity 
-        if self.crash_links:
-            nodes_to_crash = [node_choose]
-            
-            # Coleta todas as edges (conexões) da rede
-            edges = network.sfs_flux_info.keys()
-
-            # Lista para armazenar as edges do servidor escolhido
-            edges_to_crash = []
-            
-            for edge in edges:
-                # Verifica se o node escolhido (node_choose) está na edge
-                if node_choose in edge:
-                    # Identifica o servidor parceiro na edge
-                    server_par = edge[0] if node_choose != edge[0] else edge[1]
-                    
-                    # Se o servidor parceiro não estiver na lista de servidores de edges ou for um valor específico, adicione-o
-                    if server_par not in self.ec_servers and server_par != 0 and server_par != 34:
-                        nodes_to_crash.append(server_par)
-
-                    edges_to_crash.append(edge)  # Armazena a edge na lista de edges a serem derrubadas
-            # Remove duplicatas da lista de nós a serem derrubados
-            nodes_to_crash = list(set(nodes_to_crash))
-            self.nodes_crashed = nodes_to_crash
-            return nodes_to_crash
-        else:
-            self.nodes_crashed.append(node_choose)
-            return [node_choose]
 
     # def recover_from_crash(self, network):
     #     nodes_crashed = list(self.nodes_crashed)

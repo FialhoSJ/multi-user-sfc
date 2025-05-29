@@ -159,8 +159,8 @@ class SFCManager:
 
     def remove_backup_by_id(self, backup_id, substrate_network): # Remove todos os backups (menos os ativos)
         if backup_id in self.backup_manager.backups_sfc_instantiated:
-            
             original_sfc = self.backup_manager.backups_sfc_instantiated[backup_id]
+            
             if original_sfc in self.backup_manager.sfcs_backups_instatiated:
                 backups = self.backup_manager.sfcs_backups_instatiated[original_sfc]
                 self.backup_manager.sfcs_backups_instatiated[original_sfc] = [backup for backup in backups if backup["sfc_backup_id"] != backup_id]

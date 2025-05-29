@@ -306,7 +306,7 @@ class SubstrateNetworkController():
         # ------------Coleta das SFC's caídas---------------#
         fallen_sfcs = {}
         for server in servers_failed:
-            server_info = self.substrate_network.get_node_sfc_vnf_list(server)
+            server_info = self.substrate_network.graph.nodes[server]
             self.substrate_network.set_node_cache_capacity(server, -0.0000001)
             self.substrate_network.set_node_cpu_capacity(server, -0.0000001)
             self.substrate_network.set_node_cache_free(server, 0)
@@ -455,7 +455,7 @@ class SubstrateNetworkController():
     def initialize_timers(self):
         """Inicializa variáveis de controle e intervalos de tempo."""
         self.mobility_interval = 5
-        self.crasher_interval = 100 #self.fail_manager.fail_interval  # 260 segundos
+        self.crasher_interval = 50 #self.fail_manager.fail_interval  # 260 segundos
         self.crashs_trials = 0
         self.crash_limit = self.fail_manager.number_of_fails
         self.fail_recovery_time = (1000 - (self.fail_manager.availability) * 1000) * 2
@@ -492,7 +492,12 @@ class SubstrateNetworkController():
                 self.server_recovery_operation()
         
         # Ativação de falhas
-        if self.fail_manager.activated and self.should_trigger_fail():
+        #Verifica se uma nova falha pode ser ativada.
+        #Exemplo: Limite da falhas e tempo entre falhas
+        should_trigger_fail = (time.time() - self.last_crasher_time >= self.crasher_interval
+                                and self.crashs_trials < self.crash_limit)
+        
+        if self.fail_manager.activated and should_trigger_fail:
             self.crashs_trials += 1
             sfcs_affected = self.server_fail_operation()
             self.recover_sfcs(sfcs_affected)
@@ -522,9 +527,13 @@ class SubstrateNetworkController():
         if self.max_queue_size < self.sfc_queue.qsize():
             self.max_queue_size = self.sfc_queue.qsize()
         processed_sfcs = []
+        
+        start_time = time.time()
         while self.sfc_queue.qsize() != 0:
-            sfc_list = self.sfc_queue.peek_sfc()                      
+            if time.time() - start_time > 1: # se passou 1s, sair do loop
+                break
             
+            sfc_list = self.sfc_queue.peek_sfc()                                  
             for sfc in sfc_list:
                 if sfc.dst_node in self.sfc_manager.sfcs_tracker:
                     raise ValueError(f"SFC já submetida")

@@ -26,7 +26,7 @@ signal.signal(signal.SIGINT, signal.default_int_handler)
 # command line arguments
 parser = argparse.ArgumentParser(description='Select Immersive Service arguments') 
 parser.add_argument('--application', type=str, help='type of application', default='muar')
-parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='greedyb')
+parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='kuririn_ppo')
 parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
 parser.add_argument('--n_players', type=int, help='(int) number of players', default=4)
 #on: quebrar mais em funçoes
@@ -40,8 +40,8 @@ parser.add_argument('--mobility',  type=str, help='(str) mobility', default='y')
 
 parser.add_argument('--allow_delay', type=str, help='(str) whether to allow delay or not', default='n')
 parser.add_argument('--backup', type=str, help='(str) whether to allow delay or not', default='n')
-parser.add_argument('--ava', type=str, help='(str) whether to allow delay or not', default='1.0')
-parser.add_argument('--number_of_fails', type=str, help='(str) whether to allow delay or not', default='0')
+parser.add_argument('--ava', type=str, help='(str) whether to allow delay or not', default='0.99')
+parser.add_argument('--number_of_fails', type=str, help='(str) whether to allow delay or not', default='1')
 parser.add_argument('--verbose',   type=str, help='verbose log', default='y')
 
 #Coleta dos parâmetros da simulação
@@ -79,7 +79,7 @@ sbn_controller.substrate_network = network
 sbn_controller.sfc_queue = sfc_queue
 sbn_controller.sfc = args.sfc
 sbn_controller.alg = ALG.name
-sbn_controller.fail_manager = Crasher(topology=topology,args=args,interval=200)
+sbn_controller.fail_manager = Crasher(topology=topology,args=args,interval=50)
 
 # sbn_controller.backup_manager = BackupManager(args=args)
 sbn_controller.mobility_manager = MobilityManager(args)
