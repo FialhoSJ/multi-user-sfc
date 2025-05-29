@@ -476,7 +476,7 @@ class Net2:
         if failure_cpu is None:
             print("CPU       utilization: ", str(round(self.total_cpu_used*1.0/self.total_cpu_capacity*100,3)) +'%')
         else:
-            print("CPU       utilization: ", str(round(self.total_cpu_used*1.0/self.total_cpu_capacity*100,3)) +'%', end=" ")
+            print("CPU       utilization: ", str(round(self.total_cpu_used*1.0 /self.total_cpu_capacity*100,3)) +'%', end=" ")
         if failure_cache is None:
             print("Cache     utilization: ", str(round(self.total_cache_used*1.0/self.total_cache_capacity*100,3)) +'%')
         else:

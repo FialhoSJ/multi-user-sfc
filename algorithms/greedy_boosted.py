@@ -93,6 +93,10 @@ class GreedyOptAlgorithm(Algorithm):
         #return self.sfc
 
     def check_solution(self):
+        if self.latency is None:
+            return False
+        if abs(self.latency) < 0.0001: # Correção de erros de ponto flutuante
+            self.latency = max(0,self.latency)
         if not isinstance(self.latency, (int, float)) or self.latency < 0 or self.latency > self.sfc.get_latency_request() or not self.route_info:
             return False
         if len(list(self.route_info.keys()))!=6:
@@ -187,10 +191,10 @@ class GreedyOptAlgorithm(Algorithm):
                 'cache_used': self.graph.nodes[server]['cache_used'],
                 'reuse': []
             } for server in servers if  self.graph.nodes[server]['cpu_capacity'] > 0 and self.graph.nodes[server]['cache_capacity']}
-        first_vnf = True
 
         nodes_used = []
         servers_to_check = list(server_resources.keys())
+        
         for i in range(number_of_vnfs - 1, -1, -1):
             prev_vnf = current_vnf.get_previous_vnf()
             vnf_id = prev_vnf.id
@@ -203,16 +207,16 @@ class GreedyOptAlgorithm(Algorithm):
             random.shuffle(servers_to_check)
             for node_a in servers_to_check:
                 #if not self.mono:
-                if not first_vnf:
-                    if node_a == current_substrate_node or node_a in nodes_used:
-                        continue
+                # if not first_vnf:
+                #     if node_a == current_substrate_node or node_a in nodes_used:
+                #         continue
                 
-                forbidden = False
-                for vnf_f,node_f in self.forbidden_matches.items():
-                    if node_f == node_a and vnf_f == vnf_id:
-                        forbidden =True
-                if forbidden:
-                    continue
+                # forbidden = False
+                # for vnf_f,node_f in self.forbidden_matches.items():
+                #     if node_f == node_a and vnf_f == vnf_id:
+                #         forbidden =True
+                # if forbidden:
+                #     continue
 
                 cpu_used = server_resources[node_a]['cpu_used']
                 cache_used = server_resources[node_a]['cache_used']
@@ -239,16 +243,28 @@ class GreedyOptAlgorithm(Algorithm):
                 if cache_request > cache_available:
                     logger.debug("Node %s não tem CACHE suficiente para %s",node_a, cache_request)
                     continue
-
+                
+                path = get_shortest_path(self.graph, current_substrate_node, node_a)
+                success = True
                 # Verificando link (apenas se não for laço no mesmo nó)
                 if node_a == node:
                     edge_latency = 0
                 else:
-                    # bandwidth_available = substrate_network.get_link_bandwidth_free(e[0], e[1])
-                    # if bandwidth_request > bandwidth_available:
-                    #     logger.debug("Aresta (%s, %s) sem banda suficiente", e[0], e[1])
-                    #     continue
-                    edge_latency = single_source_minimum_latency_path[current_substrate_node][0][node_a]
+                    success = True
+                    for i in range(len(path) - 1):
+                        node1, node2 = path[i], path[i+1]
+                        edge_data = self.graph.get_edge_data(node1, node2)
+                        if edge_data is None:
+                            success = False
+                        bandwidth_capacity = edge_data.get('bandwidth_capacity', 0)
+                        bandwidth_used = edge_data.get('bandwidth_used', 0)
+                        bandwidth_free = bandwidth_capacity - bandwidth_used
+                        if bandwidth_free < bandwidth_request:
+                            success = False
+                if not success:
+                    continue    
+
+                edge_latency = max(0,single_source_minimum_latency_path[current_substrate_node][0][node_a])
 
                 # Verifica se a latência desse caminho é a menor
                 if edge_latency < min_latency:

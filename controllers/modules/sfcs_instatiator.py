@@ -53,17 +53,18 @@ class SFCInstatiator:
             s2 = time.time()
             
             if alg_success: # No geral o algoritmo só vai dar erro caso tenha feito alocação indevida
-                try:
-                    total_latency = self.submit_solution(graph, sfc, algorithm.get_route_info())
-                except ValueError as ve:
-                    logging.error(f"Falha na submissão da solução para SFC {sfc.id}: {ve}")
-                    self.alg.handle_failure()
-                    search_success = False
-                except Exception as e:
-                    logging.error(f"Erro inesperado ao submeter solução para SFC {sfc.id}: {e}")
-                    logging.error(traceback.format_exc())
-                    self.alg.handle_failure()
-                    search_success = False
+                #try:
+                route_info =   algorithm.get_route_info()
+                total_latency = self.submit_solution(graph, sfc, route_info)
+                # except ValueError as ve:
+                #     logging.error(f"Falha na submissão da solução para SFC {sfc.id}: {ve}")
+                #     self.alg.handle_failure()
+                #     search_success = False
+                # except Exception as e:
+                #     logging.error(f"Erro inesperado ao submeter solução para SFC {sfc.id}: {e}")
+                #     logging.error(traceback.format_exc())
+                #     self.alg.handle_failure()
+                #     search_success = False
             else:
                 search_success = False
                 total_latency = None
@@ -86,7 +87,7 @@ class SFCInstatiator:
         closer_router    = sfc_list[0].closer_router
 
         # Os recursos do Mobile Device devem estar disponíveis somente para sua SFC
-        md_info =  substrate_network.md_graph._node[mobile_device_id]
+        md_info =  copy.deepcopy(substrate_network.md_graph._node[mobile_device_id])
         graph.add_node(mobile_device_id,type='mobile_device',
                                 cpu_capacity=md_info['cpu_capacity'],
                                 cache_capacity=md_info['cache_capacity'],
@@ -112,7 +113,7 @@ class SFCInstatiator:
             cache_required = vnf.get_cache_request()
             node = graph.nodes[node_id]
             ips = graph.nodes[node_id]['ips']
-            latency = (vnf.get_income_interface_bandwidth() * cpu_required/60 * 1e6) * 10 *1000/ips
+            latency = (vnf.get_income_interface_bandwidth()/60 * 1e6) * 10 *1000/ips
 
             if node['type'] not in ['server', 'mobile_device']:
                 raise ValueError(f"Serviços só podem ser alocados em servidores ou usuários, não em '{node['type']}'.")

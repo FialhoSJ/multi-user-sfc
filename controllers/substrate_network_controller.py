@@ -417,7 +417,7 @@ class SubstrateNetworkController():
         self.mobility_manager.add_player(group_id,closer_router,sfc_id_list)
         # TODO futuramente essa posição vai ser importante para que o algoritmo decida ativamente o roteador.
         distance = self.mobility_manager.get_md_distance_from_router(group_id,closer_router)
-        self.substrate_network.add_node(group_id, 'mobile_device', cpu_capacity=10.00, cache_capacity=10.00,ips=0.1,position=distance)
+        self.substrate_network.add_node(group_id, 'mobile_device', cpu_capacity=10.00, cache_capacity=10.00,ips=0.1 * random.uniform(0.1, 0.2),position=distance)
         return group_id
     
     def remove_mobile_user(self,sfc_list_id):
