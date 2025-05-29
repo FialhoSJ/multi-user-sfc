@@ -269,7 +269,7 @@ class Kuririn:
             for key, value in self.env.allocation_results.items()
         }
 
-        path_to_src = nx.dijkstra_path(G, int(self.env.current_location), 0, weight='weight')
+        path_to_src = nx.dijkstra_path(G, self.env.current_location, 0, weight='weight')
         self.env.close()
         total_latency = sum(len(p) - 1 for p in route_info.values() if p)
         route_info['src'] = list(reversed(path_to_src))

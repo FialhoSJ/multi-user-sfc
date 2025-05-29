@@ -86,7 +86,7 @@ class SFCInstatiator:
         closer_router    = sfc_list[0].closer_router
 
         # Os recursos do Mobile Device devem estar disponíveis somente para sua SFC
-        md_info =  substrate_network.md_graph._node[mobile_device_id]
+        md_info =  copy.deepcopy(substrate_network.md_graph._node[mobile_device_id])
         graph.add_node(mobile_device_id,type='mobile_device',
                                 cpu_capacity=md_info['cpu_capacity'],
                                 cache_capacity=md_info['cache_capacity'],
