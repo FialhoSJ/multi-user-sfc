@@ -67,8 +67,8 @@ class Kuririn:
         # Cost weights
         self.cpu_factor = 3
         self.cache_factor = 3
-        self.band_factor = 1
-        self.latency_factor = 1.5
+        self.band_factor = 1.1
+        self.latency_factor = 1.1
 
         self.boot_factor = 0        
         self.env = None
@@ -90,7 +90,7 @@ class Kuririn:
         
         self.valid_nodes = [node for node in self.graph.nodes() if self.graph.nodes[node]['type'] != 'router' and node != 0]
 
-        self.env = NetworkEnv(valid_nodes = self.valid_nodes,pesos={"cpu":self.cpu_factor,
+        self.env = NetworkEnv(graph=self.graph,valid_nodes = self.valid_nodes,pesos={"cpu":self.cpu_factor,
                                                                 "cache": self.cache_factor,
                                                                 "band": self.band_factor,
                                                                 "latency":self.latency_factor})
@@ -223,7 +223,7 @@ class Kuririn:
 
     def find_best_allocation_for_sfc(self, G,service_requirements, server_resources, services, dst):
 
-        self.env.G, self.env.substrate_network, self.env.valid_nodes  = G, self.graph, self.valid_nodes
+        self.env.G, self.env.substrate_network, self.env.valid_nodes  = self.graph, self.graph, self.valid_nodes
         self.env.set_server_resources(server_resources)
         self.env.services ,self.env.service_requirements =services, service_requirements
         self.env.latency_request,self.env.dst_node = self.latency_request, dst
@@ -256,9 +256,12 @@ class Kuririn:
                     action, _ = self.model.predict(state, deterministic = True)
                     state, _, done, _, _ = self.env.step(action)             
             if not self.env.success:
-                print(f"Server da falha: {self.env.server}\n{self.env.fail_reason}")
+                print(f"Alocação falhou devido: {self.env.fail_reason}")
+                print(f"Alocação falha sugerida sfc {self.sfc.id}: {self.env.servers_used}")
                 self.fail_reason = self.env.fail_reason
             return [], None
+        
+        print(f"Alocação sugerida sfc {self.sfc.id}: {self.env.servers_used}")
 
         print(f"Latencia usada: {self.env.latency_used}")
         route_info = {

@@ -2,6 +2,7 @@ import gymnasium as gym
 import networkx as nx
 import numpy as np
 import copy
+import heapq
 from gymnasium import spaces
 
 RED = "\033[31m"
@@ -50,7 +51,7 @@ class NetworkEnv(gym.Env):
         self.observation_space = spaces.Box(
             low=0.0,
             high=1.0,
-            shape=(len(self.valid_nodes) * 6 + 3,),  # pode ser melhor modularizado no futuro
+            shape=(len(self.valid_nodes) * 7 + 3,),  # pode ser melhor modularizado no futuro
             dtype=np.float32
         )
         self.action_space = spaces.Discrete(len(self.valid_nodes))
@@ -114,6 +115,9 @@ class NetworkEnv(gym.Env):
         if self.latency_used > self.latency_request:
             self.total_cost = self.calculate_total_cost()
             return self._fail_step('latency')
+        elif self.min_bandwidth_on_shortest_path(self.G, self.current_location, self.server) < self.service_requirements[self.service]["out_bw"]:
+            self.total_cost = self.calculate_total_cost()
+            return self._fail_step('bandwith')
         else:
             if not self.reuse:
                 if not self._has_resources(self.server, self.service):
@@ -190,7 +194,8 @@ class NetworkEnv(gym.Env):
         self.cache_cost = (cache_req / (cache_avail + e) + 1) * self.cache_factor 
         
         self.latency_cost = (len(self.path) - 1) ** self.latency_factor 
-        self.bandwidth_cost = 0
+        min_band_avail = self.min_bandwidth_on_shortest_path(self.G, self.current_location, self.server)
+        self.bandwidth_cost = (self.service_requirements[self.service]['out_bw'] /min_band_avail + 1) ** self.band_factor  if min_band_avail != 0 else 0
         self.boot_cost = 0
 
         if self.server in self.servers_used:
@@ -198,6 +203,28 @@ class NetworkEnv(gym.Env):
             self.cache_cost *= self.cache_factor
 
         return sum([self.cpu_cost, self.cache_cost, self.latency_cost, self.bandwidth_cost, self.boot_cost])
+    
+
+    def min_bandwidth_on_shortest_path(self,graph, source, target):
+        try:
+            # Obtem caminho mais curto considerando peso 'latency'
+            path = nx.shortest_path(graph, source=source, target=target, weight='latency')
+        except nx.NetworkXNoPath:
+            print(f"Nenhum caminho entre {source} e {target}")
+            return None
+
+        min_bandwidth = float('inf')
+        adj = graph._adj  # acesso direto ao dict interno
+
+        for i in range(len(path)-1):
+            u, v = path[i], path[i+1]
+            edge_attr = adj[u][v]
+            bw_available = edge_attr.get('bandwidth_capacity', 0) - edge_attr.get('bandwidth_used', 0)
+            if bw_available < min_bandwidth:
+                min_bandwidth = bw_available
+
+        return min_bandwidth
+
     def _has_resources(self, server, service):
         cpu_ok = self.server_resources[server]['cpu_free'] >= (self.service_requirements[service]['CPU']+1)
         cache_ok = self.server_resources[server]['cache_free'] >= (self.service_requirements[service]['cache']+1)
@@ -262,6 +289,10 @@ class NetworkEnv(gym.Env):
         for node_id in self.valid_nodes:
             cost_latency = (len(nx.shortest_path(self.G, self.current_location, node_id, weight='weight')) - 1 + self.latency_used) / self.latency_request
             state.append(min(cost_latency, 1))
+
+            cost_band = self.service_requirements[self.service]['out_bw'] /self.min_bandwidth_on_shortest_path(self.G, self.current_location,node_id)
+            state.append(min(cost_band, 1))
+
             if (not self._has_resources(node_id, self.service) and not (self.service,self.session_number) in self.server_resources[node_id]['reuse']) or cost_latency>1:
                 state.append(0)
             else:
