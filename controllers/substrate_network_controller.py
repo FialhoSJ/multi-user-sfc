@@ -211,6 +211,7 @@ class SubstrateNetworkController():
                 is_success,
                 fail_reason,
                 bw_transcode,
+                self.substrate_network.get_acceptance_rate(self.success),
                 latency_diff,
                 len(self.fail_manager.nodes_crashed)!=0
             )
@@ -221,12 +222,12 @@ class SubstrateNetworkController():
         #if results_dict:
             # output of the simulation
         if not res_output:
+            #if not results_dict['backup_sfc']:
+            self.success.append(is_success)
+
             output_network_resources(current_time=current_time)
             output_flows(current_time,sfc_id,results_dict['latency'],
                         results_dict['run_duration'],is_success)
-            
-            #if not results_dict['backup_sfc']:
-            self.success.append(is_success)
             
         sfcs_crash_aff = copy.deepcopy(list(self.sfcs_crash_affected.keys())) 
         if sfc_id in sfcs_crash_aff:
