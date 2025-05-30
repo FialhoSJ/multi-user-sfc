@@ -53,6 +53,9 @@ class MobilityManager:
         else:
             raise ValueError(f'Veh do player {player_id} não encontrado na simulação')
 
+    def mark_vehicle_as_redeploying(self,vehicle_id):
+        self.players_tracker[vehicle_id]['redeploying'] = True
+
     def check_all_vehicles_position_changes(self):
         """
         Verifica se algum veículo mudou de posição e retorna os IDs das SFCs associadas a eles.
@@ -82,7 +85,7 @@ class MobilityManager:
                         # Atualiza a posição e a distância do veículo no mapeamento
                         self.players_tracker[vehicle_id]['connected_router'] = closest_router      
                         # Marca esse veh fazendo redeploy
-                        self.players_tracker[vehicle_id]['redeploying'] = True
+                        self.mark_vehicle_as_redeploying(vehicle_id)
 
                         # Coleta os SFCs associados ao veículo
                         sfcs_ids = self.players_tracker[vehicle_id]['sfc_list']

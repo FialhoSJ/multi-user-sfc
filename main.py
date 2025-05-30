@@ -79,7 +79,7 @@ sbn_controller.substrate_network = network
 sbn_controller.sfc_queue = sfc_queue
 sbn_controller.sfc = args.sfc
 sbn_controller.alg = ALG.name
-sbn_controller.fail_manager = Crasher(topology=topology,args=args,interval=50)
+sbn_controller.fail_manager = Crasher(topology=topology,args=args,interval=150)
 
 # sbn_controller.backup_manager = BackupManager(args=args)
 sbn_controller.mobility_manager = MobilityManager(args)

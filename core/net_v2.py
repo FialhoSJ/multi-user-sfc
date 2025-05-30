@@ -47,7 +47,8 @@ class Net2:
                                 ips=ips*10e10,
                                 position=position,
                                 reuse=[],
-                                services={})
+                                services={},
+                                sfcs_list=[])
         elif node_type == 'mobile_device': # Grafo separado
             self.md_graph.add_node(node_id,
                                 type=node_type,
@@ -58,7 +59,8 @@ class Net2:
                                 ips=ips*10e10,
                                 position=position,
                                 reuse=[],
-                                services={})
+                                services={},
+                                sfcs_list=[])
         elif node_type == 'router':
             self.graph.add_node(node_id,type=node_type,
                                 cpu_capacity=cpu_capacity,
@@ -100,8 +102,6 @@ class Net2:
         if sfc_id not in self.sfc_route_info:
             self.sfc_route_info[sfc_id] = route_info
         
-        session = sfc_id.split("_")[-1]
-        total_latency = 0
         #edge servers => [2, 5, 6, 8, 9, 14, 18, 23, 25, 28, 33, 34])
         #try:
         for ms_name, path in route_info.items():
@@ -110,8 +110,7 @@ class Net2:
             vnf = sfc.get_vnf_by_id(ms_name)
             node_allocated = path[0]
 
-            comp_latency = self.allocate_microservice(vnf, node_allocated, session)
-            total_latency += comp_latency
+            self.allocate_microservice(sfc ,vnf, node_allocated)
             bw_req = vnf.get_outcome_interface_bandwidth()
 
             if len(path) > 1:
@@ -122,7 +121,6 @@ class Net2:
                         comm_latency = self.allocate_wireless_bandwidth(v,u,bw_req,ms_name)
                     else:
                         comm_latency = self.allocate_bandwidth(u, v, bw_req, ms_name)
-                    total_latency += comm_latency
         # except:
         #     print("aaaaa")
         #if flag_test == 0:
@@ -136,7 +134,6 @@ class Net2:
             raise ValueError(f"SFC {sfc_id} não encontrada.")
 
         sfc = self.sfc_dict[sfc_id]
-        session = sfc_id.split("_")[-1]
         route_info = self.sfc_route_info[sfc_id]
 
         for ms_name, path in route_info.items():
@@ -145,7 +142,8 @@ class Net2:
 
             vnf = sfc.get_vnf_by_id(ms_name)
             node_allocated = path[0]
-            self.deallocate_microservice(node_allocated, vnf, session)
+            
+            self.deallocate_microservice(node_allocated, sfc_id ,vnf)
             bw_req = vnf.get_outcome_interface_bandwidth()
             if len(path) > 1:
                 for u, v in zip(path[:-1], path[1:]):
@@ -163,15 +161,16 @@ class Net2:
         if self.total_cpu_used < 0  or self.total_cache_used < 0 or self.total_bandwidth_used < 0:
             raise ValueError(f"Recursos com valores Negativos")
 
-    def allocate_microservice(self, vnf, node_id, session_id):
+    def allocate_microservice(self, sfc, vnf, node_id):
         # TODO melhorar essa verificação. Funciona por agora, mas caso o código mude talvez seja necessário mudar
+        sfc_id = sfc.id
+        session = sfc_id.split("_")[-1]
         mobile = False
+        
         if isinstance(node_id, str): # Se é um mobile device 
-            ips_vm_capacity = 0.15*10e10
             node = self.md_graph.nodes[node_id]
             mobile = True
         else:
-            ips_vm_capacity = 0.2*10e10
             node = self.graph.nodes[node_id]
         
         service_id = vnf.id
@@ -194,8 +193,11 @@ class Net2:
             else:
                 self.total_cpu_used = round(self.total_cpu_used + cpu_required,2)
                 self.total_cache_used = round(self.total_cache_used + cache_required,2)
-
-        service_key = (service_id,session_id)
+        
+        if sfc_id not in node['sfcs_list']:
+            node['sfcs_list'].append(sfc_id)
+        
+        service_key = (service_id,session)
         if service_key in node['services']:
             node['services'][service_key]['copys'] += 1 # Serviço já instanciado, então incrementa o número de cópias
             if not self.is_shareable(service_id): # Se não for compartilhável ou a sessão não for a mesma, aumenta os recursos usados
@@ -205,10 +207,9 @@ class Net2:
             put_resource(cpu_required,cache_required,mobile)
             if self.is_shareable(service_id):
                 node['reuse'].append(vnf)
-                #self.shared_sfs[node_id].append(vnf) # Deve ser retura
-        return (vnf.get_income_interface_bandwidth()/60 * 10e6) * 10 *1000/ips_vm_capacity
+                # self.shared_sfs[node_id].append(vnf) # Deve ser retura
 
-    def deallocate_microservice(self, node_id, vnf, session_id):
+    def deallocate_microservice(self, node_id, sfc_id, vnf):
         mobile = False
         if isinstance(node_id, str):
             mobile = True
@@ -217,7 +218,7 @@ class Net2:
             node = self.graph.nodes[node_id]
         
         service_id = vnf.id
-
+        session_id = sfc_id.split("_")[-1]
         service_key = (service_id, session_id)
         if service_key not in node['services']:
             raise ValueError(f"Serviço {service_id} não encontrado no nó {node_id}.")
@@ -234,7 +235,10 @@ class Net2:
             else:
                 self.total_cpu_used = round(self.total_cpu_used - cpu_required,2)
                 self.total_cache_used = round(self.total_cache_used - cache_required,2)
-        
+
+        if sfc_id in node['sfcs_list']:
+            node['sfcs_list'].remove(sfc_id)
+
         if service_info['copys'] <= 0:
             del node['services'][service_key]
             take_resource(service_info['cpu'],service_info['cache'])
@@ -361,6 +365,9 @@ class Net2:
         # else:
         #    return calcular_latencia_um_ponto(distancia_m)
 
+    def get_node_sfcs(self, node_id):
+        return self.graph.nodes[node_id]["sfcs_list"]
+
     def get_sfc_by_id(self, sfc_id):
         return self.sfc_dict[sfc_id]
 
@@ -404,6 +411,24 @@ class Net2:
     def get_link_info(self, node1, node2):
         return self.graph.edges[node1, node2]
     
+    def set_node_down(self, node_id):
+        if node_id not in self.graph:
+            raise ValueError(f"Nó {node_id} não existe na topologia.")
+        
+        self.graph.nodes[node_id]['cpu_capacity'] = 0
+        self.graph.nodes[node_id]['cache_capacity'] = 0
+
+        if self.graph.nodes[node_id]['cpu_used'] > 0 or self.graph.nodes[node_id]['cache_used'] > 0 :
+            raise ValueError("Servidor deveria estar com zero de uso")
+
+    def restore_node(self, node_id, cpu_capacity, cache_capacity):
+        if node_id not in self.graph:
+            raise ValueError(f"Nó {node_id} não existe na topologia.")
+
+        self.graph.nodes[node_id]['cpu_capacity'] = cpu_capacity
+        self.graph.nodes[node_id]['cache_capacity'] = cache_capacity
+
+
     def get_node_cpu_used(self, node_id):
         if node_id not in self.graph:
             raise ValueError(f"Nó {node_id} não existe na topologia.")
