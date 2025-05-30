@@ -97,7 +97,8 @@ def create_output_dir(args,topology):
         "running_players",
         "running_sessions",
         "trascode_bw",
-        "crashing"
+        "crashing",
+        "acceptance_rate"
     ]
 
     res_fields = ["crash_trial","sfc_id","vnf_id","recover_success","backup_success","backup_efficient","latency_diff","latency_deg","resource_deg","time_to_recover"]
@@ -154,7 +155,7 @@ class OutputWritter:
                 str(time_to_recover) + "\n"
             file.write(line)
 
-    def output_flows(self,substrate_network,wait_time,running_players_sessions,counter,remaining_time,current_time, sfc_id, latency, run_duration, is_success,fail_reason,bw_transcode, latency_diff=None,crashing=False,alg_name='ga'):
+    def output_flows(self,substrate_network,wait_time,running_players_sessions,counter,remaining_time,current_time, sfc_id, latency, run_duration, is_success,fail_reason,bw_transcode,acceptance_rate, latency_diff=None,crashing=False,alg_name='ga'):
         cpu_utilization = round(substrate_network.get_cpu_utilization_rate(), 4)
         cache_utilization = round(substrate_network.get_cache_utilization_rate(), 4)
         bw_utilization = round(substrate_network.get_bandwidth_utilization_rate(), 4)
@@ -232,7 +233,8 @@ class OutputWritter:
             f"{running_players},"
             f"{running_sessions},"
             f"{bw_transcode},"
-            f"{crashing}\n"
+            f"{crashing},"
+            f"{acceptance_rate}\n"
         )
 
         with open(self.flows_file, "a") as file:
