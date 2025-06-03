@@ -238,8 +238,8 @@ class GreedyOptAlgorithm(Algorithm):
                 # if current_substrate_node == node_a or node_a in nodes_used:
                 #     continue
 
-                graph = copy.deepcopy(self.graph)  # Por segurança
-                path = get_available_shortest_path(graph,node_a,current_substrate_node,bandwidth_request)
+                # Por segurança
+                path = get_available_shortest_path(self.graph,node_a,current_substrate_node,bandwidth_request)
                 if path == []:
                     continue
                 # Verificando link (apenas se não for laço no mesmo nó)

@@ -1,5 +1,6 @@
 import networkx as nx
-import math 
+import math
+import copy 
 import random
 
 def calculate_5g_latency(
@@ -94,12 +95,12 @@ def get_shortest_path(graph, source, target):
 def get_available_shortest_path(graph, source, target, bandwidth_required):
     """Get the shortest path from source to target minimizing latency,
     considering only edges with bandwidth >= bandwidth_required."""
+    mygraph = copy.deepcopy(graph)
     try:
         # Cria subgrafo com arestas que têm banda suficiente
-        edges_filtered = [(u, v, d) for u, v, d in graph.edges(data=True) if d.get('bandwidth_capacity') - d.get('bandwidth_used') >= bandwidth_required]
+        edges_filtered = [(u, v, d) for u, v, d in mygraph.edges(data=True) if d.get('bandwidth_capacity') - d.get('bandwidth_used') >= bandwidth_required]
         subgraph = nx.Graph()
-        import copy
-        subgraph.add_nodes_from(graph.nodes(data=True))
+        subgraph.add_nodes_from(mygraph.nodes(data=True))
         subgraph.add_edges_from(edges_filtered)
 
         # Executa Dijkstra no subgrafo filtrado, ponderando pela latência
