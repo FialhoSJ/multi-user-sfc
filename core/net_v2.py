@@ -492,6 +492,13 @@ class Net2:
     def print_out_acceptance_information(self,success_arr):
         if len(success_arr) != 0: 
             print("Acceptance: ", str(round(np.mean(success_arr)*100,3))+'%', end=" ")
+            
+    def get_acceptance_rate(self,success_arr):
+        if len(success_arr) != 0: 
+            media = np.mean(success_arr)
+            media_porc = media*100
+            return media_porc
+
 
     def connect_mobile_user(self, user_id, router_id, cpu_capacity):
         # TODO A latência e banda dessa comunicação devem ser modelados 

@@ -6,7 +6,7 @@ from stable_baselines3 import PPO
 from stable_baselines3 import DQN
 from algorithms.environment import NetworkEnv
 import os
-
+import time
 from config import ROOT_PATH
 
 # Logging setup
@@ -65,10 +65,10 @@ class Kuririn:
         self.valid_nodes = None
     
         # Cost weights
-        self.cpu_factor = 3
-        self.cache_factor = 3
-        self.band_factor = 1.1
-        self.latency_factor = 1.1
+        self.cpu_factor = 2
+        self.cache_factor = 2
+        self.band_factor = 2
+        self.latency_factor = 1
 
         self.boot_factor = 0        
         self.env = None
@@ -222,8 +222,8 @@ class Kuririn:
         return list(reversed(services)), service_requirements
 
     def find_best_allocation_for_sfc(self, G,service_requirements, server_resources, services, dst):
-
-        self.env.G, self.env.substrate_network, self.env.valid_nodes  = self.graph, self.graph, self.valid_nodes
+        inicio = time.time()
+        self.env.G, self.env.G_backup, self.env.valid_nodes  = self.graph, copy.deepcopy(self.graph), self.valid_nodes
         self.env.set_server_resources(server_resources)
         self.env.services ,self.env.service_requirements =services, service_requirements
         self.env.latency_request,self.env.dst_node = self.latency_request, dst
@@ -231,7 +231,7 @@ class Kuririn:
 
         if not self.model:
             self._load_or_create_model(self.env)
-        self.model.learn(total_timesteps=2048)
+        #self.model.learn(total_timesteps=512)
         state, _ = self.env.reset()
         self.env.is_training = False
         self.env.allocation_results['dst'] = {'allocated_server': dst, 'path': [], 'cost': 0}
@@ -247,7 +247,7 @@ class Kuririn:
         if not self.env.success:
             if IS_TRAINING:
                 state, _ = self.env.reset()
-                self.model.learn(total_timesteps=2048)
+                self.model.learn(total_timesteps=2056)
                 state, _ = self.env.reset()
                 self.env.is_training = False
                 self.env.allocation_results['dst'] = {'allocated_server': dst, 'path': [], 'cost': 0}
@@ -273,7 +273,8 @@ class Kuririn:
         self.env.close()
         total_latency = sum(len(p) - 1 for p in route_info.values() if p)
         route_info['src'] = list(reversed(path_to_src))
-
+        fim = time.time()
+        # print(fim-inicio)
         return route_info, total_latency
 
     def evaluate_result(self, latency, route_info):
@@ -293,11 +294,11 @@ class Kuririn:
         if self.model_name == "ppo":
             if os.path.exists(self.model_path + ".zip"):
                 model = PPO.load(self.model_path)
-                self.model = PPO("MlpPolicy", env, verbose=0, learning_rate=0.00003, batch_size=64, n_steps=256, ent_coef=0.3,
+                self.model = PPO("MlpPolicy", env, verbose=0, learning_rate=0.0003, batch_size=64, n_steps=256, ent_coef=0.3,
                                 device ='cpu')
                 self.model.policy.load_state_dict(model.policy.state_dict())
             else:
-                self.model = PPO("MlpPolicy", env, verbose=0, learning_rate=0.00003, batch_size=64, n_steps=256, ent_coef=0.3, device='cpu')
+                self.model = PPO("MlpPolicy", env, verbose=0, learning_rate=0.0003, batch_size=64, n_steps=256, ent_coef=0.3, device='cpu')
 
         if self.model_name == "dqn":
             if os.path.exists(self.model_path + ".zip"):

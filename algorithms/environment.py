@@ -2,7 +2,7 @@ import gymnasium as gym
 import networkx as nx
 import numpy as np
 import copy
-import heapq
+import time
 from gymnasium import spaces
 
 RED = "\033[31m"
@@ -13,16 +13,20 @@ MAGENTA = "\033[35m"
 RESET = "\033[0m"
 
 class NetworkEnv(gym.Env):
-    def __init__(self,graph='',substrate_network=1, server_resources=1, services=[0] ,service_requirements=1,latency_request =1,dst=1,valid_nodes=1,pesos=None):
+    def __init__(self, graph='', substrate_network=1, server_resources=1, services=[0], service_requirements=1, latency_request=1, dst=1, valid_nodes=1, pesos=None):
         super().__init__()
-        
+
         self.G = graph
+        # MUDANÇA AQUI =============================
+        # Evita deepcopy pesado na inicialização; copia rasa (shallow copy)
+        self.G_backup = graph.copy() if hasattr(graph, 'copy') else graph
+        # MUDANÇA AQUI =============================
+
         self.server_resources_backup = server_resources
         self.server_resources = copy.deepcopy(self.server_resources_backup)
         self.show_allocation = True
         self.valid_nodes = valid_nodes
         self.session_number = ''
-        self.graph = substrate_network
 
         # Parâmetros dos serviços
         self.service_requirements = service_requirements
@@ -55,16 +59,29 @@ class NetworkEnv(gym.Env):
             dtype=np.float32
         )
         self.action_space = spaces.Discrete(len(self.valid_nodes))
-        
+
         # Cache de paths para evitar recalculá-los frequentemente
         self.cached_paths = {}
-    
-    def set_server_resources(self,server_resources):
+
+        # MUDANÇA AQUI =============================
+        # Cache para caminhos mínimos a partir da localização atual para todos os nós válidos
+        self.cached_all_shortest_paths = {}
+        # MUDANÇA AQUI =============================
+
+    def set_server_resources(self, server_resources):
         self.server_resources_backup = server_resources
         self.server_resources = copy.deepcopy(self.server_resources_backup)
 
     def reset(self, seed=None, options=None):
         self.server_resources = copy.deepcopy(self.server_resources_backup)
+        # MUDANÇA AQUI =============================
+        # Usa copy superficial para evitar overhead pesado
+        self.G = self.G_backup.copy() if hasattr(self.G_backup, 'copy') else self.G_backup
+        # Limpa caches de caminhos
+        self.cached_paths.clear()
+        self.cached_all_shortest_paths.clear()
+        # MUDANÇA AQUI =============================
+
         self.latency_used = 0
         self.current_location = copy.copy(self.dst_node)
         self.servers_used = []
@@ -78,12 +95,10 @@ class NetworkEnv(gym.Env):
         self.fail_reason = None
         self.allocation_results = {}
         self.path = None
-        
-        
+
         return self.get_normalized_state(), {}
 
     def step(self, action):
-        
         if not 0 <= action < (len(self.valid_nodes)):
             raise ValueError(f"Ação inválida: {action}. Deve estar entre 0 e {len(self.valid_nodes) - 1}.")
         done = False
@@ -94,21 +109,12 @@ class NetworkEnv(gym.Env):
         if (self.current_location, self.server) not in self.cached_paths:
             self.cached_paths[(self.current_location, self.server)] = nx.shortest_path(self.G, self.current_location, self.server, weight='weight')
 
-
         self.path = self.cached_paths[(self.current_location, self.server)]
-        
-        # for service_r, session in self.server_resources[self.server]['reuse']:
-        #     if self.service.startwith(service_r) and session == self.session_number:
-        #         self.reuse = True
-        #         break
 
-        if (self.service,self.session_number) in self.server_resources[self.server]['reuse']:
+        if (self.service, self.session_number) in self.server_resources[self.server]['reuse']:
             self.reuse = True
         else:
             self.reuse = False
-
-
-
 
         self.latency_used += len(self.path) - 1
 
@@ -123,62 +129,38 @@ class NetworkEnv(gym.Env):
                 if not self._has_resources(self.server, self.service):
                     self.total_cost = self.calculate_total_cost()
                     return self._fail_step('resource')
-    
+
             self.total_cost = self.calculate_total_cost()
             self.ac_total_cost += self.total_cost
             self.reward = -self.total_cost
             self.total_reward += self.reward
 
-            # if self.server in self.servers_used:
-            #     return self._fail_step('mesmo nó escolhido')
             self.servers_used.append(self.server)
-            # self.print_info_of_allocation()
 
-  
-        if not self.reuse:           
+        if not self.reuse:
             self._allocate_resources(self.server, self.service)
 
+        for i in range(len(self.path) - 1):
+            self.G._adj[self.path[i]][self.path[i + 1]]['bandwidth_used'] += self.service_requirements[self.service]['out_bw']
 
         if not self.is_training:
             self.allocation_results[self.service] = {
                 'allocated_server': self.server,
                 'path': self.path,
                 'cost': self.total_cost
-            }  
+            }
 
         done = self.service == self.services[-1]
         if not done:
             self.service = self.services[self.services.index(self.service) + 1]
-            
-
-        if done:
-            aux = 1
-        # if done and  self.min_cost > self.ac_total_cost:
-        #     self.min_cost = self.ac_total_cost
-        
 
         self.current_location = self.server
-        # if self.reuse:
-        #     self.reward += 5
+
         return self.get_normalized_state(), self.reward, done, False, {}
 
     # ===================
     # Custo e recursos
     # ===================
-
-    # def print_info_of_allocation(self):
-    #     if not self.is_training:
-    #             if self.show_allocation:
-    #                 # _ = 5
-    #                 print(f"\n{CYAN}Serviço Atual:{RESET} {self.service} - {GREEN}CPU Requisitada:{RESET} {self.service_requirements[self.service]['CPU']:.2f} | {GREEN}Cache Requisitada:{RESET} {self.service_requirements[self.service]['cache']}")
-    #                 print(f"{CYAN}Servidor:{RESET} {self.server} - {GREEN}CPU Disponível:{RESET} {self.server_resources[self.server]['cpu_free']:.2f} | {GREEN}Cache:{RESET} {self.server_resources[self.server]['cache_free']:.2f}")
-    #                 print(f"{YELLOW}Latência Máxima:{RESET} {self.latency_request} | {YELLOW}Latência Usada:{RESET} {self.latency_used}")
-    #                 print(f"{MAGENTA}Custo CPU:{RESET} {self.cpu_cost:.2f} | {MAGENTA}Custo Cache:{RESET} {self.cache_cost:.2f} | {MAGENTA}Custo Latência:{RESET} {self.latency_cost:.2f}")
-    #                 print(f"Custo extra por alocação repetida: {self.current_location==self.server}")
-    #                 print(f"{RED}Custo Total:{RESET} {self.total_cost:.2f} || {YELLOW}Reward Total:{RESET} {self.total_reward:.2f}")
-    #                 print(f"Servers Used :{self.servers_used}\n")
-    #                 print("-="*50)
-    #     pass
 
     def calculate_total_cost(self):
         cpu_req = 0 if self.reuse else self.service_requirements[self.service]['CPU']
@@ -186,16 +168,16 @@ class NetworkEnv(gym.Env):
         if cpu_req == 0:
             cpu_req = self.service_requirements[self.service]['CPU'] * 0.3
             cache_req = self.service_requirements[self.service]['cache'] * 0.3
-        
+
         cpu_avail = self.server_resources[self.server]["cpu_free"]
         cache_avail = self.server_resources[self.server]["cache_free"]
-        e = 10**-6
-        self.cpu_cost = (cpu_req / (cpu_avail + e) + 1) * self.cpu_factor 
-        self.cache_cost = (cache_req / (cache_avail + e) + 1) * self.cache_factor 
-        
-        self.latency_cost = (len(self.path) - 1) ** self.latency_factor 
+        e = 10 ** -6
+        self.cpu_cost = (cpu_req / (cpu_avail + e) + 1) ** self.cpu_factor
+        self.cache_cost = (cache_req / (cache_avail + e) + 1) ** self.cache_factor
+
+        self.latency_cost = (len(self.path) - 1) ** self.latency_factor
         min_band_avail = self.min_bandwidth_on_shortest_path(self.G, self.current_location, self.server)
-        self.bandwidth_cost = (self.service_requirements[self.service]['out_bw'] /min_band_avail + 1) ** self.band_factor  if min_band_avail != 0 else 0
+        self.bandwidth_cost = (self.service_requirements[self.service]['out_bw'] / min_band_avail + 1) ** self.band_factor if min_band_avail != 0 else 0
         self.boot_cost = 0
 
         if self.server in self.servers_used:
@@ -203,21 +185,27 @@ class NetworkEnv(gym.Env):
             self.cache_cost *= self.cache_factor
 
         return sum([self.cpu_cost, self.cache_cost, self.latency_cost, self.bandwidth_cost, self.boot_cost])
-    
 
-    def min_bandwidth_on_shortest_path(self,graph, source, target):
-        try:
-            # Obtem caminho mais curto considerando peso 'latency'
-            path = nx.shortest_path(graph, source=source, target=target, weight='latency')
-        except nx.NetworkXNoPath:
-            print(f"Nenhum caminho entre {source} e {target}")
-            return None
+    # Otimizado para usar cache pré-calculada na maior parte do tempo
+    def min_bandwidth_on_shortest_path(self, graph, source, target):
+        # MUDANÇA AQUI =============================
+        # Reutiliza o caminho já cacheado ou calcula se não existir
+        if (source, target) in self.cached_paths:
+            path = self.cached_paths[(source, target)]
+        else:
+            try:
+                path = nx.shortest_path(graph, source=source, target=target, weight='latency')
+                self.cached_paths[(source, target)] = path
+            except nx.NetworkXNoPath:
+                print(f"Nenhum caminho entre {source} e {target}")
+                return None
+        # MUDANÇA AQUI =============================
 
         min_bandwidth = float('inf')
-        adj = graph._adj  # acesso direto ao dict interno
+        adj = graph._adj
 
-        for i in range(len(path)-1):
-            u, v = path[i], path[i+1]
+        for i in range(len(path) - 1):
+            u, v = path[i], path[i + 1]
             edge_attr = adj[u][v]
             bw_available = edge_attr.get('bandwidth_capacity', 0) - edge_attr.get('bandwidth_used', 0)
             if bw_available < min_bandwidth:
@@ -226,8 +214,8 @@ class NetworkEnv(gym.Env):
         return min_bandwidth
 
     def _has_resources(self, server, service):
-        cpu_ok = self.server_resources[server]['cpu_free'] >= (self.service_requirements[service]['CPU']+1)
-        cache_ok = self.server_resources[server]['cache_free'] >= (self.service_requirements[service]['cache']+1)
+        cpu_ok = self.server_resources[server]['cpu_free'] >= (self.service_requirements[service]['CPU'] + 1)
+        cache_ok = self.server_resources[server]['cache_free'] >= (self.service_requirements[service]['cache'] + 1)
         return cpu_ok and cache_ok
 
     def _allocate_resources(self, server, service):
@@ -245,20 +233,23 @@ class NetworkEnv(gym.Env):
         state = self.get_normalized_state()
         self.total_cost = 1000
         self.reward = -self.total_cost
-        # self.ac_total_cost += self.total_cost
         done = True
-
-        # if done and  self.min_cost > self.ac_total_cost:
-        #     self.min_cost = self.total_cost
-        # self.print_info_of_allocation()
         return state, self.reward, done, False, {}
-
 
     # ===================
     # Estado do agente
     # ===================
 
     def get_normalized_state(self):
+        # MUDANÇA AQUI =============================
+        # Pré-calcular todos os caminhos mínimos de current_location para todos valid_nodes para evitar calcular vários nx.shortest_path
+        if self.current_location not in self.cached_all_shortest_paths:
+            try:
+                self.cached_all_shortest_paths[self.current_location] = nx.single_source_dijkstra_path(self.G, self.current_location, weight='weight')
+            except nx.NetworkXNoPath:
+                self.cached_all_shortest_paths[self.current_location] = {}
+        # MUDANÇA AQUI =============================
+
         state = []
 
         for node_id, res in self.server_resources.items():
@@ -272,28 +263,33 @@ class NetworkEnv(gym.Env):
                     state.append(1)
                 else:
                     state.append(0)
-    
 
         state.extend([
             self.service_requirements[self.service]["CPU"] / 100,
             self.service_requirements[self.service]["cache"] / 100
         ])
 
-
-
-        # Latência normalizada
         aux = min(self.latency_used / self.latency_request, 1)
         state.append(aux)
 
-        # Custo estimado de latência por caminho
         for node_id in self.valid_nodes:
-            cost_latency = (len(nx.shortest_path(self.G, self.current_location, node_id, weight='weight')) - 1 + self.latency_used) / self.latency_request
+            # MUDANÇA AQUI =============================
+            if node_id in self.cached_all_shortest_paths[self.current_location]:
+                path_to_node = self.cached_all_shortest_paths[self.current_location][node_id]
+                cost_latency = (len(path_to_node) - 1 + self.latency_used) / self.latency_request
+            else:
+                # Caso não tenha caminho, considera custo alto
+                cost_latency = 2  # maior que 1 para invalidar
+            
+            min_band = self.min_bandwidth_on_shortest_path(self.G, self.current_location, node_id)
+            cost_band = self.service_requirements[self.service]['out_bw'] / min_band if min_band and min_band != 0 else float('inf')
+            cost_band = min(cost_band, 1)
+
             state.append(min(cost_latency, 1))
+            state.append(cost_band)
+            # MUDANÇA AQUI =============================
 
-            cost_band = self.service_requirements[self.service]['out_bw'] /self.min_bandwidth_on_shortest_path(self.G, self.current_location,node_id)
-            state.append(min(cost_band, 1))
-
-            if (not self._has_resources(node_id, self.service) and not (self.service,self.session_number) in self.server_resources[node_id]['reuse']) or cost_latency>1:
+            if (not self._has_resources(node_id, self.service) and not (self.service, self.session_number) in self.server_resources[node_id]['reuse']) or cost_latency > 1:
                 state.append(0)
             else:
                 state.append(1)
