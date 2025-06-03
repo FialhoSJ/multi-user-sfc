@@ -26,7 +26,8 @@ from deap import base, creator, tools, algorithms
 import networkx as nx
 import numpy
 from multiprocessing import Pool
-from algorithms.networkUtils import get_link_bandwidth_free,pre_get_single_source_minimum_latency_path, get_link_latency,get_shortest_path
+from algorithms.networkUtils import get_link_bandwidth_free,pre_get_single_source_minimum_latency_path, get_link_latency,get_shortest_path, get_available_shortest_path
+from algorithms.networkUtils import calculate_computational_latency,calculate_latency_betwen_nodes
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 
 
@@ -77,6 +78,7 @@ class Genetic(Algorithm):
         self.cpu_weight   =  1
         self.cache_weight =  1
         self.band_weight  =  2
+        self.latency_weight  =  0.1
         self.boot_weight  =  1
 
         # Inicializar os atributos para medir o tempo
@@ -273,39 +275,58 @@ class Genetic(Algorithm):
             individual_w_dst = individual + [dst]
             node_cost = 0
             band_cost = 0
+            latency_cost = 0
+            total_latency = 0
             for service_index, server_id in enumerate(individual_w_dst):
                 if service_index >= len(services):
                     break
 
                 service = services[service_index]
+                vnf = self.sfc.get_vnf_by_id(service)
                 cpu_request = self.service_requirements[service]['CPU']
                 cache_request = self.service_requirements[service]['cache']
-                
+                bw_required = self.service_requirements[service]['out_bw']
+
                 cpu_available = self.graph.nodes[server_id]['cpu_capacity'] - self.graph.nodes[server_id]['cpu_used']
                 cache_available = self.graph.nodes[server_id]['cache_capacity'] - self.graph.nodes[server_id]['cache_used']
-
+                    
                 #TODO can reuse sf functionality missing
                 reuse_sfs = self.graph.nodes[server_id]['reuse']
                 LAMBDA = 0.0001
                 if server_id != dst:
                     if cpu_request < cpu_available and cache_request < cache_available:
                         reuse = service in reuse_sfs
-                        node_resource_cost = (self.graph.nodes[server_id]['cpu_used'] + cpu_request +LAMBDA)/100 + \
-                                            (self.graph.nodes[server_id]['cache_used'] + cache_request + LAMBDA)/100
-                        #node_resource_cost = 0.2 if reuse else 1
+                        node_resource_cost = (self.graph.nodes[server_id]['cpu_used'] + cpu_request + LAMBDA)/ self.graph.nodes[server_id]['cpu_capacity'] + \
+                                            (self.graph.nodes[server_id]['cache_used'] + cache_request + LAMBDA)/ self.graph.nodes[server_id]['cpu_capacity']
                     else:
                         return float('inf'),
                 else:
                     reuse = True
                     node_resource_cost = 0.2
-
+                comp_latency = calculate_computational_latency(self.graph,server_id,vnf)
                 node_cost += (self.cpu_weight * node_resource_cost) + (self.cache_weight * node_resource_cost)
+                
+                edge_latency = 0
                 if service_index < len(individual_w_dst) - 1:
                     next_server_id = individual_w_dst[service_index + 1]
-                    path_cost = (len(all_pairs_shortest_path[server_id][next_server_id]) - 1) * self.band_weight
-                    band_cost += path_cost
+                    path = get_available_shortest_path(self.graph,source=server_id,target=next_server_id,bandwidth_required=bw_required)
+                    if path == []:
+                        return float('inf'),
+                    link_band_cost = 0
+                    if len(path) > 1:
+                        for u, v in zip(path[:-1], path[1:]):
+                            edge_latency += calculate_latency_betwen_nodes(self.graph,u,v,vnf)
+                            bw_used = self.graph[u][v].get('bandwidth_used')
+                            bw_capacity = self.graph[u][v].get('bandwidth_capacity')  # evitar divisão por zero
+                            bw_cost = (bw_used + bw_required) / bw_capacity  # uso percentual após alocação
+                            link_band_cost += bw_cost
+
+                total_latency =  comp_latency       +  edge_latency
+
+                band_cost     += self.band_weight      *  link_band_cost
+                latency_cost  += self.latency_weight *  total_latency
                 
-            total_cost =  node_cost + band_cost
+            total_cost =  node_cost + band_cost + latency_cost
             return total_cost,
 
         def custom_mutation(individual):
