@@ -57,6 +57,10 @@ class SFCManager:
             substrate_network.undeploy_sfc(sfc.id)  
         del self.sfcs_tracker[sfc_list_id]
 
+    def get_sfc_List(self,sfc_id,sb_net):
+        sfc = sb_net.get_sfc_by_id(sfc_id) 
+        group_id = sfc.dst_node
+        return self.sfcs_tracker[group_id]['sfc_list']
 
 
 
