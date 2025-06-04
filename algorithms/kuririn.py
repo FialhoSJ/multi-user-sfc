@@ -5,6 +5,7 @@ import networkx as nx
 from stable_baselines3 import PPO
 from stable_baselines3 import DQN
 from algorithms.environment import NetworkEnv
+# from algorithms.networkUtils import calculate_computational_latency, calculate_latency_betwen_nodes
 import os
 import time
 from config import ROOT_PATH
@@ -25,7 +26,7 @@ MAGENTA = "\033[35m"
 RESET = "\033[0m"
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 N_STEPS=256
-IS_TRAINING = True
+IS_TRAINING = False
 
 os.environ["CUDA_VISIBLE_DEVICES"] = ""  # Isso desabilita o uso da GPU
 
@@ -259,11 +260,11 @@ class Kuririn:
                 print(f"Alocação falhou devido: {self.env.fail_reason}")
                 print(f"Alocação falha sugerida sfc {self.sfc.id}: {self.env.servers_used}")
                 self.fail_reason = self.env.fail_reason
-            return [], None
+                return [], None
         
-        print(f"Alocação sugerida sfc {self.sfc.id}: {self.env.servers_used}")
+        # print(f"Alocação sugerida sfc {self.sfc.id}: {self.env.servers_used}")
 
-        print(f"Latencia usada: {self.env.latency_used}")
+        # print(f"Latencia usada: {self.env.latency_used}")
         route_info = {
             key: list(reversed(value['path']))
             for key, value in self.env.allocation_results.items()
