@@ -1,8 +1,10 @@
 import random
+import math
 from core.net_v2 import Net2
 from topology.base.topology_base import TopologyBase
 
-LIGHT_SPEED = 3 * 10e8
+LIGHT_SPEED = 3e8
+
 CLOUD_LATENCY = 1
 BANDWIDTH_CAPACITY = 5000.0
 W_BANDWIDTH_CAPACITY = 2000.0
@@ -39,7 +41,7 @@ class LuxembourgV2(TopologyBase):
         net = Net2()
 
         # Adiciona os nós
-        net.add_node(0, node_type='server', cpu_capacity=0.0)
+        net.add_node(0, node_type='router', cpu_capacity=0.0)
         for node in self.nodes:
             if node in self.edge_computing_servers:
                 net.add_node(node, node_type='server', cpu_capacity=self.cpu_capacity,cache_capacity=self.cache_capacity,position=self.positions[node],ips=random.uniform(0.1, 0.2))
@@ -50,6 +52,11 @@ class LuxembourgV2(TopologyBase):
         # Adiciona as arestas com latência baseada na distância euclidiana
         for u, v in self.topology:
             latency_ms = random.uniform(1, 2)
+            pos_u = self.positions[u]
+            pos_v = self.positions[v]
+            dist = math.dist(pos_u, pos_v)  # metros
+            latency_ms = (dist / LIGHT_SPEED) * 1000  # converte para ms
+            latency_ms += round(random.uniform(0, 0.5),3)  # simula pequena variação de latência
             net.add_edge(u, v, bandwidth_capacity=self.bandwidth_capacity, latency=latency_ms)
 
         net.total_cpu_capacity = len(self.edge_computing_servers) * CPU_CAPACITY

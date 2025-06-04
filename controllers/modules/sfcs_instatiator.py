@@ -5,6 +5,7 @@ import math
 import random
 import traceback
 from utils.k_shortest_paths import k_shortest_paths
+from algorithms.networkUtils import calculate_computational_latency,calculate_latency_betwen_nodes
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 
 class SFCInstatiator:
@@ -111,9 +112,8 @@ class SFCInstatiator:
             cpu_required = vnf.get_cpu_request()
             cache_required = vnf.get_cache_request()
             node = graph.nodes[node_id]
-            ips = graph.nodes[node_id]['ips']
-            latency = (vnf.get_income_interface_bandwidth() /60 * 1e6) * 10 *1000/ips
-
+            latency = calculate_computational_latency(graph,node_id,vnf)
+            
             if node['type'] not in ['server', 'mobile_device']:
                 raise ValueError(f"Serviços só podem ser alocados em servidores ou usuários, não em '{node['type']}'.")
             # Verifica se há recursos disponíveis
@@ -136,17 +136,10 @@ class SFCInstatiator:
                     node['reuse'].append(vnf)
             return latency
         
-        def allocate_bandwidth(node1, node2, bw_required, ms_name):
-            if isinstance(node1,str):
-                data_packet = (bw_required/60)*1e6 
-                latency  = self.calcular_latencia_5g(data_packet,graph.nodes[node1]['position'])  * 2
-            elif isinstance(node2,str):
-                data_packet = (bw_required/60)*1e6 
-                latency  = self.calcular_latencia_5g(data_packet,graph.nodes[node2]['position'])  * 2
-            else:
-                latency = graph.edges[node1, node2]['latency'] * 2
+        def allocate_bandwidth(node1, node2, vnf, ms_name):
+            bw_required = vnf.get_outcome_interface_bandwidth() 
+            latency = calculate_latency_betwen_nodes(graph,node1,node2,vnf) 
             edge = graph.edges[node1, node2]
-
             # Verifica se há banda disponível
             if edge['bandwidth_used'] + bw_required > edge['bandwidth_capacity']:
                 raise ValueError(f"Banda excedida entre os nós {node1} e {node2} para serviço {ms_name}")
@@ -181,12 +174,9 @@ class SFCInstatiator:
                 'node': node_allocated,
                 'latencia_comp': comp_latency
             }
-            
-            bw_req = vnf.get_outcome_interface_bandwidth()
-
             if len(path) > 1:
                 for u, v in zip(path[:-1], path[1:]):
-                    comm_latency = allocate_bandwidth(u, v, bw_req, ms_name)
+                    comm_latency = allocate_bandwidth(u, v, vnf, ms_name)
                     total_latency += comm_latency
 
                     if ms_name not in tsaber['comunicacao']:
@@ -196,7 +186,7 @@ class SFCInstatiator:
                         'para': v,
                         'latencia_comm': comm_latency
                     })
-        if total_latency> 100:
+        if total_latency> 50:
             print(total_latency)
         return round(total_latency,2)
     

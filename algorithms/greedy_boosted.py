@@ -19,7 +19,8 @@ import logging
 import random
 import copy
 import networkx as nx
-from algorithms.networkUtils import get_shortest_path_length,get_shortest_path,pre_get_single_source_minimum_latency_path, get_link_latency
+from algorithms.networkUtils import get_shortest_path_length,get_shortest_path,pre_get_single_source_minimum_latency_path, get_link_latency, get_available_shortest_path
+from algorithms.networkUtils import calculate_computational_latency,calculate_latency_betwen_nodes
 
 # create logger
 logger = logging.getLogger(__name__)
@@ -136,19 +137,19 @@ class GreedyOptAlgorithm(Algorithm):
 
     def start_algorithm(self):
 
-        logger.info("Start algorithm")
+        #logger.info("Start algorithm")
         self.algorithm()
         is_success = self.check_solution()
         if is_success:
             try:
-                logger.info("Finished algorithm, success")
+                #logger.info("Finished algorithm, success")
                 return True  
             except:
                 self.handle_failure() 
                 return False
         else:
             self.handle_failure() 
-            logger.info("End algorithm, failed")
+            #logger.info("End algorithm, failed")
             return False
 
     def get_latency(self):
@@ -166,7 +167,7 @@ class GreedyOptAlgorithm(Algorithm):
         src_substrate_node = self.sfc.get_substrate_node(src_vnf)
         dst_substrate_node = self.sfc.get_substrate_node(dst_vnf)
         
-        single_source_minimum_latency_path = pre_get_single_source_minimum_latency_path(self.graph)
+        #single_source_minimum_latency_path = pre_get_single_source_minimum_latency_path(self.graph)
 
         route_info = {}
         bandwidth_usage_info = {}
@@ -194,7 +195,7 @@ class GreedyOptAlgorithm(Algorithm):
 
         nodes_used = []
         servers_to_check = list(server_resources.keys())
-        
+
         for i in range(number_of_vnfs - 1, -1, -1):
             prev_vnf = current_vnf.get_previous_vnf()
             vnf_id = prev_vnf.id
@@ -202,22 +203,11 @@ class GreedyOptAlgorithm(Algorithm):
             cache_request = self.sfc.get_vnf_cache_request(prev_vnf)
             bandwidth_request = self.sfc.get_link_bandwidth_request(prev_vnf.id, current_vnf.id)
 
+            min_path = []
             min_latency = float("inf")
             node = None
             random.shuffle(servers_to_check)
             for node_a in servers_to_check:
-                #if not self.mono:
-                # if not first_vnf:
-                #     if node_a == current_substrate_node or node_a in nodes_used:
-                #         continue
-                
-                # forbidden = False
-                # for vnf_f,node_f in self.forbidden_matches.items():
-                #     if node_f == node_a and vnf_f == vnf_id:
-                #         forbidden =True
-                # if forbidden:
-                #     continue
-
                 cpu_used = server_resources[node_a]['cpu_used']
                 cache_used = server_resources[node_a]['cache_used']
 
@@ -244,31 +234,27 @@ class GreedyOptAlgorithm(Algorithm):
                     logger.debug("Node %s não tem CACHE suficiente para %s",node_a, cache_request)
                     continue
                 
-                path = get_shortest_path(self.graph, current_substrate_node, node_a)
-                success = True
+                #path = get_shortest_path(self.graph, current_substrate_node, node_a)
+                # if current_substrate_node == node_a or node_a in nodes_used:
+                #     continue
+
+                # Por segurança
+                path = get_available_shortest_path(self.graph,node_a,current_substrate_node,bandwidth_request)
+                if path == []:
+                    continue
                 # Verificando link (apenas se não for laço no mesmo nó)
-                if node_a == node:
-                    edge_latency = 0
-                else:
-                    success = True
-                    for i in range(len(path) - 1):
-                        node1, node2 = path[i], path[i+1]
-                        edge_data = self.graph.get_edge_data(node1, node2)
-                        if edge_data is None:
-                            success = False
-                        bandwidth_capacity = edge_data.get('bandwidth_capacity', 0)
-                        bandwidth_used = edge_data.get('bandwidth_used', 0)
-                        bandwidth_free = bandwidth_capacity - bandwidth_used
-                        if bandwidth_free < bandwidth_request:
-                            success = False
-                if not success:
-                    continue    
-
-                edge_latency = max(0,single_source_minimum_latency_path[current_substrate_node][0][node_a])
-
+                comp_latency = calculate_computational_latency(self.graph,node_a,prev_vnf)                
+                edge_latency = 0
+                if len(path) > 1:
+                    for u, v in zip(path[:-1], path[1:]):
+                        edge_latency += calculate_latency_betwen_nodes(self.graph,u,v,prev_vnf)
+                
+                total_latency = comp_latency + edge_latency
+                
                 # Verifica se a latência desse caminho é a menor
-                if edge_latency < min_latency:
-                    min_latency = edge_latency
+                if total_latency < min_latency:
+                    min_path = path
+                    min_latency = total_latency
                     node = node_a
             
             # Se encontrou um nó para alocar
@@ -284,10 +270,9 @@ class GreedyOptAlgorithm(Algorithm):
                 if node == current_substrate_node:
                     route_info[prev_vnf.id] = [node]
                 else:
-                    route_info[prev_vnf.id] = single_source_minimum_latency_path[node][1][current_substrate_node]
+                    route_info[prev_vnf.id] = min_path
                 used_node.append(node)
                 latency += min_latency
-
             else:
                 logger.debug("Não foi possível alocar VNF")
                 self.route_info = {}
@@ -296,7 +281,6 @@ class GreedyOptAlgorithm(Algorithm):
 
             current_substrate_node = node
             current_vnf = prev_vnf
-            first_vnf = False
         try:
             path = get_shortest_path(self.graph,src_substrate_node, node)
             path_latency = get_shortest_path_length(self.graph,src_substrate_node, node)
@@ -321,5 +305,6 @@ class GreedyOptAlgorithm(Algorithm):
         for i in range(len(path) - 1):
             edge_latency = get_link_latency(self.graph,path[i], path[i + 1])
             self.latency = self.latency - edge_latency
+        pass
 
 

@@ -1,5 +1,6 @@
 import networkx as nx
-import math 
+import math
+import copy 
 import random
 
 def calculate_5g_latency(
@@ -41,6 +42,10 @@ def calculate_5g_latency(
         return latencia_ms
     return calcular_latencia_um_ponto(data)
 
+def calculate_computational_latency(graph,node,vnf):
+    ips = graph.nodes[node]['ips']
+    packet = vnf.get_income_interface_bandwidth()/60 * 1e6
+    return packet * 10 * 1000/ips
 
 def calculate_latency_betwen_nodes(graph,node1,node2,vnf):            
     data_packet = (vnf.get_outcome_interface_bandwidth()/60)*1e6 
@@ -50,22 +55,13 @@ def calculate_latency_betwen_nodes(graph,node1,node2,vnf):
         return calculate_5g_latency(data_packet,graph.nodes[node2]['position'])  
     else:
         return get_link_latency(graph,node1,node2)
-
-
-def calculate_latency_betwen_nodes(graph,node1,node2,vnf):            
-    data_packet = (vnf.get_outcome_interface_bandwidth()/60)*1e6 
-    if is_mobile_node(node1):
-        return calculate_5g_latency(data_packet,graph.nodes[node1]['position'])  
-    elif is_mobile_node(node2):
-        return calculate_5g_latency(data_packet,graph.nodes[node2]['position'])  
-    else:
-        return get_link_latency(node1,node2)
     
 def is_mobile_node(node):
     if isinstance(node,str):
         return True
     else:
         return False
+
 def pre_get_single_source_minimum_latency_path(graph):
     """Pre-calculate the shortest paths for all nodes in the network based on latency."""
     single_source_minimum_latency_path = {}
@@ -96,6 +92,22 @@ def get_shortest_path(graph, source, target):
     except nx.NetworkXNoPath:
         return []
 
+def get_available_shortest_path(graph, source, target, bandwidth_required):
+    """Get the shortest path from source to target minimizing latency,
+    considering only edges with bandwidth >= bandwidth_required."""
+    mygraph = copy.deepcopy(graph)
+    try:
+        # Cria subgrafo com arestas que têm banda suficiente
+        edges_filtered = [(u, v, d) for u, v, d in mygraph.edges(data=True) if d.get('bandwidth_capacity') - d.get('bandwidth_used') >= bandwidth_required]
+        subgraph = nx.Graph()
+        subgraph.add_nodes_from(mygraph.nodes(data=True))
+        subgraph.add_edges_from(edges_filtered)
+
+        # Executa Dijkstra no subgrafo filtrado, ponderando pela latência
+        return nx.dijkstra_path(subgraph, source, target, weight='latency')
+    except nx.NetworkXNoPath:
+        return []
+    
 def get_link_latency(graph, node1, node2):
     """Get the latency of the link between two nodes."""
     if not graph.has_edge(node1, node2):

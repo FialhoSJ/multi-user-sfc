@@ -302,7 +302,7 @@ class Net2:
             router['w_channel_used'] += bw_required
             self.total_bandwidth_used += bw_required
         data_packet = bw_required*10e6/60
-        latencia = self.calcular_latencia_5g(data=data_packet,distancia_m=500)
+        latencia = 0#self.calculate_5g_latency(data=data_packet,distancia_m=500)
         return latencia
 
     def release_wireless_bandwidth(self, node1, node2, ms_name):
@@ -322,18 +322,19 @@ class Net2:
         if services[ms_name]['copys'] == 0:
             del services[ms_name]
 
-    def calcular_latencia_5g(
+    def calculate_5g_latency(
         self,
+        graph,
         data,
-        distancia_m=500,
-        potencia_transmissao_dbm=30.0,
-        largura_banda_hz=100e6,
+        distancia_m=750,
+        potencia_transmissao_dbm=20.0,
+        largura_banda_hz=50e6,
         temperatura_kelvin=290,
         figura_ruido_db=10.0,
         eficiencia_codec=0.5,
         snr_minimo_db=0.0,
         freq_portadora_hz=3.5e9,
-        sigma_shadowing_db=0.001,
+        sigma_shadowing_db=6.00, #8.00
     ):
         """
         Calcula latência (ms) para uma dada distância em 5G, considerando path loss com shadowing.
@@ -345,8 +346,10 @@ class Net2:
         """
         BOLTZMANN = 1.380649e-23
 
+        # Função de perda de caminho com shadowing
         def path_loss_5g(distancia_m):
-            pl_db = 28.0 + 22 * math.log10(distancia_m) + 20 * math.log10(freq_portadora_hz / 1e9) #+ random.gauss(0, sigma_shadowing_db)
+            pl_db = 28.0 + 22 * math.log10(distancia_m) + 20 * math.log10(freq_portadora_hz / 1e9)
+            pl_db += random.gauss(0, sigma_shadowing_db)
             return 10 ** (-pl_db / 10)  # ganho linear
 
         def calcular_latencia_um_ponto(dado):
@@ -355,15 +358,30 @@ class Net2:
             ruido_w_hz = BOLTZMANN * temperatura_kelvin * (10 ** (figura_ruido_db / 10))
             snr_linear = (ganho * potencia_w) / (ruido_w_hz * largura_banda_hz)
             snr_linear = max(snr_linear, 10 ** (snr_minimo_db / 10))
-            taxa_bps = largura_banda_hz * math.log2(1 + snr_linear)
+            taxa_bps = largura_banda_hz * math.log2(1 + snr_linear) * eficiencia_codec
             latencia_ms = (dado / taxa_bps) * 1000  
             return latencia_ms
-        
         return calcular_latencia_um_ponto(data)
-        # if isinstance(distancia_m, (list, tuple)):
-        #     return [calcular_latencia_um_ponto(d) for d in distancia_m]
-        # else:
-        #    return calcular_latencia_um_ponto(distancia_m)
+
+    def calculate_computational_latency(self,graph,node,vnf):
+        ips = self.md_graph[node]['ips'] if self.is_mobile_node(node) else self.graph[node]['ips']
+        packet = vnf.get_income_interface_bandwidth() /60 * 1e6
+        return packet * 10 * 1000/ips
+    
+    def calculate_latency_betwen_nodes(self,graph,node1,node2,vnf):            
+        data_packet = (vnf.get_outcome_interface_bandwidth()/60)*1e6 
+        if self.is_mobile_node(node1):
+            return self.calculate_5g_latency(data_packet,self.md_graph.nodes[node1]['position'])  
+        elif self.is_mobile_node(node2):
+            return self.calculate_5g_latency(data_packet,self.md_graph.nodes[node2]['position'])  
+        else:
+            return self.get_link_latency(node1,node2)
+        
+    def is_mobile_node(self,node):
+        if isinstance(node,str):
+            return True
+        else:
+            return False
 
     def get_node_sfcs(self, node_id):
         return self.graph.nodes[node_id]["sfcs_list"]
@@ -513,6 +531,12 @@ class Net2:
         else:
             print("Bandwidth utilization: ", str(round(self.total_bandwidth_used*1.0/self.total_bandwidth_capacity*100,3))+'%', end=" ")
             print(f"     Failure for Band: {failure_band}%")
+
+    def get_acceptance_rate(self,success_arr):
+        if len(success_arr) != 0: 
+            media = np.mean(success_arr)
+            media_porc = media*100
+            return media_porc
 
     def print_out_acceptance_information(self,success_arr):
         if len(success_arr) != 0: 
