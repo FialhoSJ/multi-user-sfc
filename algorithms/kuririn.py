@@ -27,7 +27,6 @@ RESET = "\033[0m"
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 N_STEPS=256
 IS_TRAINING = False
-
 os.environ["CUDA_VISIBLE_DEVICES"] = ""  # Isso desabilita o uso da GPU
 
 
@@ -66,8 +65,8 @@ class Kuririn:
         self.valid_nodes = None
     
         # Cost weights
-        self.cpu_factor = 2
-        self.cache_factor = 2
+        self.cpu_factor = 2.3
+        self.cache_factor = 2.3
         self.band_factor = 2
         self.latency_factor = 1
 
@@ -160,7 +159,7 @@ class Kuririn:
                 return False
         else:
             self.handle_failure() 
-            logger.info("End algorithm, failed")
+            logger.info(f"End algorithm, failed: {self.fail_reason}")
             if IS_TRAINING:
                     self._save_model()
             return False
@@ -257,7 +256,7 @@ class Kuririn:
                     action, _ = self.model.predict(state, deterministic = True)
                     state, _, done, _, _ = self.env.step(action)             
             if not self.env.success:
-                print(f"Alocação falhou devido: {self.env.fail_reason}")
+                # print(f"Alocação falhou devido: {self.env.fail_reason}")
                 print(f"Alocação falha sugerida sfc {self.sfc.id}: {self.env.servers_used}")
                 self.fail_reason = self.env.fail_reason
                 return [], None
