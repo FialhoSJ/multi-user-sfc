@@ -14,10 +14,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Select MUAR arguments')
     parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
     parser.add_argument('--n_players', type=int, help='(int) number of players', default=4)
-    parser.add_argument('--threads', type=int, help='(int) number of cores to use', default=60)
-    parser.add_argument('--repetition', type=int, help='(int) repetitions', default=15)
+    parser.add_argument('--threads', type=int, help='(int) number of cores to use', default=6)
+    parser.add_argument('--repetition', type=int, help='(int) repetitions', default=12)
     parser.add_argument('--sfc', type=str, help='(str) on or off', default='on')
-    parser.add_argument('--alg', type=str, help='(str) algorithm name', default='goku') # osfem, msf, musfico, ga;...
+    parser.add_argument('--alg', type=str, help='(str) algorithm name', default='kuririn_ppo') # osfem, msf, musfico, ga;...
     # parser.add_argument('--share', type=str, help='(str) whether to share sfs or not', default='y')
     # parser.add_argument('--shareband', type=str, help='(str) whether to share sfs or not', default='y')
 #     parser.add_argument('--servers_to_crash', type=str, nargs='+', help='(list) list of reliability values',default=[3]) #0.95, 0.975, 0.99
@@ -31,10 +31,10 @@ if __name__ == '__main__':
     # Construção dos comandos a serem executados
     cmd = []
     #for servers_to_crash in args.servers_to_crash:
-    avas = ['1.0','0.99','0.97','0.95'] 
+    avas = ['1.0']
     number_of_fails = ['3']
 
-    for a in avas: # 3 
+    for a in avas: # 3
         for n in number_of_fails: # 1
             for _ in range(args.repetition):
                 command = './main.py' + \
@@ -47,10 +47,10 @@ if __name__ == '__main__':
                     ' --time ' + str(args.time)
                 cmd.append(command)
 
-    # Executar cada comando com um atraso de 1 segundo entre eles
+    # Executar cada comando com um atraso de 3 segundos entre as submissões
     for command in cmd:
         pool.apply_async(run_process, (command,))
-        time.sleep(1.0)  # Atraso antes de iniciar o próximo comando
+        time.sleep(3.0)  # Atraso antes de submeter o próximo comando (ALTERADO DE 1.0 PARA 3.0)
 
     pool.close()  # Nenhum outro trabalho será adicionado
     pool.join()  # Esperar por todos os processos terminarem
