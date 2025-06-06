@@ -26,7 +26,7 @@ MAGENTA = "\033[35m"
 RESET = "\033[0m"
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 N_STEPS=256
-IS_TRAINING = False
+IS_TRAINING = True
 os.environ["CUDA_VISIBLE_DEVICES"] = ""  # Isso desabilita o uso da GPU
 
 
@@ -41,9 +41,17 @@ def colect_session(texto):
         return None
     return sessao
 
-def remove_end_numbers(texto): 
-    texto = re.sub(r'\d+$','',texto)
-    return texto
+def remover_do_primeiro_digito_inclusive(texto):
+    # Procura pelo primeiro dígito na string
+    match = re.search(r'\d', texto)
+    if match:
+        # Se um dígito for encontrado, obtém o índice do início da correspondência (o primeiro dígito)
+        # Retorna a substring do início da string original ATÉ o índice do primeiro dígito (exclusivo)
+        return texto[:match.start()]
+    else:
+        # Se nenhum dígito for encontrado, retorna o texto original
+        return texto
+
 
 class Kuririn:
     def __init__(self, model_name):
@@ -65,8 +73,8 @@ class Kuririn:
         self.valid_nodes = None
     
         # Cost weights
-        self.cpu_factor = 2.3
-        self.cache_factor = 2.3
+        self.cpu_factor = 3
+        self.cache_factor = 3
         self.band_factor = 2
         self.latency_factor = 1
 
@@ -100,7 +108,9 @@ class Kuririn:
     def install_SFC(self, sfc):
         self.sfc = sfc
         self.latency_request = sfc.get_latency_request()
-        self.dst_substrate_node = sfc.dst_node
+        self.dst_vnf = self.sfc.get_dst_vnf()
+        self.dst_substrate_node = self.sfc.get_substrate_node(self.dst_vnf)
+       
         return sfc
 
     def get_latency(self):
@@ -202,7 +212,7 @@ class Kuririn:
                 'cpu_free': self.graph.nodes[server]['cpu_capacity']-self.graph.nodes[server]['cpu_used'],
                 'cache_free': self.graph.nodes[server]['cpu_capacity']-self.graph.nodes[server]['cache_used'],
                 # 'position': net_info.nodes[server]['position'],
-                'reuse': [(remove_end_numbers(service.id), colect_session(self.sfc.id)) for service in reuse] #TODO deve considerar a sessão também e não somente o nome
+                'reuse': [(service.id,self.sfc.id.split("_")[-1]) for service in reuse] #TODO deve considerar a sessão também e não somente o nome
             }
         return resources
 
@@ -222,16 +232,15 @@ class Kuririn:
         return list(reversed(services)), service_requirements
 
     def find_best_allocation_for_sfc(self, G,service_requirements, server_resources, services, dst):
-        inicio = time.time()
         self.env.G, self.env.G_backup, self.env.valid_nodes  = self.graph, copy.deepcopy(self.graph), self.valid_nodes
-        self.env.set_server_resources(server_resources)
         self.env.services ,self.env.service_requirements =services, service_requirements
         self.env.latency_request,self.env.dst_node = self.latency_request, dst
-        self.env.session_number=colect_session(self.sfc.id)   
-
+        self.env.session_number=colect_session(self.sfc.id)
+        self.env.current_vnf = self.dst_vnf   
+        self.env.sfc = self.sfc
         if not self.model:
             self._load_or_create_model(self.env)
-        #self.model.learn(total_timesteps=512)
+        self.model.learn(total_timesteps=512)
         state, _ = self.env.reset()
         self.env.is_training = False
         self.env.allocation_results['dst'] = {'allocated_server': dst, 'path': [], 'cost': 0}
@@ -273,8 +282,9 @@ class Kuririn:
         self.env.close()
         total_latency = sum(len(p) - 1 for p in route_info.values() if p)
         route_info['src'] = list(reversed(path_to_src))
-        fim = time.time()
-        # print(fim-inicio)
+        self.env.G.nodes = copy.deepcopy(self.env.nodes_r)
+        self.env.G._adj = copy.deepcopy(self.env.links_values)
+
         return route_info, total_latency
 
     def evaluate_result(self, latency, route_info):

@@ -119,7 +119,7 @@ class SFCInstatiator:
             # Verifica se há recursos disponíveis
             if node['cpu_used'] + cpu_required > node['cpu_capacity']:
                 raise ValueError(f"CPU excedida no nó {node_id} para serviço {service_id}")
-            if node['cache_used'] + cache_required > node['cpu_capacity']:
+            if node['cache_used'] + cache_required > node['cache_capacity']:
                 raise ValueError(f"Cache excedido no nó {node_id} para serviço {service_id}")
 
             if service_key in node['services']:
@@ -186,8 +186,8 @@ class SFCInstatiator:
                         'para': v,
                         'latencia_comm': comm_latency
                     })
-        if total_latency> 50:
-            print(total_latency)
+        # if total_latency> 50:
+        #     print(total_latency)
         return round(total_latency,2)
     
     def is_shareable(self,service_name):
