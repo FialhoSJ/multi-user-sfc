@@ -114,6 +114,29 @@ def get_link_latency(graph, node1, node2):
         raise ValueError(f"Aresta entre {node1} e {node2} não existe.")
     return graph.edges[node1, node2]['latency']
 
+def calcular_latencia_total(caminho, graph):
+    """
+    Calcula a latência total de um caminho dado entre os nós, somando as latências das arestas,
+    utilizando a função get_link_latency já existente.
+
+    Parâmetros:
+    - caminho: uma lista de nós que formam o caminho
+    - graph: o grafo onde as arestas possuem o atributo 'latency'
+
+    Retorna:
+    - latência total do caminho em milissegundos (float)
+    """
+    if len(caminho) < 2:
+        return 0  # Se o caminho tem menos de dois nós, não há latência
+
+    latencia_total = 0
+    for i in range(len(caminho) - 1):
+        node1, node2 = caminho[i], caminho[i + 1]
+        
+        # Usando a função get_link_latency para obter a latência da aresta entre node1 e node2
+        latencia_total += get_link_latency(graph, node1, node2)
+    
+    return latencia_total
 def get_node_cpu_used(graph, node_id):
     """Get the CPU used by a node."""
     if node_id not in graph:
