@@ -49,6 +49,7 @@ class SFCInstatiator:
             # algorithm.clear_all()
             # algorithm.install_substrate_network(substrate_network)
             algorithm.install_SFC(sfc)
+            algorithm.install_substrate_network(graph)
             s = time.time()
             alg_success = algorithm.start_algorithm()
             s2 = time.time()

@@ -18,7 +18,7 @@ logger.addHandler(file_handler)
 
 # Constants
 N_STEPS = 256
-IS_TRAINING = True
+IS_TRAINING = False
 os.environ["CUDA_VISIBLE_DEVICES"] = ""  # Desabilita o uso da GPU
 
 def collect_session(text):
@@ -130,12 +130,13 @@ class Kuririn:
 
     def algorithm(self):
         dst = self.sfc.get_substrate_node(self.sfc.get_dst_vnf())
-        nodes_resource = self.set_nodes_resources()
-        network_links = self.graph._adj  # Manter o deepcopy original
-        G = self.create_network_graph(network_links)
+        # nodes_resource = self.set_nodes_resources()
+        # network_links = self.graph._adj  # Manter o deepcopy original
+        # G = self.create_network_graph(network_links)
+        G = copy.deepcopy(self.graph)
         services, service_requirements = self.prepare_service_requirements(self.sfc.vnfs_dict)
 
-        route_info, latency = self.find_best_allocation_for_sfc(G, service_requirements, nodes_resource, services, dst)
+        route_info, latency = self.find_best_allocation_for_sfc(G, service_requirements,services, dst)
         return self.evaluate_result(latency, route_info)
 
     def create_network_graph(self, network_topology):
@@ -179,15 +180,16 @@ class Kuririn:
         service_requirements['dst'] = {'CPU': 0, 'cache': 0, 'out_bw': 0, 'in_bw': 0, 'latency': 0}
         return list(reversed(services)), service_requirements
 
-    def find_best_allocation_for_sfc(self, G, service_requirements, server_resources, services, dst):
+    def find_best_allocation_for_sfc(self, G, service_requirements,services, dst):
         self.env.set_graph(graph=G)
-        self.env.set_server_resources(server_resources)
+        # self.env.set_server_resources(server_resources)
         self.env.valid_nodes = self.valid_nodes
         self.env.services, self.env.service_requirements,self.env.service = services, service_requirements,services[0]
         self.env.latency_request= self.latency_request
         self.env.set_dst_node(dst)
+        self.env.sfc = self.sfc
         self.env.session_number = collect_session(self.sfc.id)
-        self.env.update_bandwidth_request()
+        self.env.update_bandwidth_required()
 
         # self.env.dst_vnf = self.dst_vnf
         # self.env.current_vnf = self.dst_vnf   
@@ -197,7 +199,7 @@ class Kuririn:
         if not self.model:
             self._load_or_create_model(self.env)
 
-        self.model.learn(total_timesteps=512)
+        #self.model.learn(total_timesteps=512)
         state, _ = self.env.reset()
         self.env.is_training = False
 
@@ -210,7 +212,7 @@ class Kuririn:
 
         if not self.env.success and IS_TRAINING:
             state, _ = self.env.reset()
-            self.model.learn(total_timesteps=1024)
+            self.model.learn(total_timesteps=2048)
             state, _ = self.env.reset()
             self.env.is_training = False
             self.env.allocation_results['dst'] = {'allocated_server': dst, 'path': [], 'cost': 0}

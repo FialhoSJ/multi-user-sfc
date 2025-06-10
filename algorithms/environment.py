@@ -6,17 +6,10 @@ from algorithms.networkUtils import calculate_computational_latency, calculate_l
 from gymnasium import spaces
 import time
 
-# Definindo cores para logs
-RED = "\033[31m"
-GREEN = "\033[32m"
-YELLOW = "\033[33m"
-CYAN = "\033[36m"
-MAGENTA = "\033[35m"
-RESET = "\033[0m"
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 
 class NetworkEnv(gym.Env):
-    def __init__(self, graph='',services=[0], service_requirements=1, latency_request=1, dst=1, valid_nodes=1, pesos=None, sfc=None):
+    def __init__(self, graph='', services=[0], service_requirements=1, latency_request=1, dst=1, valid_nodes=1, pesos=None, sfc=None):
         super().__init__()
 
         # Armazenando o grafo e outros parâmetros
@@ -46,21 +39,18 @@ class NetworkEnv(gym.Env):
         self.allocation_results = {}
 
         # Inicialização dos objetos sfc e dst_vnf
-        # self.sfc = sfc  # Certifique-se de que o objeto sfc é passado para o ambiente
-       
+        self.sfc = sfc  # Certifique-se de que o objeto sfc é passado para o ambiente       
         # Espaços de observação e ação
         self.observation_space = spaces.Box(
             low=0.0,
             high=1.0,
-            shape=(len(self.valid_nodes) * 6 + 3,),  # Pode ser melhor modularizado no futuro
+            shape=(len(self.valid_nodes) * 9,),  # Pode ser melhor modularizado no futuro
             dtype=np.float32
         )
         self.action_space = spaces.Discrete(len(self.valid_nodes))
 
         # Cache de paths para otimizar cálculos repetitivos
         self.cached_paths = {}
-        
-        # self.cached_all_shortest_paths = {}
 
     # def set_dst_vnf(self,dst_vnf):
     #     self.dst_vnf = dst_vnf
@@ -74,7 +64,7 @@ class NetworkEnv(gym.Env):
         # start_time = time.time()  # Início da medição de tempo
         # Recarrega os nós do grafo a partir do backup
         # print(f"Tempo para deep copy do grafo: {time.time() - start_time:.4f} segundos")  # Fim da medição de tempo
-        self.G._adj = copy.deepcopy(self.network_links_backup)
+        self.G = copy.deepcopy(self.G_backup)
         # Reinicializa as variáveis de controle e custos
         self.latency_used = 0
         self.current_location = self.dst_node
@@ -85,10 +75,10 @@ class NetworkEnv(gym.Env):
         self.fail_reason = None
         self.allocation_results = {}
         self.path = None
-        self.server_resources = copy.deepcopy(self.server_resources_backup)
+        # self.server_resources = copy.deepcopy(self.server_resources_backup)
         # self.set_dst_vnf(self.dst_vnf)
-        # self.bandwidth_request = self.sfc.get_link_bandwidth_request(self.prev_vnf.id, self.current_vnf.id)
-        self.bandwidth_request = self.service_requirements[self.service]["in_bw"]
+        # self.bandwidth_required = self.sfc.get_link_bandwidth_required(self.prev_vnf.id, self.current_vnf.id)
+        self.bandwidth_required = self.service_requirements[self.service]["in_bw"]
 
         return self.get_normalized_state(), {}
 
@@ -96,61 +86,54 @@ class NetworkEnv(gym.Env):
         """
         Realiza uma ação no ambiente, avaliando o sucesso ou falha.
         """
-
         if not 0 <= action < len(self.valid_nodes):
             raise ValueError(f"Ação inválida: {action}.")
         done = False
         self.server = self.valid_nodes[int(action)]
 
-        # self.prev_vnf = self.current_vnf.get_previous_vnf()
-        # self.bandwidth_request = self.service_requirements[self.services[self.services.index(self.service)+1]]["out_bw"]
+        if type(self.server) == type("a"):
+            aux=1
 
         # Verifica se o caminho já foi calculado e está em cache
         if (self.current_location, self.server) in self.cached_paths:
             self.path = self.cached_paths[(self.current_location, self.server)]
-            if not self.is_bandwidth_sufficient(self.path, self.bandwidth_request):
+            if not self.is_path_bandwidth_sufficient(self.G, self.path, self.bandwidth_required):
                 # Se a largura de banda não for suficiente, calcula o caminho com largura de banda disponível
-                self.path = get_available_shortest_path(self.G, self.current_location, self.server, self.bandwidth_request)
+                self.path = get_available_shortest_path(self.G, self.current_location, self.server, self.bandwidth_required)
                 self.cached_paths[(self.current_location, self.server)] = self.path
         else:
             # Se não, calcula o menor caminho sem considerar a largura de banda
-            self.path = get_available_shortest_path(self.G, self.current_location, self.server, self.bandwidth_request)
+            self.path = get_available_shortest_path(self.G, self.current_location, self.server, self.bandwidth_required)
             # Armazena o caminho no cache
             self.cached_paths[(self.current_location, self.server)] = self.path
 
-        self.reuse = self.check_reuse(self.service, self.server)
+        if not self.path:
+            aux=1
+        # Verifica se há recursos suficientes para alocar o serviço
+        if not self.allocate_resources_on_node(self.G, self.server,self.session_number, self.is_shareable):
+            self.total_cost = self.calculate_total_cost(self.G)
+            return self._fail_step('resource')
+
+        # Se os recursos estão disponíveis, aloca-os
+        
 
         # Atualiza a latência usada
         self.latency_used += calcular_latencia_total(self.path, self.G)
 
         # Verifica se os limites de latência ou largura de banda são atingidos
         if self.latency_used > self.latency_request:
-            self.total_cost = self.calculate_total_cost()
+            self.total_cost = self.calculate_total_cost(self.G)
             return self._fail_step('latency')
-        elif not self.path:
-            self.total_cost = self.calculate_total_cost()
+        elif not self.path and not self.allocate_bandwidth_along_path(self.G, self.path, self.bandwidth_required, self.service):
+            self.total_cost = self.calculate_total_cost(self.G)
             return self._fail_step('bandwidth')
-        else:
-            # Verifica se há recursos suficientes
-            if not self.reuse and not self._has_resources(self.server, self.service):
-                self.total_cost = self.calculate_total_cost()
-                return self._fail_step('resource')
+        
+        self.total_cost = self.calculate_total_cost(self.G)
+        self.ac_total_cost += self.total_cost
+        self.reward = -self.total_cost
+        self.total_reward += self.reward
+        self.servers_used.append(self.server)  # Usar set para adicionar o servidor
 
-            self.total_cost = self.calculate_total_cost()
-            self.ac_total_cost += self.total_cost
-            self.reward = -self.total_cost
-            self.total_reward += self.reward
-            self.servers_used.append(self.server)  # Usar set para adicionar o servidor
-
-        # Aloca recursos se necessário
-        if not self.reuse:
-            self._allocate_resources(self.server, self.service)
-
-        # Atualiza a largura de banda utilizada ao longo do caminho
-        for i in range(len(self.path) - 1):
-            self.G._adj[self.path[i]][self.path[i + 1]]['bandwidth_used'] += self.bandwidth_request
-
-        # Atualiza resultados da alocação se não estiver em treinamento
         if not self.is_training:
             self.allocation_results[self.service] = {
                 'allocated_server': self.server,
@@ -161,40 +144,69 @@ class NetworkEnv(gym.Env):
         done = self.service == self.services[-1]
         if not done:
             self.service = self.services[self.services.index(self.service) + 1]
-            self.update_bandwidth_request()
+            self.update_bandwidth_required()
         else:
             aux = 1
             self.success=True
         self.current_location = self.server
-        # self.current_vnf = self.prev_vnf
 
         return self.get_normalized_state(), self.reward, done, False, {}
     
     def set_graph(self,graph):
-        self.network_links_backup = graph._adj
+        self.G_backup = copy.deepcopy(graph)
         self.G = graph
 
-    def set_server_resources(self,server_resources):
-        self.server_resources_backup = server_resources
-        self.server_resources = copy.deepcopy(server_resources)
+    # def set_server_resources(self,server_resources):
+    #     self.server_resources_backup = server_resources
+    #     self.server_resources = copy.deepcopy(server_resources)
 
-    def update_bandwidth_request(self):
+    def update_bandwidth_required(self):
         if not self.service_requirements or not self.service:
             raise ValueError("Variaveis não instanciadas")
-        self.bandwidth_request = self.service_requirements[self.service]["in_bw"]
+        self.bandwidth_required = self.service_requirements[self.service]["in_bw"]
 
     def set_dst_node(self,dst_node):
         if not dst_node:
             raise ValueError("dst_node None")
         self.dst_node = dst_node
         self.current_location = dst_node
+    
+    def _has_resources(self,graph, node_id, vnf, session_id, is_shareable):
+        """
+        Verifica se o nó tem CPU e cache suficientes para alocar o VNF, 
+        considerando reutilização se o serviço for compartilhável.
+        
+        Parâmetros:
+        - graph: grafo com os nós contendo 'cpu_used', 'cpu_capacity', 'cache_used', 'cache_capacity'
+        - node_id: identificador do nó
+        - vnf: microsserviço com métodos get_cpu_request() e get_cache_request()
+        - session_id: usada para formar a chave de instância
+        - is_shareable: função que recebe service_id e retorna True se pode ser reutilizado
 
-    def _has_resources(self,server, service):
-        cpu_required = self.service_requirements[service]["cpu"]
-        cache_required = self.service_requirements[service]["cpu"]
-        cpu_aval = self.server_resources[server]["cpu_free"]
-        cache_aval = self.server_resources[server]["cache_free"]
-        return cpu_aval >= cpu_required+1 and cache_aval>= cache_required+1
+        Retorna:
+        - True se houver recursos disponíveis suficientes (considerando reutilização)
+        - False caso contrário
+        """
+        service_id = vnf.id
+        service_key = (service_id, session_id)
+        cpu_required = vnf.get_cpu_request()
+        cache_required = vnf.get_cache_request()
+        node = graph.nodes[node_id]
+
+        if node['type'] not in ['server', 'mobile_device']:
+            return False
+
+        # Se já existe e é reutilizável, não exige recursos adicionais
+        if service_key in node['services']:
+            if is_shareable(service_id):
+                return True
+
+        # Caso contrário, precisa de recursos suficientes
+        cpu_available = node['cpu_capacity'] - node['cpu_used']
+        cache_available = node['cache_capacity'] - node['cache_used']
+
+        return cpu_available >= cpu_required and cache_available >= cache_required
+
     
     def _fail_step(self, reason):
         self.fail_reason = reason
@@ -212,44 +224,119 @@ class NetworkEnv(gym.Env):
 
 
     
-    def _allocate_resources(self,server, service):
-        self.server_resources[server]["cpu_used"]+=self.service_requirements[service]["cpu"]
-        self.server_resources[server]["cache_used"]+=self.service_requirements[service]["cache"]
-
-        self.server_resources[server]["cpu_free"]-=self.service_requirements[service]["cpu"]
-        self.server_resources[server]["cache_free"]-=self.service_requirements[service]["cache"]
-
-
-
-
-
-    def is_bandwidth_sufficient(self, path, bandwidth_request):
+    def allocate_resources_on_node(self,graph, node_id,session_id, is_shareable):
         """
-        Verifica se há largura de banda suficiente ao longo do caminho.
-        """
-        min_bandwidth = float('inf')
-        for i in range(len(path) - 1):
-            u, v = path[i], path[i + 1]
-            edge_attr = self.G._adj[u][v]
-            bw_available = edge_attr.get('bandwidth_capacity', 0) - edge_attr.get('bandwidth_used', 0)
-            min_bandwidth = min(min_bandwidth, bw_available)
-        return min_bandwidth >= bandwidth_request
+        Verifica e aloca recursos (CPU e cache) em um nó do grafo.
 
-    def calculate_total_cost(self):
+        Parâmetros:
+        - graph: grafo com os nós e atributos de recursos
+        - node_id: identificador do nó alvo
+        - vnf: objeto do microsserviço com métodos get_cpu_request() e get_cache_request()
+        - session_id: identificador da sessão (usado na chave do serviço)
+        - is_shareable: função que recebe service_id e retorna True se o serviço é compartilhável
+
+        Retorna:
+        - latência computacional (float)
+        """
+        vnf = self.sfc.get_vnf_by_id(self.service)
+        service_id = vnf.id
+        service_key = (service_id, session_id)
+        cpu_required = vnf.get_cpu_request()
+        cache_required = vnf.get_cache_request()
+        node = graph.nodes[node_id]
+
+        if node['type'] not in ['server', 'mobile_device']:
+            return False
+        if node['cpu_used'] + cpu_required > node['cpu_capacity']:
+            return False
+        if node['cache_used'] + cache_required > node['cache_capacity']:
+            return False
+
+        if service_key in node['services']:
+            node['services'][service_key]['copys'] += 1
+            if not is_shareable(service_id):
+                node['cpu_used'] += cpu_required
+                node['cache_used'] += cache_required
+        else:
+            node['services'][service_key] = {
+                'cpu': cpu_required,
+                'cache': cache_required,
+                'copys': 1
+            }
+            node['cpu_used'] += cpu_required
+            node['cache_used'] += cache_required
+            if is_shareable(service_id):
+                node['reuse'].append(vnf)
+
+        return True
+    
+    def is_shareable(self,service_name):
+        # TODO Mudar para a informação de compartilháveis estar em uma variável separável.
+        #if self.shareable_node:
+        if True:
+            return service_name.startswith(SHAREABLE_PREFIXES)
+        else:
+            return False
+
+
+
+
+
+    def allocate_bandwidth_along_path(self,graph, path, bandwidth_required, ms_name):
+        """
+        Verifica e aloca banda em todos os enlaces de um caminho.
+        
+        Parâmetros:
+        - graph: grafo com os nós e enlaces (com atributos 'bandwidth_capacity' e 'bandwidth_used')
+        - path: lista de nós representando o caminho
+        - bandwidth_required: banda necessária para a transmissão
+        - ms_name: nome do microsserviço ou identificador da transmissão
+        
+        Retorna:
+        - soma das latências de comunicação entre os nós
+        """
+        total_latency = 0.0
+
+        # Primeira verificação: checa se há banda em todos os enlaces
+        for u, v in zip(path[:-1], path[1:]):
+            edge = graph.edges[u, v]
+            if edge['bandwidth_used'] + bandwidth_required > edge['bandwidth_capacity']:
+                raise False
+
+        # Segunda etapa: aloca efetivamente a banda e acumula latência
+        for u, v in zip(path[:-1], path[1:]):
+            edge = graph.edges[u, v]
+            vnf = self.sfc.get_vnf_by_id(ms_name)
+            latency = calculate_latency_betwen_nodes(graph, u, v, vnf)  # None se não houver VNF necessário
+            total_latency += latency
+
+            if ms_name in edge['services_in_transit']:
+                edge['services_in_transit'][ms_name]['copys'] += 1
+                edge['bandwidth_used'] += bandwidth_required
+            else:
+                edge['services_in_transit'][ms_name] = {'copys': 1, 'bw_used': bandwidth_required}
+                edge['bandwidth_used'] += bandwidth_required
+
+        return True
+    def calculate_total_cost(self, graph):
         """
         Calcula o custo total considerando recursos, latência e largura de banda.
+        Os valores de CPU, cache e tipo do nó são extraídos diretamente do grafo.
         """
-        cpu_req = self.service_requirements[self.service]["cpu"] if not self.reuse else 0
-        cache_req = self.service_requirements[self.service]["cache"] if not self.reuse else 0
+        node = graph.nodes[self.server]
+        vnf = self.sfc.get_vnf_by_id(self.service)  # Aqui, assumimos que self.service já é um objeto VNF com métodos abaixo
 
-        cpu_avail = self.server_resources[self.server]["cpu_free"]
-        cache_avail = self.server_resources[self.server]["cache_free"]
-        e = 10 ** -6
+        cpu_req = vnf.get_cpu_request() if not self.reuse else 0
+        cache_req = vnf.get_cache_request() if not self.reuse else 0
 
-        self.cpu_cost = (cpu_req / (cpu_avail + e) + 1) ** self.cpu_factor
-        self.cache_cost = (cache_req / (cache_avail + e) + 1) ** self.cache_factor
+        cpu_avail = node["cpu_capacity"] - node["cpu_used"]
+        cache_avail = node["cache_capacity"] - node["cache_used"]
+        e = 1e-6  # Para evitar divisão por zero
 
-        self.latency_cost = (self.latency_used / self.latency_request + 1) ** self.latency_factor
+        self.cpu_cost = ((cpu_req / (cpu_avail + e)) + 1) ** self.cpu_factor
+        self.cache_cost = ((cache_req / (cache_avail + e)) + 1) ** self.cache_factor
+
+        self.latency_cost = ((self.latency_used / self.latency_request) + 1) ** self.latency_factor
         self.bandwidth_cost = 0
         self.boot_cost = 0
 
@@ -257,7 +344,13 @@ class NetworkEnv(gym.Env):
             self.cpu_cost *= self.cpu_factor
             self.cache_cost *= self.cache_factor
 
-        return sum([self.cpu_cost, self.cache_cost, self.latency_cost, self.bandwidth_cost, self.boot_cost])
+        return sum([
+            self.cpu_cost,
+            self.cache_cost,
+            self.latency_cost,
+            self.bandwidth_cost,
+            self.boot_cost
+        ])
 
     def check_reuse(self, service, server):
         """
@@ -269,79 +362,78 @@ class NetworkEnv(gym.Env):
                     return True
         return False
 
-    # def min_bandwidth_on_shortest_path(self, graph, source, target):
-    #     """
-    #     Calcula a menor largura de banda disponível em um caminho mais curto.
-    #     """
-    #     path = get_available_shortest_path(self.G, target, source, self.bandwidth_request)
+    def is_path_bandwidth_sufficient(self,graph, path, bandwidth_required):
+        """
+        Verifica se todos os enlaces de um caminho possuem banda disponível suficiente.
 
-    #     min_bandwidth = float('inf')
-    #     for i in range(len(path) - 1):
-    #         u, v = path[i], path[i + 1]
-    #         edge_attr = graph._adj[u][v]
-    #         bw_available = edge_attr.get('bandwidth_capacity', 0) - edge_attr.get('bandwidth_used', 0)
-    #         min_bandwidth = min(min_bandwidth, bw_available)
+        Parâmetros:
+        - graph: grafo contendo os enlaces com 'bandwidth_capacity' e 'bandwidth_used'
+        - path: lista de nós representando o caminho (ex: [n1, n2, n3])
+        - bandwidth_required: quantidade de banda necessária (float)
 
-    #     return min_bandwidth
+        Retorna:
+        - True se todos os enlaces do caminho têm banda suficiente
+        - False caso contrário
+        """
+        for u, v in zip(path[:-1], path[1:]):
+            edge = graph.edges[u, v]
+            if edge['bandwidth_used'] + bandwidth_required > edge['bandwidth_capacity']:
+                return False
+        return True
+
 
     def get_normalized_state(self):
         """
-        Retorna o estado normalizado do ambiente.
+        Retorna o estado normalizado do ambiente com uma única iteração sobre os nós válidos.
         """
-        # if self.current_location not in self.cached_all_shortest_paths:
-        #     try:
-        #         self.cached_all_shortest_paths[self.current_location] = nx.single_source_dijkstra_path(self.G, self.current_location, weight='weight')
-        #     except nx.NetworkXNoPath:
-        #         self.cached_all_shortest_paths[self.current_location] = {}
-
         state = []
-        # for node_id, res in self.server_resources:
-        #     if node_id in self.valid_nodes:
-        #         state.extend([
-        #             (res['cpu_capacity'] - res['cpu_used']) / 100,
-        #             (res['cache_capacity'] - res['cache_used']) / 100,
-        #             1 if self.check_reuse(self.service, node_id) else 0
-        #         ])
-        #         state.append(1 if node_id in self.servers_used else 0)
 
         for node_id in self.valid_nodes:
+            node = self.G.nodes[node_id]
+            cpu_free = node["cpu_capacity"] - node["cpu_used"]
+            cache_free = node["cache_capacity"] - node["cache_used"]
+
+            # Parte 1: estado de recursos e flags
             state.extend([
-                (self.server_resources[node_id]["cpu_free"]/100),
-                (self.server_resources[node_id]["cache_free"]/100),
-                1 if self.check_reuse(self.service, node_id) else 0
+                cpu_free / 100,
+                cache_free / 100,
+                1 if self.check_reuse(self.service, node_id) else 0,
+                1 if node_id in self.servers_used else 0
             ])
-            state.append(1 if node_id in self.servers_used else 0)
 
-        # Adicionando dados do serviço
-        state.extend([
-            self.service_requirements[self.service]["cpu"] / 100,
-            self.service_requirements[self.service]["cache"] / 100
-        ])
+            # Parte 2: informações fixas do serviço (repetidas para cada nó)
+            state.extend([
+                self.service_requirements[self.service]["cpu"] / 100,
+                self.service_requirements[self.service]["cache"] / 100,
+                min(self.latency_used / self.latency_request, 1)
+            ])
 
-        aux = min(self.latency_used / self.latency_request, 1)
-        state.append(aux)
-
-        # Adicionando dados da latência
-        for node_id in self.valid_nodes:
-            if (self.current_location,node_id) in self.cached_paths:
-                path_to_node = self.cached_paths[(self.current_location, node_id)]
-                if not self.is_bandwidth_sufficient(path_to_node,self.bandwidth_request):
-                    path_to_node = get_available_shortest_path(self.G,self.current_location, node_id, self.bandwidth_request)
-                    self.cached_paths[(self.current_location, node_id)] = path_to_node
+            # Parte 3: latência e viabilidade de alocação
+            if (self.current_location, node_id) not in self.cached_paths:
+                path = get_available_shortest_path(self.G, self.current_location, node_id, self.bandwidth_required)
+                self.cached_paths[(self.current_location, node_id)] = path
             else:
-                path_to_node= get_available_shortest_path(self.G, self.current_location, node_id, self.bandwidth_request)
-                self.cached_paths[(self.current_location, node_id)] = path_to_node
+                path = self.cached_paths[(self.current_location, node_id)]
 
-            cost_latency = calcular_latencia_total(path_to_node, self.G) / self.latency_request if path_to_node else 1
-            state.extend([min(cost_latency, 1)])
+            cost_latency = calcular_latencia_total(path, self.G) / self.latency_request if path else 1
+            state.append(min(cost_latency, 1))
 
-            # Verifica se o servidor tem recursos suficientes
-            if (not self._has_resources(node_id, self.service) and not self.check_reuse(self.service, node_id))  or cost_latency >= 1:
-                state.append(0)
-            else:
-                state.append(1)
+            # Parte 4: binário - se pode alocar com base em latência e recursos
+            can_allocate = (
+                self._has_resources(self.G, node_id, self.sfc.get_vnf_by_id(self.service), self.session_number, self.is_shareable)
+                or self.check_reuse(self.service, node_id)
+            ) and cost_latency < 1
+
+            state.append(1 if can_allocate else 0)
 
         return np.array(state, dtype=np.float32)
+    
+
+    def is_shareable(self, service_id):
+        for prefix in SHAREABLE_PREFIXES:
+            if service_id.startswith(prefix):
+                return True
+        return False
 
 def verificar_chave(dicionario, chave, prefixo):
     string1, string2 = chave  # Desempacotando a tupla (string1, string2)
@@ -353,3 +445,7 @@ def verificar_chave(dicionario, chave, prefixo):
             if string1.startswith(prefixo):
                 return True  # Chave encontrada
     return False  # Chave não encontrada
+
+
+
+
