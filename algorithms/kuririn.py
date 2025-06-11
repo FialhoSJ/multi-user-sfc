@@ -130,9 +130,7 @@ class Kuririn:
 
     def algorithm(self):
         dst = self.sfc.get_substrate_node(self.sfc.get_dst_vnf())
-        # nodes_resource = self.set_nodes_resources()
-        # network_links = self.graph._adj  # Manter o deepcopy original
-        # G = self.create_network_graph(network_links)
+
         G = copy.deepcopy(self.graph)
         services, service_requirements = self.prepare_service_requirements(self.sfc.vnfs_dict)
 

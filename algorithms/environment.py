@@ -52,18 +52,11 @@ class NetworkEnv(gym.Env):
         # Cache de paths para otimizar cálculos repetitivos
         self.cached_paths = {}
 
-    # def set_dst_vnf(self,dst_vnf):
-    #     self.dst_vnf = dst_vnf
-    #     self.current_vnf = self.dst_vnf
-    #     self.prev_vnf = self.current_vnf.get_previous_vnf()
-
     def reset(self, seed=None, options=None):
         """
         Reinicia o ambiente e reinicializa os parâmetros, restaurando o estado original do grafo.
         """
-        # start_time = time.time()  # Início da medição de tempo
-        # Recarrega os nós do grafo a partir do backup
-        # print(f"Tempo para deep copy do grafo: {time.time() - start_time:.4f} segundos")  # Fim da medição de tempo
+
         self.G = copy.deepcopy(self.G_backup)
         # Reinicializa as variáveis de controle e custos
         self.latency_used = 0
@@ -75,9 +68,6 @@ class NetworkEnv(gym.Env):
         self.fail_reason = None
         self.allocation_results = {}
         self.path = None
-        # self.server_resources = copy.deepcopy(self.server_resources_backup)
-        # self.set_dst_vnf(self.dst_vnf)
-        # self.bandwidth_required = self.sfc.get_link_bandwidth_required(self.prev_vnf.id, self.current_vnf.id)
         self.bandwidth_required = self.service_requirements[self.service]["in_bw"]
 
         return self.get_normalized_state(), {}
@@ -90,9 +80,6 @@ class NetworkEnv(gym.Env):
             raise ValueError(f"Ação inválida: {action}.")
         done = False
         self.server = self.valid_nodes[int(action)]
-
-        if type(self.server) == type("a"):
-            aux=1
 
         # Verifica se o caminho já foi calculado e está em cache
         if (self.current_location, self.server) in self.cached_paths:
@@ -107,26 +94,20 @@ class NetworkEnv(gym.Env):
             # Armazena o caminho no cache
             self.cached_paths[(self.current_location, self.server)] = self.path
 
-        if not self.path:
-            aux=1
         # Verifica se há recursos suficientes para alocar o serviço
         if not self.allocate_resources_on_node(self.G, self.server,self.session_number, self.is_shareable):
             self.total_cost = self.calculate_total_cost(self.G)
             return self._fail_step('resource')
 
-        # Se os recursos estão disponíveis, aloca-os
         
-
-        # Atualiza a latência usada
-        self.latency_used += calcular_latencia_total(self.path, self.G)
-
-        # Verifica se os limites de latência ou largura de banda são atingidos
-        if self.latency_used > self.latency_request:
-            self.total_cost = self.calculate_total_cost(self.G)
-            return self._fail_step('latency')
-        elif not self.path and not self.allocate_bandwidth_along_path(self.G, self.path, self.bandwidth_required, self.service):
+        if not self.path and not self.allocate_bandwidth_along_path(self.G, self.path, self.bandwidth_required, self.service):
             self.total_cost = self.calculate_total_cost(self.G)
             return self._fail_step('bandwidth')
+        
+        # Verifica se os limites de latência ou largura de banda são atingidos
+        elif self.latency_used > self.latency_request:
+            self.total_cost = self.calculate_total_cost(self.G)
+            return self._fail_step('latency')
         
         self.total_cost = self.calculate_total_cost(self.G)
         self.ac_total_cost += self.total_cost
@@ -146,7 +127,6 @@ class NetworkEnv(gym.Env):
             self.service = self.services[self.services.index(self.service) + 1]
             self.update_bandwidth_required()
         else:
-            aux = 1
             self.success=True
         self.current_location = self.server
 
@@ -155,10 +135,6 @@ class NetworkEnv(gym.Env):
     def set_graph(self,graph):
         self.G_backup = copy.deepcopy(graph)
         self.G = graph
-
-    # def set_server_resources(self,server_resources):
-    #     self.server_resources_backup = server_resources
-    #     self.server_resources = copy.deepcopy(server_resources)
 
     def update_bandwidth_required(self):
         if not self.service_requirements or not self.service:
@@ -278,10 +254,6 @@ class NetworkEnv(gym.Env):
         else:
             return False
 
-
-
-
-
     def allocate_bandwidth_along_path(self,graph, path, bandwidth_required, ms_name):
         """
         Verifica e aloca banda em todos os enlaces de um caminho.
@@ -317,7 +289,8 @@ class NetworkEnv(gym.Env):
                 edge['services_in_transit'][ms_name] = {'copys': 1, 'bw_used': bandwidth_required}
                 edge['bandwidth_used'] += bandwidth_required
 
-        return True
+        self.latency_used += total_latency
+        return True, total_latency
     def calculate_total_cost(self, graph):
         """
         Calcula o custo total considerando recursos, latência e largura de banda.
