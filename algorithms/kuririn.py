@@ -18,7 +18,7 @@ logger.addHandler(file_handler)
 
 # Constants
 N_STEPS = 256
-IS_TRAINING = False
+IS_TRAINING = True
 os.environ["CUDA_VISIBLE_DEVICES"] = ""  # Desabilita o uso da GPU
 
 def collect_session(text):
@@ -42,12 +42,13 @@ class Kuririn:
         self.is_backup = False
         self.valid_nodes = None
         self.last_propose= None
+        self.precomputed_paths = {}
     
         # Cost weights
         self.cpu_factor = 3
         self.cache_factor = 3
         self.band_factor = 2
-        self.latency_factor = 1
+        self.latency_factor = 2
         self.boot_factor = 0
         self.env = None
 
@@ -131,7 +132,7 @@ class Kuririn:
     def algorithm(self):
         dst = self.sfc.get_substrate_node(self.sfc.get_dst_vnf())
 
-        G = copy.deepcopy(self.graph)
+        G = self.graph
         services, service_requirements = self.prepare_service_requirements(self.sfc.vnfs_dict)
 
         route_info, latency = self.find_best_allocation_for_sfc(G, service_requirements,services, dst)
@@ -183,7 +184,7 @@ class Kuririn:
         # self.env.set_server_resources(server_resources)
         self.env.valid_nodes = self.valid_nodes
         self.env.services, self.env.service_requirements,self.env.service = services, service_requirements,services[0]
-        self.env.latency_request= self.latency_request
+        self.env.latency_request= 7
         self.env.set_dst_node(dst)
         self.env.sfc = self.sfc
         self.env.session_number = collect_session(self.sfc.id)
@@ -197,7 +198,7 @@ class Kuririn:
         if not self.model:
             self._load_or_create_model(self.env)
 
-        #self.model.learn(total_timesteps=512)
+        self.model.learn(total_timesteps=256)
         state, _ = self.env.reset()
         self.env.is_training = False
 
@@ -210,7 +211,7 @@ class Kuririn:
 
         if not self.env.success and IS_TRAINING:
             state, _ = self.env.reset()
-            self.model.learn(total_timesteps=2048)
+            self.model.learn(total_timesteps=1024)
             state, _ = self.env.reset()
             self.env.is_training = False
             self.env.allocation_results['dst'] = {'allocated_server': dst, 'path': [], 'cost': 0}
@@ -222,6 +223,7 @@ class Kuririn:
         if not self.env.success:
             print(f"Alocação falha sugerida SFC :{self.env.servers_used} - ultimo nó escolhido {self.env.server}")
             self.fail_reason = self.env.fail_reason
+            print(f"Causa Falha: {self.fail_reason}")
             return [], None
         print(f"Solução sfc {self.sfc.id}: {self.env.servers_used}")
         self.last_propose = self.env.servers_used
@@ -230,7 +232,11 @@ class Kuririn:
             for key, value in self.env.allocation_results.items()
         }
 
-        path_to_src = nx.dijkstra_path(G, self.env.current_location, 0, weight='weight')
+        # Armazene caminhos em um dicionário para evitar recalcular
+        if (self.env.current_location, 0) not in self.precomputed_paths:
+            self.precomputed_paths[(self.env.current_location, 0)] = nx.dijkstra_path(G, self.env.current_location, 0, weight='weight')
+
+        path_to_src = self.precomputed_paths[(self.env.current_location, 0)]
         self.env.close()
         total_latency = sum(len(p) - 1 for p in route_info.values() if p)
         route_info['src'] = list(reversed(path_to_src))
@@ -250,10 +256,11 @@ class Kuririn:
         if self.model_name == "ppo":
             if os.path.exists(self.model_path + ".zip"):
                 model = PPO.load(self.model_path)
-                self.model = PPO("MlpPolicy", env, verbose=0, learning_rate=0.0003, batch_size=64, n_steps=256, ent_coef=0.3, device='cpu')
+                self.model = PPO("MlpPolicy", env, verbose=0, learning_rate=0.0003, batch_size=64, n_steps=256, ent_coef=0.25,
+                                device ='cpu')
                 self.model.policy.load_state_dict(model.policy.state_dict())
             else:
-                self.model = PPO("MlpPolicy", env, verbose=0, learning_rate=0.0003, batch_size=64, n_steps=256, ent_coef=0.3, device='cpu')
+                self.model = PPO("MlpPolicy", env, verbose=0, learning_rate=0.0003, batch_size=64, n_steps=256, ent_coef=0.25, device='cpu')
         elif self.model_name == "dqn":
             if os.path.exists(self.model_path + ".zip"):
                 model = DQN.load(self.model_path)

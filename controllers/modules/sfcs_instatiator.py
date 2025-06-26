@@ -49,10 +49,11 @@ class SFCInstatiator:
             # algorithm.clear_all()
             # algorithm.install_substrate_network(substrate_network)
             algorithm.install_SFC(sfc)
-            algorithm.install_substrate_network(graph)
+            algorithm.install_substrate_network(copy.deepcopy(graph))
             s = time.time()
             alg_success = algorithm.start_algorithm()
             s2 = time.time()
+            # print("Tempo alg: ",s2-s)
             
             if alg_success: # No geral o algoritmo só vai dar erro caso tenha feito alocação indevida
                 total_latency = None
