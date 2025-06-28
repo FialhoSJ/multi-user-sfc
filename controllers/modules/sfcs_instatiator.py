@@ -53,6 +53,8 @@ class SFCInstatiator:
             s = time.time()
             alg_success = algorithm.start_algorithm()
             s2 = time.time()
+            print(f"Algorithm {self.alg.name} Take time     :   {round((s2-s)*1000,3)} ms")
+
             # print("Tempo alg: ",s2-s)
             
             if alg_success: # No geral o algoritmo só vai dar erro caso tenha feito alocação indevida

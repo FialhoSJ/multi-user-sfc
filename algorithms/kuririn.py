@@ -19,6 +19,7 @@ logger.addHandler(file_handler)
 # Constants
 N_STEPS = 256
 IS_TRAINING = True
+VERBOSE = False
 os.environ["CUDA_VISIBLE_DEVICES"] = ""  # Desabilita o uso da GPU
 
 def collect_session(text):
@@ -47,7 +48,7 @@ class Kuririn:
         # Cost weights
         self.cpu_factor = 3
         self.cache_factor = 3
-        self.band_factor = 2
+        self.band_factor = 3
         self.latency_factor = 2
         self.boot_factor = 0
         self.env = None
@@ -184,7 +185,7 @@ class Kuririn:
         # self.env.set_server_resources(server_resources)
         self.env.valid_nodes = self.valid_nodes
         self.env.services, self.env.service_requirements,self.env.service = services, service_requirements,services[0]
-        self.env.latency_request= 7
+        self.env.latency_request= self.latency_request
         self.env.set_dst_node(dst)
         self.env.sfc = self.sfc
         self.env.session_number = collect_session(self.sfc.id)
@@ -198,7 +199,7 @@ class Kuririn:
         if not self.model:
             self._load_or_create_model(self.env)
 
-        self.model.learn(total_timesteps=256)
+        #self.model.learn(total_timesteps=256)
         state, _ = self.env.reset()
         self.env.is_training = False
 
@@ -221,11 +222,14 @@ class Kuririn:
                 state, _, done, _, _ = self.env.step(action)
         
         if not self.env.success:
-            print(f"Alocação falha sugerida SFC :{self.env.servers_used} - ultimo nó escolhido {self.env.server}")
+            if not VERBOSE:
+                # print(f"Alocação falha sugerida SFC :{self.env.servers_used} - ultimo nó escolhido {self.env.server}")
+                print(f"Causa Falha: {self.env.fail_reason}")
             self.fail_reason = self.env.fail_reason
-            print(f"Causa Falha: {self.fail_reason}")
+            
             return [], None
-        print(f"Solução sfc {self.sfc.id}: {self.env.servers_used}")
+        if not VERBOSE:
+            print(f"Solução sfc {self.sfc.id}: {self.env.servers_used}")
         self.last_propose = self.env.servers_used
         route_info = {
             key: list(reversed(value['path']))

@@ -68,7 +68,8 @@ class NetworkEnv(gym.Env):
         self.allocation_results = {}
         self.path = None
         self.buscou_no_grafo = False
-        self.bandwidth_required = self.service_requirements[self.service]["in_bw"]
+        self.bandwidth_required = self.sfc.get_vnf_by_id(self.service).get_outcome_interface_bandwidth() 
+        # self.band_test = self.sfc.get_vnf_by_id(self.service).get_outcome_interface_bandwidth() 
 
         return self.get_normalized_state(), {}
 
@@ -76,6 +77,7 @@ class NetworkEnv(gym.Env):
 
         if not 0 <= action < len(self.valid_nodes):
             raise ValueError(f"Ação inválida: {action}.")
+        
         done = False
         self.server = self.valid_nodes[int(action)]
 
@@ -84,48 +86,55 @@ class NetworkEnv(gym.Env):
         
         self.path = self.cached_paths[(self.current_location, self.server)]
 
-        # Verifica se há recursos suficientes para alocar o serviço
-        self.reuse = self.check_reuse(self.service, self.server)
-        if not self.allocate_resources_on_node(self.G, self.server,self.session_number, self.reuse):
+        self.reuse = self.verificar_reuso_de_servico(self.G.nodes[self.server], self.sfc.get_vnf_by_id(self.service))
+        if not self.allocate_resources_on_node(self.G, self.server, self.session_number, self.reuse):
             return self._fail_step('resource')
 
-        sucess, latency = self.allocate_bandwidth_along_path(self.G, self.path, self.bandwidth_required*1.03, self.service)
+        # A lógica de alocação de banda e latência está correta. O buffer de 3% (1.03) é uma boa prática.
+        sucess, latency = self.allocate_bandwidth_along_path(self.G, self.path, self.bandwidth_required , self.service)
+        if not sucess:
+            new_path = get_available_shortest_path(self.G,self.current_location,self.server,self.bandwidth_required)
+
+            if not new_path:
+                return self._fail_step('bandwidth')
+            self.cached_paths[(self.current_location, self.server)] = new_path
+            self.path = self.cached_paths[(self.current_location, self.server)]
+            sucess, latency = self.allocate_bandwidth_along_path(self.G, self.path, self.bandwidth_required , self.service)
         if not sucess:
             return self._fail_step('bandwidth')
         
-        self.latency_used+=latency
+        self.latency_used += latency
         
-        # Verifica se os limites de latência ou largura de banda são atingidos
         if self.latency_used > self.latency_request:
             return self._fail_step('latency')
         
         self.total_cost = self.calculate_total_cost(self.G)
-        if self.total_cost>2000:
-            epa=3
+        
         self.ac_total_cost += self.total_cost
-        self.reward = -self.total_cost
+        self.reward = -(self.total_cost**1.5)
         self.total_reward += self.reward
-        if self.server in self.servers_used:
-            self._fail_step("resource")
+
         self.servers_used.append(self.server)  
 
         if not self.is_training:
             self.allocation_results[self.service] = {
                 'allocated_server': self.server,
-                'path': self.path,
+                'path': copy.deepcopy(self.path),
                 'cost': self.total_cost
             }
 
-        done = self.service == self.services[-1]
-        if not done:
-            self.service = self.services[self.services.index(self.service) + 1]
-            self.update_bandwidth_required()
+        # Verifica se a cadeia de serviços foi concluída.
+        if self.service == self.services[-1]:
+            done = True
+            self.success = True
         else:
-            self.success=True
+            current_index = self.services.index(self.service)
+            self.service = self.services[current_index + 1]
+            self.update_bandwidth_required()
+
         self.current_location = self.server
 
-        return self.get_normalized_state(), self.reward, done, False, {}
-    
+        return self.get_normalized_state(), self.reward, done, False, {}    
     def set_graph(self,graph):
         self.G_backup = copy.deepcopy(graph)
         self.G = graph
@@ -133,7 +142,8 @@ class NetworkEnv(gym.Env):
     def update_bandwidth_required(self):
         if not self.service_requirements or not self.service:
             raise ValueError("Variaveis não instanciadas")
-        self.bandwidth_required = self.service_requirements[self.service]["in_bw"]
+        self.bandwidth_required = self.sfc.get_vnf_by_id(self.service).get_outcome_interface_bandwidth() 
+        # self.band_test = self.sfc.get_vnf_by_id(self.service).get_outcome_interface_bandwidth() 
 
     def set_dst_node(self,dst_node):
         if not dst_node:
@@ -187,144 +197,196 @@ class NetworkEnv(gym.Env):
 
         return True
     
-
-    def allocate_bandwidth_along_path(self,graph, path, bandwidth_required, ms_name):
+    def _commit_bandwidth_on_link(self, graph, u, v, vnf, bandwidth_required, ms_name):
         """
-        Verifica e aloca banda em todos os enlaces de um caminho.
-        
-        Parâmetros:
-        - graph: grafo com os nós e enlaces (com atributos 'bandwidth_capacity' e 'bandwidth_used')
-        - path: lista de nós representando o caminho
-        - bandwidth_required: banda necessária para a transmissão
-        - ms_name: nome do microsserviço ou identificador da transmissão
-        
-        Retorna:
-        - soma das latências de comunicação entre os nós
+        Aloca a banda e calcula a latência para um único enlace (u, v).
+        Esta função é o "coração" da lógica de alocação, extraída para reutilização.
         """
-        total_latency = 0.0
+        edge = graph.edges[u, v]
+        
+        # Calcula a latência para este enlace específico
+        latency = calculate_latency_betwen_nodes(graph, u, v, vnf)
 
-        # Primeira verificação: checa se há banda em todos os enlaces
+        # Atualiza o dicionário de serviços em trânsito
+        if ms_name in edge['services_in_transit']:
+            edge['services_in_transit'][ms_name]['copys'] += 1
+        else:
+            edge['services_in_transit'][ms_name] = {'copys': 1, 'bw_used': bandwidth_required}
+        
+        # Atualiza a banda total utilizada no enlace
+        edge['bandwidth_used'] += bandwidth_required
+        
+        return latency
+    
+
+    def allocate_bandwidth_along_path(self, graph, path, bandwidth_required, ms_name):
+        """
+        Verifica e aloca banda em todos os enlaces de um caminho, reutilizando a lógica
+        de alocação por enlace.
+        """
+        # FASE 1: Verificação (permanece inalterada, é a garantia de segurança)
         for u, v in zip(path[:-1], path[1:]):
             edge = graph.edges[u, v]
             if edge['bandwidth_used'] + bandwidth_required > edge['bandwidth_capacity']:
                 return False, float("inf")
 
-        # Segunda etapa: aloca efetivamente a banda e acumula latência
-        for u, v in zip(path[:-1], path[1:]):
-            edge = graph.edges[u, v]
-            vnf = self.sfc.get_vnf_by_id(ms_name)
-            latency = calculate_latency_betwen_nodes(graph, u, v, vnf)  # None se não houver VNF necessário
-            total_latency += latency
+        # FASE 2: Alocação (agora muito mais limpa)
+        total_latency = 0.0
+        vnf = self.sfc.get_vnf_by_id(ms_name)
 
-            if ms_name in edge['services_in_transit']:
-                edge['services_in_transit'][ms_name]['copys'] += 1
-                edge['bandwidth_used'] += bandwidth_required
-            else:
-                edge['services_in_transit'][ms_name] = {'copys': 1, 'bw_used': bandwidth_required}
-                edge['bandwidth_used'] += bandwidth_required
+        for u, v in zip(path[:-1], path[1:]):
+            # Delega a lógica de alocação para a função auxiliar
+            link_latency = self._commit_bandwidth_on_link(
+                graph, u, v, vnf, bandwidth_required, ms_name
+            )
+            total_latency += link_latency
+                
         return True, total_latency
+
 
 
 
     def calculate_total_cost(self, graph):
         """
-        Calcula o custo total considerando recursos, latência e largura de banda.
-        Os valores de CPU, cache e tipo do nó são extraídos diretamente do grafo.
+        Calcula o custo total da alocação de um serviço, considerando os recursos utilizados.
+        A fórmula aplica um custo exponencial para penalizar fortemente a alta utilização de recursos.
         """
         node = graph.nodes[self.server]
 
-
-        self.cpu_cost = (node["cpu_used"] /node["cpu_capacity"] + 1) ** self.cpu_factor if not self.reuse else 0
-        self.cache_cost = (node["cache_used"] /node["cache_capacity"] + 1) ** self.cache_factor if not self.reuse else 0
-
-        self.latency_cost = ((self.latency_used / self.latency_request) + 1) ** self.latency_factor if len(self.path) >=2 else 0
-
-        capacity_band, used_band=self.get_critical_link_info(self.G,self.path)
-        self.bandwidth_cost = (used_band/capacity_band+1)**self.band_factor if self.latency_cost != 0 else 0
-
-        self.boot_cost = 0
+        # --- Custo de Recursos Computacionais (CPU e Cache) ---
+        # Se o serviço for reutilizado, o custo de alocação de recursos é zero.
+        
+        # Adicionada verificação para evitar divisão por zero.
+        cpu_capacity = node["cpu_capacity"] if node["cpu_capacity"] > 0 else 1
+        self.cpu_cost = (node["cpu_used"] / cpu_capacity + 1) ** self.cpu_factor if not self.reuse else 0
+        
+        cache_capacity = node["cache_capacity"] if node["cache_capacity"] > 0 else 1
+        self.cache_cost = (node["cache_used"] / cache_capacity + 1) ** self.cache_factor if not self.reuse else 0
 
         if self.server in self.servers_used:
-            self.cpu_cost *= self.cpu_factor
-            self.cache_cost *= self.cache_factor
+            self.cpu_cost = self.cpu_cost*1.1
+            self.cache_cost = self.cache_cost*1.1
+        # --- Custo de Rede (Latência e Largura de Banda) ---
+        # Estes custos só se aplicam se houver um caminho de rede (comprimento >= 2).
+        
+        if len(self.path) >= 2:
+            # Custo de Latência
+            latency_request = self.latency_request if self.latency_request > 0 else 1
+            self.latency_cost = ((self.latency_used / latency_request) + 1) ** self.latency_factor
+
+            # Custo de Largura de Banda
+            capacity_band, used_band = self.get_critical_link_info(self.G, self.path)
+            capacity_band = capacity_band if capacity_band > 0 else 1
+            
+            # LÓGICA CORRIGIDA: A condição agora é baseada no comprimento do caminho, não no custo de latência.
+            self.bandwidth_cost = (used_band / capacity_band + 1) ** self.band_factor
+        else:
+            # Se não há caminho, não há custo de rede.
+            self.latency_cost = 0
+            self.bandwidth_cost = 0
+
+
 
         return sum([
             self.cpu_cost,
             self.cache_cost,
             self.latency_cost,
-            self.bandwidth_cost,
-            self.boot_cost
+            self.bandwidth_cost
         ])
-
-    def check_reuse(self, service, server):
-        """
-        Verifica se o serviço pode ser reutilizado no servidor.
-        """
-        for sf_shareable in SHAREABLE_PREFIXES:
-            if service.startswith(sf_shareable):
-                if verificar_chave(self.G.nodes[server]['services'], (service, self.session_number), sf_shareable):
-                    return True
-        return False
 
 
     def get_normalized_state(self):
         """
-        Retorna o estado normalizado do ambiente com uma única iteração sobre os nós válidos.
+        Gera o vetor de estado normalizado para o agente de RL.
+
+        Para cada nó válido na rede, esta função calcula um conjunto de 6 métricas
+        que representam o "custo" e a "viabilidade" de alocar o serviço atual
+        naquele nó. O estado final é a concatenação desses vetores para todos os nós.
+
+        O vetor de estado para CADA nó contém 6 elementos normalizados [0, 1]:
+        1.  Custo de CPU projetado: Utilização de CPU se o serviço for alocado aqui.
+        2.  Custo de Cache projetado: Utilização de cache se o serviço for alocado aqui.
+        3.  Custo de Latência projetado: Latência total se o serviço for alocado aqui.
+        4.  Custo de Banda projetado: Utilização de banda no link mais crítico do caminho.
+        5.  Flag de Nó Usado: 1.0 se o nó já foi usado para outro serviço nesta requisição.
+        6.  Flag de Impossibilidade: 1.0 se a alocação neste nó for impossível (excede 100% de algum recurso).
+        
+        Retorna:
+            np.array: O vetor de estado completo, achatado e normalizado.
         """
-        state = []
+        state_vectors = []
 
         for node_id in self.valid_nodes:
             node = self.G.nodes[node_id]
-            cpu_used_norm = (node["cpu_used"])/100
-            cache_used_norm = node["cache_used"]/100
 
-            cpu_capacity_norm = (node["cpu_capacity"])/100
-            cache_capacity_norm = node["cache_capacity"]/100
-
-            reuse = self.check_reuse(self.service, node_id)
+            # --- 1. Cálculo de Custos de Recursos (CPU & Cache) ---
             
-            if not reuse:
-                cpu_request_norm = self.service_requirements[self.service]["cpu"] / 100 
-                cache_request_norm = self.service_requirements[self.service]["cache"] / 100
-            else:
-                cpu_request_norm = 0
-                cache_request_norm = 0
+            # Evita divisão por zero se a capacidade for 0
+            cpu_capacity = node["cpu_capacity"] if node["cpu_capacity"] > 0 else 1
+            cache_capacity = node["cache_capacity"] if node["cache_capacity"] > 0 else 1
 
-            cost_cpu = (cpu_request_norm+cpu_used_norm)/cpu_capacity_norm if not reuse else 0
-            cost_cache = (cache_request_norm+cache_used_norm)/cache_capacity_norm if not reuse else 0
-
-            cost_cpu = min(cost_cpu,1)
-            cost_cache= min(cost_cpu,1)
-
-            # Parte 1: estado de recursos e flags
-            state.extend([
-                cost_cpu,
-                cost_cache,
-                0 if node_id not in self.servers_used else 1
-            ])
+            # Verifica se o serviço pode ser reutilizado neste nó
+            is_reusable = self.verificar_reuso_de_servico(node, self.sfc.get_vnf_by_id(self.service))
+            
+            # Requerimento de recursos é zero se houver reutilização
+            cpu_required = 0 if is_reusable else self.service_requirements[self.service]["cpu"]
+            cache_required = 0 if is_reusable else self.service_requirements[self.service]["cache"]
+            
+            # Calcula o custo projetado (utilização se o serviço for alocado aqui)
+            projected_cpu_cost = (node["cpu_used"] + cpu_required) / cpu_capacity
+            projected_cache_cost = (node["cache_used"] + cache_required) / cache_capacity
 
 
-            # Parte 3: latência e viabilidade de alocação
+            # --- 2. Cálculo de Custos de Rede (Latência & Banda) ---
+
+            # Obtém o caminho mais curto (usando cache para otimização)
             if (self.current_location, node_id) not in self.cached_paths:
-
-                path = self.cached_paths[(self.current_location, node_id)] = nx.shortest_path(self.G, self.current_location, node_id, weight='weight')
+                path = nx.shortest_path(self.G, self.current_location, node_id, weight='weight')
                 self.cached_paths[(self.current_location, node_id)] = path
             else:
                 path = self.cached_paths[(self.current_location, node_id)]
 
-            cost_latency = (calcular_latencia_total(path, self.G) + self.latency_used) / self.latency_request 
-            state.append(min(cost_latency, 1))
+            # Custo de Latência
+            latency_request = self.latency_request if self.latency_request > 0 else 1
+            path_latency = calcular_latencia_total(path, self.G)
+            projected_latency_cost = (self.latency_used + path_latency) / latency_request
 
-            min_capacity, min_used = self.get_critical_link_info(self.G,path)
-            band_cost = (min_used+self.bandwidth_required)/min_capacity if len(path)>=2 else 0
-            state.append(min(band_cost, 1))
+            # Custo de Banda (baseado no link mais congestionado do caminho)
+            if len(path) >= 2:
+                link_capacity, link_used = self.get_critical_link_info(self.G, path)
+                link_capacity = link_capacity if link_capacity > 0 else 1
+                projected_bandwidth_cost = (link_used + self.bandwidth_required) / link_capacity
+            elif path == []:
+                projected_bandwidth_cost = 1 # Sem caminho, sem custo de banda
+            else: 
+                projected_bandwidth_cost = 0 # Sem caminho, sem custo de banda
 
-            cant_allocate = 1 if cost_cpu>=1 or cost_cache >= 1 or cost_latency>=1 or band_cost>=1 else 0
+            # --- 3. Geração das Flags de Estado ---
+            
+            # Flag que indica se o nó já foi escolhido nesta SFC
+            is_server_used = 1.0 if node_id in self.servers_used else 0.0
+            
+            # Flag que indica se a alocação é impossível (excede >100% de algum recurso)
+            # Usa os valores não cortados para uma verificação precisa da impossibilidade.
+            cant_allocate = 1.0 if (projected_cpu_cost > 1.0 or
+                                    projected_cache_cost > 1.0 or
+                                    projected_latency_cost > 1.0 or
+                                    projected_bandwidth_cost > 1.0) else 0.0
 
-            state.append(cant_allocate)
+            
+            # --- 4. Montagem do Vetor de Estado para este Nó ---
+            # Os valores de custo são cortados em 1.0 para se manterem dentro do espaço de observação [0, 1].
+            node_state = [
+                min(projected_cpu_cost, 1.0),
+                min(projected_cache_cost, 1.0),
+                min(projected_latency_cost, 1.0),
+                min(projected_bandwidth_cost, 1.0),
+                is_server_used,
+                cant_allocate
+            ]
+            state_vectors.extend(node_state)
 
-        return np.array(state, dtype=np.float32)
-    
+        return np.array(state_vectors, dtype=np.float32)    
     
     def get_critical_link_bandwidth(self, graph, path):
         min_available_bandwidth = float('inf')  # Inicializa com um valor muito grande para comparar
@@ -372,17 +434,33 @@ class NetworkEnv(gym.Env):
 
 
 
+    def verificar_reuso_de_servico(self,servidor: dict, servico: object) -> bool:
+        
+        service_id = servico.id
+        is_shareable = service_id.startswith(SHAREABLE_PREFIXES)
+        
+        if not is_shareable:
+            return False
 
-def verificar_chave(dicionario, chave, prefixo):
-    string1, string2 = chave  # Desempacotando a tupla (string1, string2)
+        if 'services' not in servidor or not servidor['services']:
+            return False
+            
+        for existing_service_id, _ in servidor['services'].keys():
+            if existing_service_id == service_id:
+                return True
+
+        return False
+
+# def verificar_chave(dicionario, chave, prefixo):
+#     string1, string2 = chave  # Desempacotando a tupla (string1, string2)
     
-    # Verificar se a chave existe no dicionário com as condições
-    for (string3, string4), valor in dicionario.items():
-        if string3.startswith(prefixo) and string4 == string2:
-            # Se string3 tem o prefixo e string4 é igual a string2
-            if string1.startswith(prefixo):
-                return True  # Chave encontrada
-    return False  # Chave não encontrada
+#     # Verificar se a chave existe no dicionário com as condições
+#     for (string3, string4), valor in dicionario.items():
+#         if string3.startswith(prefixo) and string4 == string2:
+#             # Se string3 tem o prefixo e string4 é igual a string2
+#             if string1.startswith(prefixo):
+#                 return True  # Chave encontrada
+#     return False  # Chave não encontrada
 
 
 

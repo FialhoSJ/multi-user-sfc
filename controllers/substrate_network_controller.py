@@ -285,10 +285,7 @@ class SubstrateNetworkController():
     def deploy_sfc_list(self, sfc_list) -> bool:
         # with self.lock:
         mob_player_id = self.create_mobile_user(sfc_list)
-        t_1 = time.time() 
         solution,is_success = self.sfc_instantiator.search_solution(sfc_list, self.substrate_network)
-        t_2 = time.time()
-        print(f"Algorithm {self.alg} Take time     :   {round((t_2-t_1)*1000,3)} ms")
         if is_success:
             self.sfc_manager.submit_solution(sfc_list,solution,self.substrate_network)
         else:

@@ -384,10 +384,10 @@ class Genetic(Algorithm):
         # Registrar o método de paralelização
     
         # Parâmetros do algoritmo genético
-        population_size = 7
+        population_size = 60
         crossover_probability = 0.7
         mutation_probability = 0.2
-        number_of_generations = 10
+        number_of_generations = 120
 
         # Inicialização da população
         pop = toolbox.population(n=population_size)
@@ -712,14 +712,4 @@ class Genetic(Algorithm):
     #         return route_info, total_latency            
     #     else:
     #         return False, 100
-
-
-
-
-
-
-
-
-
-
 

@@ -143,6 +143,7 @@ class GreedyOptAlgorithm(Algorithm):
         if is_success:
             try:
                 #logger.info("Finished algorithm, success")
+                print("Route info greedyB: ",self.route_info)
                 return True  
             except:
                 self.handle_failure() 
