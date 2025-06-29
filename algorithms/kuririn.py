@@ -199,7 +199,7 @@ class Kuririn:
         if not self.model:
             self._load_or_create_model(self.env)
 
-        #self.model.learn(total_timesteps=256)
+        self.model.learn(total_timesteps=256)
         state, _ = self.env.reset()
         self.env.is_training = False
 
@@ -212,7 +212,7 @@ class Kuririn:
 
         if not self.env.success and IS_TRAINING:
             state, _ = self.env.reset()
-            self.model.learn(total_timesteps=1024)
+            self.model.learn(total_timesteps=768)
             state, _ = self.env.reset()
             self.env.is_training = False
             self.env.allocation_results['dst'] = {'allocated_server': dst, 'path': [], 'cost': 0}
@@ -230,6 +230,9 @@ class Kuririn:
             return [], None
         if not VERBOSE:
             print(f"Solução sfc {self.sfc.id}: {self.env.servers_used}")
+            # for server_results in self.env.allocation_results:
+            #     print("Servidor: ",self.env.allocation_results[server_results]["allocated_server"],\
+            #           "Custo: ",self.env.allocation_results[server_results]['cost'])
         self.last_propose = self.env.servers_used
         route_info = {
             key: list(reversed(value['path']))

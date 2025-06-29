@@ -45,7 +45,7 @@ class NetworkEnv(gym.Env):
         self.observation_space = spaces.Box(
             low=0.0,
             high=1.0,
-            shape=(len(self.valid_nodes) * 6,),  # Pode ser melhor modularizado no futuro
+            shape=(len(self.valid_nodes) * 5,),  # Pode ser melhor modularizado no futuro
             dtype=np.float32
         )
         self.action_space = spaces.Discrete(len(self.valid_nodes))
@@ -82,7 +82,10 @@ class NetworkEnv(gym.Env):
         self.server = self.valid_nodes[int(action)]
 
         if (self.current_location, self.server) not in self.cached_paths:
-            self.cached_paths[(self.current_location, self.server)] = nx.shortest_path(self.G, self.current_location, self.server, weight='weight')
+            self.cached_paths[(self.current_location, self.server)] = get_available_shortest_path(self.G,
+                                                                                                  self.current_location,
+                                                                                                  self.server,
+                                                                                                  self.bandwidth_required)
         
         self.path = self.cached_paths[(self.current_location, self.server)]
 
@@ -274,12 +277,14 @@ class NetworkEnv(gym.Env):
             latency_request = self.latency_request if self.latency_request > 0 else 1
             self.latency_cost = ((self.latency_used / latency_request) + 1) ** self.latency_factor
 
-            # Custo de Largura de Banda
-            capacity_band, used_band = self.get_critical_link_info(self.G, self.path)
-            capacity_band = capacity_band if capacity_band > 0 else 1
+            # # Custo de Largura de Banda
+            # capacity_band, used_band = self.get_critical_link_info(self.G, self.path)
+            # capacity_band = capacity_band if capacity_band > 0 else 1
             
-            # LÓGICA CORRIGIDA: A condição agora é baseada no comprimento do caminho, não no custo de latência.
-            self.bandwidth_cost = (used_band / capacity_band + 1) ** self.band_factor
+            # # LÓGICA CORRIGIDA: A condição agora é baseada no comprimento do caminho, não no custo de latência.
+            # self.bandwidth_cost = (used_band / capacity_band + 1) ** self.band_factor
+            self.bandwidth_cost = 0
+
         else:
             # Se não há caminho, não há custo de rede.
             self.latency_cost = 0
@@ -341,7 +346,10 @@ class NetworkEnv(gym.Env):
 
             # Obtém o caminho mais curto (usando cache para otimização)
             if (self.current_location, node_id) not in self.cached_paths:
-                path = nx.shortest_path(self.G, self.current_location, node_id, weight='weight')
+                path = get_available_shortest_path(self.G,
+                                                   self.current_location,
+                                                   node_id,
+                                                   self.bandwidth_required*1.03)
                 self.cached_paths[(self.current_location, node_id)] = path
             else:
                 path = self.cached_paths[(self.current_location, node_id)]
@@ -351,15 +359,15 @@ class NetworkEnv(gym.Env):
             path_latency = calcular_latencia_total(path, self.G)
             projected_latency_cost = (self.latency_used + path_latency) / latency_request
 
-            # Custo de Banda (baseado no link mais congestionado do caminho)
-            if len(path) >= 2:
-                link_capacity, link_used = self.get_critical_link_info(self.G, path)
-                link_capacity = link_capacity if link_capacity > 0 else 1
-                projected_bandwidth_cost = (link_used + self.bandwidth_required) / link_capacity
-            elif path == []:
-                projected_bandwidth_cost = 1 # Sem caminho, sem custo de banda
-            else: 
-                projected_bandwidth_cost = 0 # Sem caminho, sem custo de banda
+            # # Custo de Banda (baseado no link mais congestionado do caminho)
+            # if len(path) >= 2:
+            #     link_capacity, link_used = self.get_critical_link_info(self.G, path)
+            #     link_capacity = link_capacity if link_capacity > 0 else 1
+            #     projected_bandwidth_cost = (link_used + self.bandwidth_required) / link_capacity
+            # elif path == []:
+            #     projected_bandwidth_cost = 1 # Sem caminho, sem custo de banda
+            # else: 
+            #     projected_bandwidth_cost = 0 # Sem caminho, sem custo de banda
 
             # --- 3. Geração das Flags de Estado ---
             
@@ -370,8 +378,7 @@ class NetworkEnv(gym.Env):
             # Usa os valores não cortados para uma verificação precisa da impossibilidade.
             cant_allocate = 1.0 if (projected_cpu_cost > 1.0 or
                                     projected_cache_cost > 1.0 or
-                                    projected_latency_cost > 1.0 or
-                                    projected_bandwidth_cost > 1.0) else 0.0
+                                    projected_latency_cost > 1.0 ) else 0.0
 
             
             # --- 4. Montagem do Vetor de Estado para este Nó ---
@@ -380,7 +387,7 @@ class NetworkEnv(gym.Env):
                 min(projected_cpu_cost, 1.0),
                 min(projected_cache_cost, 1.0),
                 min(projected_latency_cost, 1.0),
-                min(projected_bandwidth_cost, 1.0),
+                # min(projected_bandwidth_cost, 1.0),
                 is_server_used,
                 cant_allocate
             ]
