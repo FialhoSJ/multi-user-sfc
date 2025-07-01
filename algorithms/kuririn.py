@@ -48,8 +48,8 @@ class Kuririn:
         # Cost weights
         self.cpu_factor = 3
         self.cache_factor = 3
-        self.band_factor = 3
-        self.latency_factor = 2
+        self.band_factor = 1
+        self.latency_factor = 2.5
         self.boot_factor = 0
         self.env = None
 
@@ -102,6 +102,7 @@ class Kuririn:
         prev_path_end = None
         for sf, path in self.route_info.items():
             if sf == 'dst': continue
+           
             if prev_path_end and path[-1] != prev_path_end:
                 print(f"Inconsistência entre {prev_sf} e {sf}: {prev_path_end} != {path[0]}")
                 return False
@@ -185,7 +186,7 @@ class Kuririn:
         # self.env.set_server_resources(server_resources)
         self.env.valid_nodes = self.valid_nodes
         self.env.services, self.env.service_requirements,self.env.service = services, service_requirements,services[0]
-        self.env.latency_request= self.latency_request
+        self.env.latency_request= 10
         self.env.set_dst_node(dst)
         self.env.sfc = self.sfc
         self.env.session_number = collect_session(self.sfc.id)
@@ -199,7 +200,7 @@ class Kuririn:
         if not self.model:
             self._load_or_create_model(self.env)
 
-        self.model.learn(total_timesteps=256)
+        # self.model.learn(total_timesteps=N_STEPS)
         state, _ = self.env.reset()
         self.env.is_training = False
 
@@ -212,7 +213,7 @@ class Kuririn:
 
         if not self.env.success and IS_TRAINING:
             state, _ = self.env.reset()
-            self.model.learn(total_timesteps=768)
+            self.model.learn(total_timesteps=N_STEPS*8)
             state, _ = self.env.reset()
             self.env.is_training = False
             self.env.allocation_results['dst'] = {'allocated_server': dst, 'path': [], 'cost': 0}
@@ -226,10 +227,12 @@ class Kuririn:
                 # print(f"Alocação falha sugerida SFC :{self.env.servers_used} - ultimo nó escolhido {self.env.server}")
                 print(f"Causa Falha: {self.env.fail_reason}")
             self.fail_reason = self.env.fail_reason
+            if self.fail_reason == 'latency':
+                print(f"Alocação: [{self.env.servers_used}] || Custo latencia: {self.env.latency_cost}")
             
             return [], None
         if not VERBOSE:
-            print(f"Solução sfc {self.sfc.id}: {self.env.servers_used}")
+            print(f"Solução sfc {self.sfc.id}: {self.env.servers_used} || Latencia: {self.env.latency_used}")
             # for server_results in self.env.allocation_results:
             #     print("Servidor: ",self.env.allocation_results[server_results]["allocated_server"],\
             #           "Custo: ",self.env.allocation_results[server_results]['cost'])
@@ -263,11 +266,11 @@ class Kuririn:
         if self.model_name == "ppo":
             if os.path.exists(self.model_path + ".zip"):
                 model = PPO.load(self.model_path)
-                self.model = PPO("MlpPolicy", env, verbose=0, learning_rate=0.0003, batch_size=64, n_steps=256, ent_coef=0.25,
+                self.model = PPO("MlpPolicy", env, verbose=0, learning_rate=0.0003, batch_size=16, n_steps=256, ent_coef=0.3,
                                 device ='cpu')
                 self.model.policy.load_state_dict(model.policy.state_dict())
             else:
-                self.model = PPO("MlpPolicy", env, verbose=0, learning_rate=0.0003, batch_size=64, n_steps=256, ent_coef=0.25, device='cpu')
+                self.model = PPO("MlpPolicy", env, verbose=0, learning_rate=0.0003, batch_size=16, n_steps=256, ent_coef=0.3, device='cpu')
         elif self.model_name == "dqn":
             if os.path.exists(self.model_path + ".zip"):
                 model = DQN.load(self.model_path)

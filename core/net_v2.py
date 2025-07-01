@@ -14,10 +14,16 @@ class Net2:
         self.nodes_reliability = {}
 
         self.total_cpu_used = 0.00
+        self.total_cpu_saved = 0
         self.total_cpu_capacity = 0.00
 
+        self.total_cpu_requested = 0.00
+
         self.total_cache_used = 0.00
+        self.total_cache_saved = 0
         self.total_cache_capacity = 0.00
+
+        self.total_cache_requested = 0.00
 
         self.mobile_cpu_used = 0.0
         self.mobile_cache_used = 0.0
@@ -175,7 +181,10 @@ class Net2:
         
         service_id = vnf.id
         cpu_required = vnf.get_cpu_request()
-        cache_required = vnf.get_cache_request()   
+        cache_required = vnf.get_cache_request()
+
+        self.total_cpu_requested = round(self.total_cpu_requested+cpu_required,2) 
+        self.total_cache_requested = round(self.total_cache_requested+cache_required,2) 
         # data_bits_per_frame * ciclos/bits * 1000 (ms) / vm's ips
 
         if node['type'] not in ['server', 'mobile_device']:
@@ -202,6 +211,11 @@ class Net2:
             node['services'][service_key]['copys'] += 1 # Serviço já instanciado, então incrementa o número de cópias
             if not self.is_shareable(service_id): # Se não for compartilhável ou a sessão não for a mesma, aumenta os recursos usados
                 put_resource(cpu_required,cache_required,mobile)
+            
+            else:
+                self.total_cpu_saved = round(self.total_cpu_saved + cpu_required, 2)
+                self.total_cache_saved = round(self.total_cache_saved + cache_required, 2)
+                    
         else:
             node['services'][service_key] = {'cpu': cpu_required,'cache': cache_required,'copys': 1}
             put_resource(cpu_required,cache_required,mobile)
@@ -218,12 +232,21 @@ class Net2:
             node = self.graph.nodes[node_id]
         
         service_id = vnf.id
+
+        cpu_required = vnf.get_cpu_request()
+        cache_required = vnf.get_cache_request()
+        self.total_cpu_requested = round(self.total_cpu_requested - cpu_required, 2)
+        self.total_cache_requested = round(self.total_cache_requested - cache_required, 2)
+
         session_id = sfc_id.split("_")[-1]
         service_key = (service_id, session_id)
         if service_key not in node['services']:
             raise ValueError(f"Serviço {service_id} não encontrado no nó {node_id}.")
 
         service_info = node['services'][service_key]
+
+        cpu_to_handle = service_info['cpu']
+        cache_to_handle = service_info['cache']
         service_info['copys'] -= 1
 
         def take_resource(cpu_required,cache_required):
@@ -250,6 +273,10 @@ class Net2:
             # Se não é compartilhável, libera os recursos mesmo em cada cópia
             if not self.is_shareable(service_id):
                 take_resource(service_info['cpu'],service_info['cache'])
+
+            else:
+                self.total_cpu_saved = round(self.total_cpu_saved - cpu_to_handle,2)
+                self.total_cache_saved = round(self.total_cache_saved - cache_to_handle,2)
 
     def allocate_bandwidth(self, node1, node2, bw_required, ms_name):
         if not self.graph.has_edge(node1, node2):
@@ -518,12 +545,16 @@ class Net2:
     def print_out_nodes_information(self, failure_cpu=None, failure_cache=None):
         if failure_cpu is None:
             print("CPU       utilization: ", str(round(self.total_cpu_used*1.0/self.total_cpu_capacity*100,3)) +'%')
+            print("T_CPU_S/T_CPU_S      : ", str(round(self.total_cpu_saved*1.0/self.total_cpu_requested*100,3)) +'%')
         else:
-            print("CPU       utilization: ", str(round(self.total_cpu_used*1.0 /self.total_cpu_capacity*100,3)) +'%', end=" ")
+            print("CPU       utilization: ", str(round(self.total_cpu_used*1.0 /self.total_cpu_capacity*100,3)) +'%')
+            print("T_CPU_S/T_CPU_S      : ", str(round(self.total_cpu_saved*1.0/self.total_cpu_requested*100,3)) +'%', end=" ")
         if failure_cache is None:
             print("Cache     utilization: ", str(round(self.total_cache_used*1.0/self.total_cache_capacity*100,3)) +'%')
+            print("T_cache_S/T_cache_S  : ", str(round(self.total_cache_saved*1.0/self.total_cache_requested*100,3)) +'%')
         else:
-            print("Cache     utilization: ", str(round(self.total_cache_used*1.0/self.total_cache_capacity*100,3)) +'%', end=" ")
+            print("Cache     utilization: ", str(round(self.total_cache_used*1.0/self.total_cache_capacity*100,3)) +'%')
+            print("T_CPU_S/T_CPU_S      : ", str(round(self.total_cpu_saved*1.0/self.total_cpu_requested*100,3)) +'%', end=" ")
 
     def print_out_edges_information(self, failure_band=None):
         if failure_band is None:

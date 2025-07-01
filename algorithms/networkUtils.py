@@ -92,7 +92,7 @@ def get_shortest_path(graph, source, target):
     except nx.NetworkXNoPath:
         return []
 
-def get_available_shortest_path(graph, source, target, bandwidth_required):
+def get_available_shortest_path(graph, source, target, bandwidth_required, rounded=False):
     """Get the shortest path from source to target minimizing latency,
     considering only edges with bandwidth >= bandwidth_required."""
     mygraph = copy.deepcopy(graph)
@@ -104,9 +104,15 @@ def get_available_shortest_path(graph, source, target, bandwidth_required):
         subgraph.add_edges_from(edges_filtered)
 
         # Executa Dijkstra no subgrafo filtrado, ponderando pela latência
+        if rounded:
+            return nx.dijkstra_path(subgraph, source, target, weight=latency_rounded)
         return nx.dijkstra_path(subgraph, source, target, weight='latency')
     except nx.NetworkXNoPath:
         return []
+    
+
+def latency_rounded(u,v,data):
+    return int(round(data['latency'],3)*1000)
     
 def get_link_latency(graph, node1, node2):
     """Get the latency of the link between two nodes."""
