@@ -6,7 +6,6 @@ from stable_baselines3 import PPO, DQN
 from algorithms.environment import NetworkEnv
 import os
 from config import ROOT_PATH
-
 # Logging setup
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -17,8 +16,8 @@ file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 
 # Constants
-N_STEPS = 256
-IS_TRAINING = True
+N_STEPS = 128
+IS_TRAINING = 1
 VERBOSE = False
 os.environ["CUDA_VISIBLE_DEVICES"] = ""  # Desabilita o uso da GPU
 
@@ -46,8 +45,8 @@ class Kuririn:
         self.precomputed_paths = {}
     
         # Cost weights
-        self.cpu_factor = 3
-        self.cache_factor = 3
+        self.cpu_factor = 4
+        self.cache_factor = 4
         self.band_factor = 1
         self.latency_factor = 2
         self.boot_factor = 0
@@ -186,7 +185,7 @@ class Kuririn:
         # self.env.set_server_resources(server_resources)
         self.env.valid_nodes = self.valid_nodes
         self.env.services, self.env.service_requirements,self.env.service = services, service_requirements,services[0]
-        self.env.latency_request= 7
+        self.env.latency_request= 9
         self.env.set_dst_node(dst)
         self.env.sfc = self.sfc
         self.env.session_number = collect_session(self.sfc.id)
@@ -201,7 +200,7 @@ class Kuririn:
             self._load_or_create_model(self.env)
 
         # log_callback = LogTrainingProgressCallback(log_interval=N_STEPS // 10)
-        #self.model.learn(total_timesteps=N_STEPS)
+        self.model.learn(total_timesteps=N_STEPS)
         state, _ = self.env.reset()
         self.env.is_training = False
 
@@ -268,11 +267,11 @@ class Kuririn:
         if self.model_name == "ppo":
             if os.path.exists(self.model_path + ".zip"):
                 model = PPO.load(self.model_path)
-                self.model = PPO("MlpPolicy", env, verbose=0, learning_rate=0.0003, batch_size=16, n_steps=256, ent_coef=0.3,
+                self.model = PPO("MlpPolicy", env, verbose=0, learning_rate=0.00015, batch_size=16, n_steps=256, ent_coef=0.3,
                                 device ='cpu')
                 self.model.policy.load_state_dict(model.policy.state_dict())
             else:
-                self.model = PPO("MlpPolicy", env, verbose=0, learning_rate=0.0003, batch_size=16, n_steps=256, ent_coef=0.3, device='cpu')
+                self.model = PPO("MlpPolicy", env, verbose=0, learning_rate=0.00015, batch_size=16, n_steps=256, ent_coef=0.3, device='cpu')
         elif self.model_name == "dqn":
             if os.path.exists(self.model_path + ".zip"):
                 model = DQN.load(self.model_path)

@@ -27,8 +27,9 @@ class NetworkEnv(gym.Env):
         super().__init__()
 
         # --- Topologia e Configuração da Rede ---
-        self.G_backup = copy.deepcopy(graph)  # Backup para o reset
+        # self.G_backup = copy.deepcopy(graph)  # Backup para o reset
         self.G = graph
+        self.initial_resource_snapshot = {}
         self.valid_nodes = valid_nodes
         # self.menor_reward = -float("inf")
         self.cached_paths = {}
@@ -72,11 +73,23 @@ class NetworkEnv(gym.Env):
 
     def reset(self, seed=None, options=None):
         """
-        Reinicia o ambiente para um novo episódio, restaurando o estado original do grafo
-        e zerando todas as métricas de controle e custo.
+        Reinicia o ambiente restaurando o grafo ao seu 'snapshot' inicial,
+        o que é muito mais rápido que um deepcopy.
         """
-        self.G = copy.deepcopy(self.G_backup)
-        
+        # self.G = copy.deepcopy(self.G_backup)
+
+        snapshot_nodes = self.initial_resource_snapshot['nodes']
+
+        for node_id, initial_state in snapshot_nodes.items():
+            node = self.G.nodes[node_id]
+            node['cpu_used'] = initial_state['cpu_used']
+            node['cache_used'] = initial_state['cache_used']
+
+        snapshot_edges = self.initial_resource_snapshot['edges']
+        for (u, v), initial_state in snapshot_edges.items():
+            edge = self.G.edges[u, v]
+            edge['bandwidth_used'] = initial_state['bandwidth_used']
+            
         # Reinicializa estado da alocação
         self.latency_used = 0
         self.current_location = self.dst_node
@@ -167,8 +180,9 @@ class NetworkEnv(gym.Env):
 
     def set_graph(self, graph):
         """Define e faz backup do grafo da rede."""
-        self.G_backup = copy.deepcopy(graph)
+        # self.G_backup = copy.deepcopy(graph)
         self.G = graph
+        self._capture_initial_snapshot()
 
     def set_dst_node(self, dst_node):
         """Define o nó de destino inicial da SFC."""
@@ -216,9 +230,8 @@ class NetworkEnv(gym.Env):
 
     def allocate_resources_on_node(self, node_id, is_reusable):
         """Aloca CPU e Cache em um nó, considerando a possibilidade de reuso."""
-        node = self.G.nodes[node_id]
+        
         vnf = self.sfc.get_vnf_by_id(self.service)
-        service_key = (self.service, self.session_number)
         
         cpu_req = vnf.get_cpu_request()
         cache_req = vnf.get_cache_request()
@@ -227,20 +240,14 @@ class NetworkEnv(gym.Env):
         effective_cpu_req = 0 if is_reusable else cpu_req
         effective_cache_req = 0 if is_reusable else cache_req
 
-        if (node['cpu_used'] + cpu_req >= node['cpu_capacity']) or (node['cache_used'] + cache_req) >= node['cache_capacity']:
+        if (self.G.nodes[node_id]['cpu_used'] + cpu_req >= self.G.nodes[node_id]['cpu_capacity']) or \
+            (self.G.nodes[node_id]['cache_used'] + cache_req) >= self.G.nodes[node_id]['cache_capacity']:
             return False
 
-        if service_key in node['services']:
-            node['services'][service_key]['copys'] += 1
-        else:
-            node['services'][service_key] = {'cpu': cpu_req, 'cache': cache_req, 'copys': 1}
         
-        node['cpu_used'] += effective_cpu_req
-        node['cache_used'] += effective_cache_req
+        self.G.nodes[node_id]['cpu_used'] += effective_cpu_req
+        self.G.nodes[node_id]['cache_used'] += effective_cache_req
         
-        if is_reusable:
-            if vnf not in node['reuse']:
-                 node['reuse'].append(vnf)
         return True
     
     def allocate_bandwidth_along_path(self, path, bandwidth_required, ms_name):
@@ -266,22 +273,16 @@ class NetworkEnv(gym.Env):
         vnf = self.sfc.get_vnf_by_id(ms_name)
         for u, v in zip(path[:-1], path[1:]):
             # A chamada para _commit_bandwidth_on_link agora é garantida de não exceder a capacidade.
-            latency = self._commit_bandwidth_on_link(u, v, vnf, bandwidth_required, ms_name)
+            latency = self._commit_bandwidth_on_link(u, v, vnf, bandwidth_required)
             total_latency += latency
 
         return True, total_latency
         
-    def _commit_bandwidth_on_link(self, u, v, vnf, bandwidth_required, ms_name):
+    def _commit_bandwidth_on_link(self, u, v, vnf, bandwidth_required):
         """Aloca banda e calcula latência para um único enlace (u, v)."""
         edge = self.G.edges[u, v]
-        latency = calculate_latency_betwen_nodes(self.G, u, v, vnf)
-
-        if ms_name in edge['services_in_transit']:
-            edge['services_in_transit'][ms_name]['copys'] += 1
-        else:
-            edge['services_in_transit'][ms_name] = {'copys': 1, 'bw_used': bandwidth_required}
-        
         edge['bandwidth_used'] += bandwidth_required
+        latency = calculate_latency_betwen_nodes(self.G, u, v, vnf)
         return latency
 
     def calculate_total_cost(self, server_id, path):
@@ -442,3 +443,23 @@ class NetworkEnv(gym.Env):
             if running_service_id == service_name:
                 return True
         return False
+    
+
+    def _capture_initial_snapshot(self):
+        """
+        Captura o estado de uso de recursos (CPU, cache, banda) do grafo atual.
+        Deve ser chamado sempre que um novo grafo é definido no ambiente.
+        """
+        self.initial_resource_snapshot['nodes'] = {}
+        for node_id, data in self.G.nodes(data=True):
+            self.initial_resource_snapshot['nodes'][node_id] = {
+                'cpu_used': data.get('cpu_used', 0),
+                'cache_used': data.get('cache_used', 0),
+            }
+
+         # Captura estado das arestas
+        self.initial_resource_snapshot['edges'] = {}
+        for u, v, data in self.G.edges(data=True):
+            self.initial_resource_snapshot['edges'][(u, v)] = {
+                'bandwidth_used': data.get('bandwidth_used', 0),
+            }
