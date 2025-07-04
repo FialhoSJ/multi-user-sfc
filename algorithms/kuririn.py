@@ -49,7 +49,7 @@ class Kuririn:
         self.cpu_factor = 3
         self.cache_factor = 3
         self.band_factor = 1
-        self.latency_factor = 2.5
+        self.latency_factor = 2
         self.boot_factor = 0
         self.env = None
 
@@ -186,7 +186,7 @@ class Kuririn:
         # self.env.set_server_resources(server_resources)
         self.env.valid_nodes = self.valid_nodes
         self.env.services, self.env.service_requirements,self.env.service = services, service_requirements,services[0]
-        self.env.latency_request= 10
+        self.env.latency_request= 7
         self.env.set_dst_node(dst)
         self.env.sfc = self.sfc
         self.env.session_number = collect_session(self.sfc.id)
@@ -200,7 +200,8 @@ class Kuririn:
         if not self.model:
             self._load_or_create_model(self.env)
 
-        # self.model.learn(total_timesteps=N_STEPS)
+        # log_callback = LogTrainingProgressCallback(log_interval=N_STEPS // 10)
+        #self.model.learn(total_timesteps=N_STEPS)
         state, _ = self.env.reset()
         self.env.is_training = False
 
@@ -214,6 +215,7 @@ class Kuririn:
         if not self.env.success and IS_TRAINING:
             state, _ = self.env.reset()
             self.model.learn(total_timesteps=N_STEPS*8)
+            # self.model.learn(total_timesteps=N_STEPS*8)
             state, _ = self.env.reset()
             self.env.is_training = False
             self.env.allocation_results['dst'] = {'allocated_server': dst, 'path': [], 'cost': 0}
@@ -228,7 +230,7 @@ class Kuririn:
                 print(f"Causa Falha: {self.env.fail_reason}")
             self.fail_reason = self.env.fail_reason
             if self.fail_reason == 'latency':
-                print(f"Alocação: [{self.env.servers_used}] || Custo latencia: {self.env.latency_cost}")
+                print(f"Alocação: [{self.env.servers_used}] || Custo latencia: {self.env.latency_used}")
             
             return [], None
         if not VERBOSE:
@@ -281,3 +283,20 @@ class Kuririn:
 
     def _save_model(self):
         self.model.save(self.model_path)
+
+
+
+
+
+from stable_baselines3.common.callbacks import BaseCallback
+
+class LogTrainingProgressCallback(BaseCallback):
+    def __init__(self, log_interval, verbose=0):
+        super().__init__(verbose)
+        self.log_interval = log_interval
+
+    def _on_step(self) -> bool:
+        if self.n_calls % self.log_interval == 0:
+            print(f"Step {self.n_calls}/{self.model.num_timesteps} - "
+                  f"Reward: {self.model.get_env().get_attr('reward')[0]}")  # Exemplo de log
+        return True

@@ -544,16 +544,16 @@ class Net2:
 
     def print_out_nodes_information(self, failure_cpu=None, failure_cache=None):
         if failure_cpu is None:
-            print("CPU       utilization: ", str(round(self.total_cpu_used*1.0/self.total_cpu_capacity*100,3)) +'%')
+            print("CPU       utilization: ", str(round((self.total_cpu_used + self.mobile_cpu_used)/self.total_cpu_capacity*100,3)) +'%')
             print("T_CPU_S/T_CPU_S      : ", str(round(self.total_cpu_saved*1.0/self.total_cpu_requested*100,3)) +'%')
         else:
-            print("CPU       utilization: ", str(round(self.total_cpu_used*1.0 /self.total_cpu_capacity*100,3)) +'%')
+            print("CPU       utilization: ", str(round((self.total_cpu_used + self.mobile_cpu_used) /self.total_cpu_capacity*100,3)) +'%')
             print("T_CPU_S/T_CPU_S      : ", str(round(self.total_cpu_saved*1.0/self.total_cpu_requested*100,3)) +'%', end=" ")
         if failure_cache is None:
-            print("Cache     utilization: ", str(round(self.total_cache_used*1.0/self.total_cache_capacity*100,3)) +'%')
+            print("Cache     utilization: ", str(round((self.total_cache_used+self.mobile_cache_used)/self.total_cache_capacity*100,3)) +'%')
             print("T_cache_S/T_cache_S  : ", str(round(self.total_cache_saved*1.0/self.total_cache_requested*100,3)) +'%')
         else:
-            print("Cache     utilization: ", str(round(self.total_cache_used*1.0/self.total_cache_capacity*100,3)) +'%')
+            print("Cache     utilization: ", str(round((self.total_cache_used+self.mobile_cache_used)/self.total_cache_capacity*100,3)) +'%')
             print("T_CPU_S/T_CPU_S      : ", str(round(self.total_cpu_saved*1.0/self.total_cpu_requested*100,3)) +'%', end=" ")
 
     def print_out_edges_information(self, failure_band=None):

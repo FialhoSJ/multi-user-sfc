@@ -60,6 +60,7 @@ class SFCInstatiator:
             if alg_success: # No geral o algoritmo só vai dar erro caso tenha feito alocação indevida
                 total_latency = None
                 try:
+                    self.teste = copy.deepcopy(algorithm)
                     total_latency = self.submit_solution(graph, sfc, algorithm.get_route_info())
                 except ValueError as ve:
                     logging.error(f"Falha na submissão da solução para SFC {sfc.id}: {ve}")

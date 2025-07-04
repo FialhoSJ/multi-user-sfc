@@ -30,6 +30,7 @@ class NetworkEnv(gym.Env):
         self.G_backup = copy.deepcopy(graph)  # Backup para o reset
         self.G = graph
         self.valid_nodes = valid_nodes
+        # self.menor_reward = -float("inf")
         self.cached_paths = {}
 
         # --- Parâmetros da SFC e Estado Atual ---
@@ -74,7 +75,6 @@ class NetworkEnv(gym.Env):
         Reinicia o ambiente para um novo episódio, restaurando o estado original do grafo
         e zerando todas as métricas de controle e custo.
         """
-        super().reset(seed=seed)
         self.G = copy.deepcopy(self.G_backup)
         
         # Reinicializa estado da alocação
@@ -102,20 +102,23 @@ class NetworkEnv(gym.Env):
         if not 0 <= action < len(self.valid_nodes):
             raise ValueError(f"Ação inválida: {action}.")
         
-        server_choice = self.valid_nodes[int(action)]
-        self.reuse = self.is_reusable_at_node(server_choice, self.service)
+        self.server = self.valid_nodes[int(action)]
+
+        if isinstance(self.server,str):
+            aqui=1111
+        self.reuse = self.is_reusable_at_node(self.server, self.service)
 
         # 1. Alocar recursos no nó (CPU/Cache)
-        if not self.allocate_resources_on_node(server_choice, self.reuse):
+        if not self.allocate_resources_on_node(self.server, self.reuse):
             return self._fail_step('resource')
 
         # 2. Encontrar caminho e alocar banda
-        path = self._get_path_with_fallback(self.current_location, server_choice)
-        if not path:
+        self.path = self._get_path_with_fallback(self.current_location, self.server)
+        if not self.path:
             return self._fail_step('bandwidth')
 
         # 3. Alocar banda e calcular latência do caminho
-        success_band, path_latency = self.allocate_bandwidth_along_path(path, self.bandwidth_required, self.service)
+        success_band, path_latency = self.allocate_bandwidth_along_path(self.path, self.bandwidth_required, self.service)
         if not success_band:
             # Esta verificação é uma dupla segurança, o fallback já deveria ter resolvido.
             return self._fail_step('bandwidth')
@@ -127,22 +130,30 @@ class NetworkEnv(gym.Env):
             return self._fail_step('latency')
 
         # 5. Calcular custo e recompensa
-        self.total_cost = self.calculate_total_cost(server_choice, path)
-        self.reward = -(self.total_cost ** 1.5)
+        self.servers_used.append(self.server)
+        # if self.servers_used[0] and isinstance(self.servers_used[0],str): 
+        #     if len(self.servers_used) > 1 :
+        #         if self.servers_used[0] == self.servers_used[1]:
+        #             aqui = 1
+        self.total_cost = self.calculate_total_cost(self.server, self.path)
+        self.reward = -self.total_cost
         self.total_reward += self.reward
 
         # 6. Atualizar estado para o próximo passo
-        self.servers_used.append(server_choice)
-        self.current_location = server_choice
+        
+        self.current_location = self.server
 
         if not self.is_training:
-            self.allocation_results[self.service] = {'allocated_server': server_choice, 'path': path, 'cost': self.total_cost}
+            self.allocation_results[self.service] = {'allocated_server': self.server, 'path': self.path, 'cost': self.total_cost}
 
         # 7. Verificar se o episódio terminou
         done = False
         if self.service == self.services[-1]:
             done = True
             self.success = True
+            # if self.total_reward > self.menor_reward:
+            #     print("Solucao ",self.servers_used, f" reward: {self.total_reward}")
+            #     self.menor_reward = self.total_reward
         else:
             current_index = self.services.index(self.service)
             self.service = self.services[current_index + 1]
@@ -166,6 +177,8 @@ class NetworkEnv(gym.Env):
         self.dst_node = dst_node
         self.current_location = dst_node
 
+    
+
     # --------------------------------------------------------------------------
     # --- MÉTODOS AUXILIARES DE LÓGICA INTERNA ---
     # --------------------------------------------------------------------------
@@ -181,14 +194,25 @@ class NetworkEnv(gym.Env):
     def _get_path_with_fallback(self, source, target):
         """Tenta obter o caminho do cache, senão busca o caminho mais curto com banda disponível."""
         # Tenta o caminho mais rápido (Dijkstra puro)
-        path = nx.dijkstra_path(self.G, source, target, weight=latency_rounded)
+
+        if (source, target) not in self.cached_paths:
+            path = nx.dijkstra_path(self.G, source, target, weight=latency_rounded)
+            self.cached_paths[(source, target)] = path
+        else:
+            path = self.cached_paths[(source, target)]
         
         # Verifica se este caminho rápido tem banda
         if self.get_critical_link_bandwidth(path) >= self.bandwidth_required:
             return path
         
         # Fallback: Se não tem banda, busca um caminho viável (pode ser mais lento)
-        return get_available_shortest_path(self.G, source, target, self.bandwidth_required, rounded=True)
+        path = get_available_shortest_path(self.G, source, target, self.bandwidth_required, rounded=True)
+        if not path:
+            return self.cached_paths[(source, target)]
+        else:
+            self.cached_paths[(source, target)] = path
+            return path
+        
 
     def allocate_resources_on_node(self, node_id, is_reusable):
         """Aloca CPU e Cache em um nó, considerando a possibilidade de reuso."""
@@ -203,8 +227,7 @@ class NetworkEnv(gym.Env):
         effective_cpu_req = 0 if is_reusable else cpu_req
         effective_cache_req = 0 if is_reusable else cache_req
 
-        if node['cpu_used'] + effective_cpu_req > node['cpu_capacity'] or \
-           node['cache_used'] + effective_cache_req > node['cache_capacity']:
+        if (node['cpu_used'] + cpu_req >= node['cpu_capacity']) or (node['cache_used'] + cache_req) >= node['cache_capacity']:
             return False
 
         if service_key in node['services']:
@@ -219,18 +242,35 @@ class NetworkEnv(gym.Env):
             if vnf not in node['reuse']:
                  node['reuse'].append(vnf)
         return True
-
+    
     def allocate_bandwidth_along_path(self, path, bandwidth_required, ms_name):
-        """Aloca banda ao longo de um caminho e retorna a latência total."""
+        """
+        Aloca banda ao longo de um caminho usando uma abordagem de duas passagens (verificar, depois alocar).
+        Retorna (True, latência_total) em sucesso, ou (False, 0.0) em falha.
+        """
         if not path or len(path) < 2:
             return True, 0.0
 
+        # --- 1ª Passagem: VERIFICAÇÃO ---
+        # Percorre todo o caminho para garantir que cada enlace tem capacidade suficiente.
+        for u, v in zip(path[:-1], path[1:]):
+            edge = self.G.edges[u, v]
+            if edge['bandwidth_used'] + bandwidth_required > edge['bandwidth_capacity']:
+                # Se qualquer enlace no caminho falhar na verificação, a operação inteira é abortada.
+                return False, 0.0
+
+        # --- 2ª Passagem: ALOCAÇÃO (COMMIT) ---
+        # Se o código chegou a este ponto, o caminho inteiro é válido.
+        # Agora, percorremos o caminho novamente para efetivamente alocar os recursos.
         total_latency = 0.0
         vnf = self.sfc.get_vnf_by_id(ms_name)
         for u, v in zip(path[:-1], path[1:]):
-            total_latency += self._commit_bandwidth_on_link(u, v, vnf, bandwidth_required, ms_name)
+            # A chamada para _commit_bandwidth_on_link agora é garantida de não exceder a capacidade.
+            latency = self._commit_bandwidth_on_link(u, v, vnf, bandwidth_required, ms_name)
+            total_latency += latency
+
         return True, total_latency
-    
+        
     def _commit_bandwidth_on_link(self, u, v, vnf, bandwidth_required, ms_name):
         """Aloca banda e calcula latência para um único enlace (u, v)."""
         edge = self.G.edges[u, v]
@@ -255,24 +295,26 @@ class NetworkEnv(gym.Env):
         cache_capacity = node["cache_capacity"] or 1
         cache_cost = (node["cache_used"] / cache_capacity + 1) ** self.cache_factor if not self.reuse else 0
         
-        # Penalidade se o nó já foi usado na mesma SFC
-        if server_id in self.servers_used:
-            cpu_cost *= 1.5 # Aumenta o custo em 50%
-            cache_cost *= 1.5
+
+        # # Penalidade se o nó já foi usado na mesma SFC
+        # if server_id in self.servers_used:
+        #     cpu_cost *= 1.5 # Aumenta o custo em 50%
+        #     cache_cost *= 1.5
 
         # Custo de Rede (Latência e Banda)
-        latency_cost = 0
+        self.latency_cost = 0
         bandwidth_cost = 0
         if len(path) >= 2:
             latency_request = self.latency_request or 1
-            latency_cost = ((self.latency_used / latency_request) + 1) ** self.latency_factor
+            self.latency_cost = ((self.latency_used / latency_request) + 1) ** self.latency_factor
             
-            # Custo de banda baseado no link crítico do caminho
-            cap_band, used_band = self.get_critical_link_info(path)
-            cap_band = cap_band or 1
-            bandwidth_cost = (used_band / cap_band + 1) ** self.band_factor
+            # # Custo de banda baseado no link crítico do caminho
+            # cap_band, used_band = self.get_critical_link_info(path)
+            # cap_band = cap_band or 1
+            # bandwidth_cost = (used_band / cap_band + 1) ** self.band_factor
+ 
 
-        return sum([cpu_cost, cache_cost, latency_cost, bandwidth_cost])
+        return sum([cpu_cost, cache_cost, self.latency_cost, bandwidth_cost])
 
     # --------------------------------------------------------------------------
     # --- MÉTODOS DE GERAÇÃO DE ESTADO ---
@@ -289,14 +331,28 @@ class NetworkEnv(gym.Env):
             cache_capacity = node["cache_capacity"] or 1
             is_reusable = self.is_reusable_at_node(node_id, self.service)
             
+
+                
             cpu_req = 0 if is_reusable else self.service_requirements[self.service]["cpu"]
             cache_req = 0 if is_reusable else self.service_requirements[self.service]["cache"]
+
+            if (self.service_requirements[self.service]["cpu"] + node["cpu_used"]) > node["cpu_capacity"] or \
+            (self.service_requirements[self.service]["cache"] + node["cache_used"]) > node["cache_capacity"]:
+                proj_cpu_cost = 1
+                proj_cache_cost = 1
             
-            proj_cpu_cost = (node["cpu_used"] + cpu_req) / cpu_capacity
-            proj_cache_cost = (node["cache_used"] + cache_req) / cache_capacity
+            else:
+                proj_cpu_cost = (node["cpu_used"] + cpu_req) / cpu_capacity
+                proj_cache_cost = (node["cache_used"] + cache_req) / cache_capacity
+
+            
+            
             
             # 2. Custos de Rede (Latência)
-            path = nx.dijkstra_path(self.G, self.current_location, node_id, weight=latency_rounded)
+            if (self.current_location, node_id) not in self.cached_paths:
+                self.cached_paths[(self.current_location, node_id)] = nx.dijkstra_path(self.G, self.current_location, node_id, weight=latency_rounded)
+           
+            path =  self.cached_paths[(self.current_location, node_id)]
             path_latency = self.calculate_path_latency(path, self.service)
             latency_request = self.latency_request or 1
             proj_latency_cost = (self.latency_used + path_latency) / latency_request
@@ -378,6 +434,7 @@ class NetworkEnv(gym.Env):
             return False
 
         node_data = self.G.nodes[node_id]
+
         if 'services' not in node_data:
             return False
 
