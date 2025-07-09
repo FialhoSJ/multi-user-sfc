@@ -6,6 +6,7 @@ import random
 import traceback
 from utils.k_shortest_paths import k_shortest_paths
 from algorithms.networkUtils import calculate_computational_latency,calculate_latency_betwen_nodes
+from salvar_var import salvar_variavel
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 
 class SFCInstatiator:
@@ -22,6 +23,7 @@ class SFCInstatiator:
         default_solution_format = {sfc.id: {'route_info': None, 'latency': None, 'run_duration': None} for sfc in sfc_list}
 
         algorithm = copy.deepcopy(self.alg)
+        # algorithm = self.alg
         algorithm.clear_all()
         # O algoritmo deve criar variáveis temporárias e não usar a rede 'oficial'.
         graph =  copy.deepcopy(substrate_network.graph)
@@ -48,6 +50,8 @@ class SFCInstatiator:
             # algorithm = copy.deepcopy(self.alg)
             # algorithm.clear_all()
             # algorithm.install_substrate_network(substrate_network)
+            salvar_variavel(graph, "lista_grafo", valor_unico=True)
+            salvar_variavel(sfc, "lista_sfc")
             algorithm.install_SFC(sfc)
             algorithm.install_substrate_network(copy.deepcopy(graph))
             s = time.time()
@@ -93,6 +97,7 @@ class SFCInstatiator:
 
         # Os recursos do Mobile Device devem estar disponíveis somente para sua SFC
         md_info =  copy.deepcopy(substrate_network.md_graph._node[mobile_device_id])
+        # salvar_variavel(md_info, "info_mobile")
         graph.add_node(mobile_device_id,type='mobile_device',
                                 cpu_capacity=md_info['cpu_capacity'],
                                 cache_capacity=md_info['cache_capacity'],

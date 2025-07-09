@@ -49,7 +49,8 @@ class NetworkEnv(gym.Env):
         self.observation_space = spaces.Box(
             low=0.0,
             high=1.0,
-            shape=(len(self.valid_nodes) * 6,), # Corrigido de 5 para 6
+            # shape=(len(self.valid_nodes) * 6,), # Corrigido de 5 para 6
+            shape=(13*6,),
             dtype=np.float32
         )
 
@@ -58,8 +59,6 @@ class NetworkEnv(gym.Env):
         if not sfcs:
             raise ValueError("A lista de SFCs não pode ser vazia.")
         self.lista_SFCs = sfcs
-        self._load_sfc(0)
-
 
     ### NOVO: Método auxiliar para carregar uma SFC específica da lista.
     def _load_sfc(self, sfc_index):
@@ -70,7 +69,7 @@ class NetworkEnv(gym.Env):
         # Carrega os dados específicos da nova SFC
         services = [item['name'] for item in self.sfc.vnfs_dict]
         self.services = list(reversed(services))
-        self.latency_request = self.sfc.get_latency_request()
+        self.latency_request = 9
         self.dst_node = self.sfc.get_substrate_node(self.sfc.get_dst_vnf())
         self.session_number = self.sfc.id.split("_")[-1] # Usa o ID da SFC como número de sessão
         self.service = self.services[0]
@@ -97,14 +96,14 @@ class NetworkEnv(gym.Env):
             node = self.G.nodes[node_id]
             node['cpu_used'] = initial_state['cpu_used']
             node['cache_used'] = initial_state['cache_used']
-            node['services'] = copy.copy(initial_state['services'])
-            node['reuse'] = copy.copy(initial_state['reuse'])
+            node['services']= copy.deepcopy(initial_state.get('services', {})),
+            node['reuse']= copy.deepcopy(initial_state.get('reuse', []))
 
         snapshot_edges = self.initial_resource_snapshot['edges']
         for (u, v), initial_state in snapshot_edges.items():
             edge = self.G.edges[u, v]
             edge['bandwidth_used'] = initial_state['bandwidth_used']
-            edge['services_in_transit'] = initial_state['services_in_transit']
+            edge['services_in_transit'] = copy.deepcopy(initial_state.get('services_in_transit', {}))
         
         # 2. Reinicia métricas globais do episódio
         self.reward = 0
@@ -128,11 +127,10 @@ class NetworkEnv(gym.Env):
         server_to_allocate = self.valid_nodes[int(action)]
         self.was_reused_in_step = False
 
-        success_alloc, comp_latency = self.allocate_resources_on_node(server_to_allocate)
+        success_alloc = self.allocate_resources_on_node(server_to_allocate)
         if not success_alloc:
             return self._fail_step('resource')
         
-        self.latency_used += comp_latency
 
         if self.latency_used > self.latency_request:
             return self._fail_step('latency_comp')
@@ -227,12 +225,12 @@ class NetworkEnv(gym.Env):
         
         if (node['cpu_used'] + cpu_req > node['cpu_capacity']) or \
            (node['cache_used'] + cache_req > node['cache_capacity']):
-            return False, 0.0
+            return False
 
         service_key = (self.service, self.session_number)
         is_shareable_service = self.is_shareable(self.service)
         
-        comp_latency = calculate_computational_latency(self.G, node_id, vnf)
+
 
         if service_key in node['services']:
             node['services'][service_key]['copys'] += 1
@@ -249,7 +247,7 @@ class NetworkEnv(gym.Env):
             if is_shareable_service:
                 node['reuse'].append(vnf)
         
-        return True, comp_latency
+        return True
 
     def allocate_bandwidth_along_path(self, path, bandwidth_required, ms_name):
         if not path or len(path) < 2:
