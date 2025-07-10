@@ -153,6 +153,11 @@ class NetworkEnv(gym.Env):
             raise ValueError(f"Ação inválida: {action}.")
         server_to_allocate = self.valid_nodes[int(action)]
         self.was_reused_in_step = False
+        # print(f"Nó {server_to_allocate} || cpu_used: {self.G.nodes[server_to_allocate]["cpu_used"]} || cache_used: {self.G.nodes[server_to_allocate]["cache_used"]}")
+        # vnf = self.sfc.get_vnf_by_id(self.service)
+        # cpu_req = vnf.get_cpu_request()
+        # cache_req = vnf.get_cache_request()
+        # print(f"Sevirço {vnf.id} || cpu_request: {cpu_req} || cache_request: {cache_req}")
         if not self.allocate_resources_on_node(server_to_allocate):
             return self._fail_step('resource')
         path = self._get_path_with_fallback(self.current_location, server_to_allocate)
@@ -196,8 +201,8 @@ class NetworkEnv(gym.Env):
         is_reusable = self.can_reuse_vnf_on_node(node_id, self.service)
         effective_cpu_req = 0 if is_reusable else cpu_req
         effective_cache_req = 0 if is_reusable else cache_req
-        if (node['cpu_used'] + effective_cpu_req > node['cpu_capacity']) or \
-           (node['cache_used'] + effective_cache_req > node['cache_capacity']):
+        if (node['cpu_used'] + cpu_req > node['cpu_capacity']) or \
+           (node['cache_used'] + cache_req > node['cache_capacity']):
             return False
         service_key = (self.service, self.session_number)
         if not is_reusable:
@@ -301,7 +306,7 @@ class NetworkEnv(gym.Env):
             effective_cache_req = 0 if can_reuse else base_cache_req
             cpu_capacity = node["cpu_capacity"] or 1
             cache_capacity = node["cache_capacity"] or 1
-            if (node["cpu_used"] + effective_cpu_req) > cpu_capacity or (node["cache_used"] + effective_cache_req) > cache_capacity:
+            if (node["cpu_used"] + base_cpu_req) > cpu_capacity or (node["cache_used"] + base_cache_req) > cache_capacity:
                 proj_cpu_cost = 1.0
                 proj_cache_cost = 1.0
             else:

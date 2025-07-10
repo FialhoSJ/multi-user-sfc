@@ -251,8 +251,8 @@ class Kuririn:
                 # print(f"Alocação falha sugerida SFC :{self.env.servers_used} - ultimo nó escolhido {self.env.server}")
                 print(f"Causa Falha: {self.env.fail_reason}")
             self.fail_reason = self.env.fail_reason
-            if self.fail_reason == 'latency':
-                print(f"Alocação: [{self.env.servers_used}] || Custo latencia: {self.env.latency_used}")
+            # if self.fail_reason == 'latency':
+            #     print(f"Alocação: [{self.env.servers_used}] || Custo latencia: {self.env.latency_used}")
             
             return [], None
         if not VERBOSE:
@@ -307,7 +307,7 @@ class Kuririn:
                 # CORREÇÃO: Carregue o modelo e continue usando ele
                 # print(f"Continuando treinamento do modelo: {self.model_path}")
                 try:
-                    self.model = PPO.load(self.model_path, env=env)
+                    self.model = PPO.load(self.model_path, env=env, verbose = 0)
                     # Garante que os parâmetros do ambiente estão atualizados
                 except Exception as e:
                     raise e
@@ -330,15 +330,15 @@ class Kuririn:
 
 
 
-from stable_baselines3.common.callbacks import BaseCallback
+# from stable_baselines3.common.callbacks import BaseCallback
 
-class LogTrainingProgressCallback(BaseCallback):
-    def __init__(self, log_interval, verbose=0):
-        super().__init__(verbose)
-        self.log_interval = log_interval
+# class LogTrainingProgressCallback(BaseCallback):
+#     def __init__(self, log_interval, verbose=0):
+#         super().__init__(verbose)
+#         self.log_interval = log_interval
 
-    def _on_step(self) -> bool:
-        if self.n_calls % self.log_interval == 0:
-            print(f"Step {self.n_calls}/{self.model.num_timesteps} - "
-                  f"Reward: {self.model.get_env().get_attr('reward')[0]}")  # Exemplo de log
-        return True
+#     def _on_step(self) -> bool:
+#         if self.n_calls % self.log_interval == 0:
+#             print(f"Step {self.n_calls}/{self.model.num_timesteps} - "
+#                   f"Reward: {self.model.get_env().get_attr('reward')[0]}")  # Exemplo de log
+#         return True

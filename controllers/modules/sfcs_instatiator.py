@@ -128,8 +128,10 @@ class SFCInstatiator:
                 raise ValueError(f"Serviços só podem ser alocados em servidores ou usuários, não em '{node['type']}'.")
             # Verifica se há recursos disponíveis
             if node['cpu_used'] + cpu_required > node['cpu_capacity']:
-                raise ValueError(f"CPU excedida no nó {node_id} para serviço {service_id}")
+                print(f"Nó {node_id} || CPU_Used: {node['cpu_used']}")
+                raise ValueError(f"CPU excedida no nó {node_id} para serviço {service_id} ||  cpu_required: {cpu_required}")
             if node['cache_used'] + cache_required > node['cache_capacity']:
+                print(f"Sfcs_instatiator - Nó {node_id} || cache_used: {node['cache_used']} || cache_required: {cache_required}")
                 raise ValueError(f"Cache excedido no nó {node_id} para serviço {service_id}")
 
             if service_key in node['services']:
