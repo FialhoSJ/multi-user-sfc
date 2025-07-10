@@ -204,10 +204,14 @@ class NetworkEnv(gym.Env):
         if (node['cpu_used'] + cpu_req > node['cpu_capacity']) or \
            (node['cache_used'] + cache_req > node['cache_capacity']):
             return False
+        
+        effective_cpu_req = 0 if is_reusable else cpu_req
+        effective_cache_req = 0 if is_reusable else cache_req
+        
         service_key = (self.service, self.session_number)
         if not is_reusable:
-            node['cpu_used'] += cpu_req
-            node['cache_used'] += cache_req
+            node['cpu_used'] += effective_cpu_req
+            node['cache_used'] += effective_cache_req
             if self.is_shareable(self.service):
                 node['reuse'].append(vnf)
         self.was_reused_in_step = is_reusable
