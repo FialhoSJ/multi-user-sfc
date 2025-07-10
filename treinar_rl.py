@@ -5,7 +5,12 @@ from stable_baselines3 import PPO, A2C, DQN
 from new_environment import NetworkEnv
 # from stable_baselines3.common.env_checker import check_env
 
-grafo_base = carregar_lista("lista_grafo")
+grafos = carregar_lista("lista_grafo")
+nos_moveis = {}
+for grafo in grafos:
+    for node in grafo.nodes:
+        if isinstance(node, str) and node not in nos_moveis:
+            nos_moveis[node] = grafo.nodes[node]
 
 if __name__ == '__main__':
     # --- Parâmetros de Configuração ---
@@ -40,7 +45,7 @@ if __name__ == '__main__':
                                 cache_capacity=10,
                                 cpu_used=0,
                                 cache_used=0,
-                                position=500,
+                                position=nos_moveis[mobile_device_id]['position'],
                                 services={},
                                 ips=10000000000.0,
                                 reuse=[])
@@ -55,9 +60,11 @@ if __name__ == '__main__':
 
     # --- 2. Criação do Ambiente Gym ---
     # print("2. Criando o ambiente Gym...")
+
     env = NetworkEnv(graph=grafo, valid_nodes=valid_nodes, pesos=pesos)
     aux = env.observation_space.shape
     env.set_sfcs_list(lista_sfcs) # Importante: Define a lista de SFCs no ambiente
+    env.reset()  # Reseta o ambiente para o estado inicial
     
     
     # --- 3. Criação ou Carregamento do Modelo Stable Baselines3 ---
@@ -81,11 +88,11 @@ if __name__ == '__main__':
             PPO_KWARGS = {
             "policy": "MlpPolicy",
             "env": env,
-            "n_steps": 2048,  # Mude para usar a constante N_STEPS (256)
+            "n_steps": 2048,  
             "batch_size": int(2048/64),
             "learning_rate": 0.0003,
-            "ent_coef": 0.10, # Reduzido para aprendizado mais fino
-            "verbose": 1,
+            "ent_coef": 0.20, 
+            "verbose": 1, 
             "device": 'cpu'
             }   
             model = model_class(**PPO_KWARGS)
@@ -94,7 +101,7 @@ if __name__ == '__main__':
     print(f"\n4. Iniciando o treinamento por {TIMESTEPS} timesteps...")
     # O treinamento irá resetar o ambiente (se for o início) ou continuar de onde parou.
     # reset_num_timesteps=False garante que o contador de passos não seja zerado se o modelo foi carregado.
-    model.learn(total_timesteps=30000 * 2, reset_num_timesteps=False)
+    model.learn(total_timesteps=29000*7, reset_num_timesteps=False)
     print("\nTreinamento concluído!")
     
     # --- 5. Salvando o Modelo Treinado ---
@@ -122,4 +129,7 @@ if __name__ == '__main__':
         total_episode_reward += reward
         
     print(f"Episódio de teste finalizado! Recompensa total: {total_episode_reward:.2f}")
-    print(f"Sucesso na alocação: {env.success}")
+    if env.success:
+        print(f"Sucesso na alocação: {env.success}")
+    else:
+        print(f"Falha na alocação: {env.fail_reason}")

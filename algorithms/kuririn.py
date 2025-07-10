@@ -203,8 +203,9 @@ class Kuririn:
         self.env.set_graph(graph=G)
         # self.env.set_server_resources(server_resources)
         # self.env.valid_nodes = self.valid_nodes
-        self.env.set_sfcs_list([self.sfc])
-        teste = self.env.reset()
+        sfc = self.sfc
+        self.env.set_sfcs_list([sfc])
+        self.env.reset()
         # self.env.services, self.env.service_requirements,self.env.service = services, service_requirements,services[0]
         self.env.latency_request= self.latency_request
         
@@ -219,7 +220,6 @@ class Kuririn:
         # self.env.set_dst_vnf(dst_vnf=self.dst_vnf)
         
         if not self.model:
-            aux = self.env.observation_space.shape
             self._load_or_create_model(self.env)
 
         # log_callback = LogTrainingProgressCallback(log_interval=N_STEPS // 10)
@@ -260,10 +260,13 @@ class Kuririn:
             # for server_results in self.env.allocation_results:
             #     print("Servidor: ",self.env.allocation_results[server_results]["allocated_server"],\
             #           "Custo: ",self.env.allocation_results[server_results]['cost'])
-        route_info = {
-            key: list(reversed(value['path']))
-            for key, value in self.env.allocation_results.items()
-        }
+            
+            route_info = {}
+            for key, value in self.env.allocation_results.items():
+                route_info[key] = list(reversed(value['path']))
+            
+    
+
 
         # Armazene caminhos em um dicionário para evitar recalcular
         if (self.env.current_location, 0) not in self.precomputed_paths:
@@ -304,7 +307,6 @@ class Kuririn:
                 # CORREÇÃO: Carregue o modelo e continue usando ele
                 # print(f"Continuando treinamento do modelo: {self.model_path}")
                 try:
-                    aux = self.env.observation_space.shape
                     self.model = PPO.load(self.model_path, env=env)
                     # Garante que os parâmetros do ambiente estão atualizados
                 except Exception as e:
