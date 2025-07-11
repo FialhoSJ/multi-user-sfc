@@ -82,11 +82,11 @@ if __name__ == '__main__':
     MODELOS_DISPONIVEIS = {'ppo': PPO, 'a2c': A2C, 'dqn': DQN}
     MODEL_CHOICE = 'ppo'  # <-- ESCOLHA O MODELO AQUI (PPO, A2C, ou DQN)
     
-    TIMESTEPS = 100000     # <-- Defina o total de passos de treinamento
+    TIMESTEPS = 1000000     # <-- Defina o total de passos de treinamento
     
     # Define os diretórios para salvar logs e modelos
     LOG_DIR = "logs/"
-    MODEL_SAVE_PATH = f"models/{MODEL_CHOICE}_sfc_allocation"
+    MODEL_SAVE_PATH = f"saved_models_rl/{MODEL_CHOICE}_sfc_allocation"
     os.makedirs(LOG_DIR, exist_ok=True)
     os.makedirs("models/", exist_ok=True)
     
@@ -102,9 +102,9 @@ if __name__ == '__main__':
     # --- 2. Criação do Ambiente Gym ---
     # print("2. Criando o ambiente Gym...")
 
-    env = NetworkEnv(graph=grafo, valid_nodes=valid_nodes, pesos=pesos)
+    env = NetworkEnv(graph=listas_grafos[0], valid_nodes=valid_nodes, pesos=pesos)
     aux = env.observation_space.shape
-    env.set_sfcs_list(lista_sfcs) # Importante: Define a lista de SFCs no ambiente
+    env.set_sfcs_list(listas_sfcs[0]) # Importante: Define a lista de SFCs no ambiente
     env.reset()  # Reseta o ambiente para o estado inicial
     
     
@@ -121,7 +121,7 @@ if __name__ == '__main__':
         print(f"   -> Modelo encontrado! Carregando de '{model_path_zip}'...")
         # Carrega o modelo e o associa ao ambiente atual para continuar o treinamento
         model = model_class.load(MODEL_SAVE_PATH, env=env)
-        model.ent_coef = 0.05
+        model.ent_coef = 0.01
     else:
         print(f"   -> Nenhum modelo encontrado. Criando um novo modelo {MODEL_CHOICE}...")
         # "MlpPolicy" é uma política padrão que usa uma rede neural (Multi-Layer Perceptron)
@@ -142,7 +142,7 @@ if __name__ == '__main__':
     print(f"\n4. Iniciando o treinamento por {TIMESTEPS} timesteps...")
     # O treinamento irá resetar o ambiente (se for o início) ou continuar de onde parou.
     # reset_num_timesteps=False garante que o contador de passos não seja zerado se o modelo foi carregado.
-    model.learn(total_timesteps=300*1000, reset_num_timesteps=False)
+    model.learn(total_timesteps=TIMESTEPS, reset_num_timesteps=False)
     print("\nTreinamento concluído!")
     
     # --- 5. Salvando o Modelo Treinado ---

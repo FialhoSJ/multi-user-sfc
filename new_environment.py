@@ -3,6 +3,7 @@ import gymnasium as gym
 import numpy as np
 import networkx as nx
 from gymnasium import spaces
+from utils.david.utils_rl import subtrair_valor_padrao
 
 from algorithms.networkUtils import get_available_shortest_path, calculate_computational_latency, calculate_latency_betwen_nodes
 
@@ -135,8 +136,10 @@ class NetworkEnv(gym.Env):
         session_number = sfc_to_load.id.split("_")[-1]
 
         self._release_resources_for_sfc(sfc_to_load.id)
-        if session_number >=7:
-            self._release_resources_for_sfc(sfc_to_load.id)
+        if self.is_training:
+            if int(session_number) >=7:
+                id_antigo=subtrair_valor_padrao(sfc_to_load.id)
+                self._release_resources_for_sfc(id_antigo)
         self.current_sfc_idx = sfc_index
         self.sfc = sfc_to_load
         services = [item['name'] for item in self.sfc.vnfs_dict]
