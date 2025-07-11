@@ -159,6 +159,9 @@ class NetworkEnv(gym.Env):
         # cache_req = vnf.get_cache_request()
         # print(f"Sevirço {vnf.id} || cpu_request: {cpu_req} || cache_request: {cache_req}")
         if not self.allocate_resources_on_node(server_to_allocate):
+            vnf = self.sfc.get_vnf_by_id(self.service)
+            print(f"""Falha: Resource || Node {server_to_allocate} || CPU_used : {self.G.nodes[server_to_allocate]["cpu_used"]} CPU_required : {vnf.get_cpu_request()}
+            cache_used : {self.G.nodes[server_to_allocate]["cache_used"]} cache_required : {vnf.get_cache_request()}""")
             return self._fail_step('resource')
         path = self._get_path_with_fallback(self.current_location, server_to_allocate)
         if not path:
@@ -171,6 +174,8 @@ class NetworkEnv(gym.Env):
             return self._fail_step('latency')
         self.servers_used.append(server_to_allocate)
         self.total_cost = self.calculate_total_cost(server_to_allocate, path)
+        # if self.total_cost == 0:
+        #     self.total_cost = self.calculate_total_cost(server_to_allocate, path)
         self.reward = -self.total_cost
         self.total_reward += self.reward
         self.current_location = server_to_allocate

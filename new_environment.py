@@ -96,8 +96,11 @@ class NetworkEnv(gym.Env):
         if not sfc_id_to_release:
             return
         for node_id, node_data in self.G.nodes(data=True):
-            sfc_object_to_remove = next((sfc for sfc in node_data.get('sfcs_list', []) if sfc.id == sfc_id_to_release), None)
-            if not sfc_object_to_remove:
+            # sfc_object_to_remove = next((sfc for sfc in node_data.get('sfcs_list', []) if sfc.id == sfc_id_to_release), None)
+            sfc_object_to_remove = self.sfc
+            if "sfcs_list" not in node_data or not node_data["sfcs_list"]:
+                continue
+            if node_data["type"] == 'router' or sfc_object_to_remove not in node_data["sfcs_list"] :
                 continue
             vnf_names_in_sfc = {item['name'] for item in sfc_object_to_remove.vnfs_dict}
             session_to_release = sfc_object_to_remove.id.split("_")[-1]
@@ -129,14 +132,17 @@ class NetworkEnv(gym.Env):
 
     def _load_sfc(self, sfc_index):
         sfc_to_load = self.lista_SFCs[sfc_index]
+        session_number = sfc_to_load.id.split("_")[-1]
+
         self._release_resources_for_sfc(sfc_to_load.id)
+        if session_number >=7:
+            self._release_resources_for_sfc(sfc_to_load.id)
         self.current_sfc_idx = sfc_index
         self.sfc = sfc_to_load
         services = [item['name'] for item in self.sfc.vnfs_dict]
         self.services = list(reversed(services))
         self.latency_request = 10
         self.dst_node = self.sfc.get_substrate_node(self.sfc.get_dst_vnf())
-        self.session_number = self.sfc.id.split("_")[-1]
         self.service = self.services[0]
         self.current_location = self.dst_node
         self.latency_used = 0
@@ -150,7 +156,15 @@ class NetworkEnv(gym.Env):
             raise ValueError(f"Ação inválida: {action}.")
         server_to_allocate = self.valid_nodes[int(action)]
         self.was_reused_in_step = False
+        # print(f"Nó {server_to_allocate} || cpu_used: {self.G.nodes[server_to_allocate]["cpu_used"]} || cache_used: {self.G.nodes[server_to_allocate]["cache_used"]}")
+        # vnf = self.sfc.get_vnf_by_id(self.service)
+        # cpu_req = vnf.get_cpu_request()
+        # cache_req = vnf.get_cache_request()
+        # print(f"Sevirço {vnf.id} || cpu_request: {cpu_req} || cache_request: {cache_req}")
         if not self.allocate_resources_on_node(server_to_allocate):
+            vnf = self.sfc.get_vnf_by_id(self.service)
+            # print(f"""Falha: Resource || Node {server_to_allocate} || CPU_used : {self.G.nodes[server_to_allocate]["cpu_used"]} CPU_required : {vnf.get_cpu_request()}
+            # cache_used : {self.G.nodes[server_to_allocate]["cache_used"]} cache_required : {vnf.get_cache_request()}""")
             return self._fail_step('resource')
         path = self._get_path_with_fallback(self.current_location, server_to_allocate)
         if not path:
@@ -163,17 +177,17 @@ class NetworkEnv(gym.Env):
             return self._fail_step('latency')
         self.servers_used.append(server_to_allocate)
         self.total_cost = self.calculate_total_cost(server_to_allocate, path)
+        # if self.total_cost == 0:
+        #     self.total_cost = self.calculate_total_cost(server_to_allocate, path)
         self.reward = -self.total_cost
         self.total_reward += self.reward
         self.current_location = server_to_allocate
         if not self.is_training:
-            if self.sfc.id not in self.allocation_results:
-                self.allocation_results[self.sfc.id] = {}
-            self.allocation_results[self.sfc.id][self.service] = {'allocated_server': server_to_allocate, 'path': path, 'cost': self.total_cost}
+            self.allocation_results[self.service] = {'allocated_server': server_to_allocate, 'path': path, 'cost': self.total_cost}
         done = False
         if self.service == self.services[-1]:
             if self.current_sfc_idx == len(self.lista_SFCs) - 1:
-                print("Alocou tudo com sucesso.")
+                # print("Alocou tudo com sucesso.")
                 done = True
                 self.success = True
             else:
@@ -195,13 +209,17 @@ class NetworkEnv(gym.Env):
         is_reusable = self.can_reuse_vnf_on_node(node_id, self.service)
         effective_cpu_req = 0 if is_reusable else cpu_req
         effective_cache_req = 0 if is_reusable else cache_req
-        if (node['cpu_used'] + effective_cpu_req > node['cpu_capacity']) or \
-           (node['cache_used'] + effective_cache_req > node['cache_capacity']):
+        if (node['cpu_used'] + cpu_req > node['cpu_capacity']) or \
+           (node['cache_used'] + cache_req > node['cache_capacity']):
             return False
+        
+        effective_cpu_req = 0 if is_reusable else cpu_req
+        effective_cache_req = 0 if is_reusable else cache_req
+        
         service_key = (self.service, self.session_number)
         if not is_reusable:
-            node['cpu_used'] += cpu_req
-            node['cache_used'] += cache_req
+            node['cpu_used'] += effective_cpu_req
+            node['cache_used'] += effective_cache_req
             if self.is_shareable(self.service):
                 node['reuse'].append(vnf)
         self.was_reused_in_step = is_reusable
@@ -300,7 +318,7 @@ class NetworkEnv(gym.Env):
             effective_cache_req = 0 if can_reuse else base_cache_req
             cpu_capacity = node["cpu_capacity"] or 1
             cache_capacity = node["cache_capacity"] or 1
-            if (node["cpu_used"] + effective_cpu_req) > cpu_capacity or (node["cache_used"] + effective_cache_req) > cache_capacity:
+            if (node["cpu_used"] + base_cpu_req) > cpu_capacity or (node["cache_used"] + base_cache_req) > cache_capacity:
                 proj_cpu_cost = 1.0
                 proj_cache_cost = 1.0
             else:

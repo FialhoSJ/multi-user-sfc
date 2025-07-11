@@ -50,8 +50,10 @@ class SFCInstatiator:
             # algorithm = copy.deepcopy(self.alg)
             # algorithm.clear_all()
             # algorithm.install_substrate_network(substrate_network)
-            # salvar_variavel(graph, "lista_grafo")
-            # salvar_variavel(sfc, "lista_sfc")
+            # salvar_variavel(graph, "lista_grafo2")
+            # salvar_variavel(sfc, "lista_sfc2")
+            if "p4_7" in sfc.id:
+                aqui=1
             algorithm.install_SFC(sfc)
             algorithm.install_substrate_network(copy.deepcopy(graph))
             s = time.time()
@@ -128,7 +130,7 @@ class SFCInstatiator:
                 raise ValueError(f"Serviços só podem ser alocados em servidores ou usuários, não em '{node['type']}'.")
             # Verifica se há recursos disponíveis
             if node['cpu_used'] + cpu_required > node['cpu_capacity']:
-                print(f"Nó {node_id} || CPU_Used: {node['cpu_used']}")
+                print(f"Sfcs_instatiator - Nó {node_id} || cpu_used: {node['cpu_used']} || cpu_required: {cpu_required}")
                 raise ValueError(f"CPU excedida no nó {node_id} para serviço {service_id} ||  cpu_required: {cpu_required}")
             if node['cache_used'] + cache_required > node['cache_capacity']:
                 print(f"Sfcs_instatiator - Nó {node_id} || cache_used: {node['cache_used']} || cache_required: {cache_required}")
