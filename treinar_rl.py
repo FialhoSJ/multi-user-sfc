@@ -121,7 +121,7 @@ if __name__ == '__main__':
         print(f"   -> Modelo encontrado! Carregando de '{model_path_zip}'...")
         # Carrega o modelo e o associa ao ambiente atual para continuar o treinamento
         model = model_class.load(MODEL_SAVE_PATH, env=env)
-        model.ent_coef = 0.01
+        model.ent_coef = 0.002
     else:
         print(f"   -> Nenhum modelo encontrado. Criando um novo modelo {MODEL_CHOICE}...")
         # "MlpPolicy" é uma política padrão que usa uma rede neural (Multi-Layer Perceptron)
