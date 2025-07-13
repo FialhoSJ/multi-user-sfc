@@ -144,7 +144,7 @@ class NetworkEnv(gym.Env):
         self.sfc = sfc_to_load
         services = [item['name'] for item in self.sfc.vnfs_dict]
         self.services = list(reversed(services))
-        self.latency_request = 10
+        self.latency_request = 12
         self.dst_node = self.sfc.get_substrate_node(self.sfc.get_dst_vnf())
         self.service = self.services[0]
         self.current_location = self.dst_node
@@ -159,29 +159,32 @@ class NetworkEnv(gym.Env):
             raise ValueError(f"Ação inválida: {action}.")
         server_to_allocate = self.valid_nodes[int(action)]
         self.was_reused_in_step = False
-        # print(f"Nó {server_to_allocate} || cpu_used: {self.G.nodes[server_to_allocate]["cpu_used"]} || cache_used: {self.G.nodes[server_to_allocate]["cache_used"]}")
-        # vnf = self.sfc.get_vnf_by_id(self.service)
-        # cpu_req = vnf.get_cpu_request()
-        # cache_req = vnf.get_cache_request()
-        # print(f"Sevirço {vnf.id} || cpu_request: {cpu_req} || cache_request: {cache_req}")
+        
         if not self.allocate_resources_on_node(server_to_allocate):
-            vnf = self.sfc.get_vnf_by_id(self.service)
-            # print(f"""Falha: Resource || Node {server_to_allocate} || CPU_used : {self.G.nodes[server_to_allocate]["cpu_used"]} CPU_required : {vnf.get_cpu_request()}
-            # cache_used : {self.G.nodes[server_to_allocate]["cache_used"]} cache_required : {vnf.get_cache_request()}""")
             return self._fail_step('resource')
-        path = self._get_path_with_fallback(self.current_location, server_to_allocate)
+
+        # --- LÓGICA DE ROTEAMENTO CENTRALIZADA AQUI ---
+        # Chamamos nossa nova função para obter o caminho e sua latência real
+        path, path_latency = self._find_viable_path_and_latency(self.current_location, server_to_allocate)
+
         if not path:
+            # Se não há caminho viável (retorno foi None), falha por banda/roteamento.
             return self._fail_step('bandwidth')
-        success_band, path_latency = self.allocate_bandwidth_along_path(path, self.bandwidth_required, self.service)
+
+        # A função abaixo agora apenas aloca a banda, não calcula mais a latência
+        success_band = self.allocate_bandwidth_along_path(path, self.bandwidth_required, self.service)
+        
         if not success_band:
             return self._fail_step('bandwidth')
+
+        # Usamos a latência que foi retornada junto com o caminho
         self.latency_used += path_latency
+        
         if self.latency_used > self.latency_request:
             return self._fail_step('latency')
+
         self.servers_used.append(server_to_allocate)
         self.total_cost = self.calculate_total_cost(server_to_allocate, path)
-        # if self.total_cost == 0:
-        #     self.total_cost = self.calculate_total_cost(server_to_allocate, path)
         self.reward = -self.total_cost
         self.total_reward += self.reward
         self.current_location = server_to_allocate
@@ -265,15 +268,21 @@ class NetworkEnv(gym.Env):
 
     def allocate_bandwidth_along_path(self, path, bandwidth_required, ms_name):
         if not path or len(path) < 2:
-            return True, 0
+            # Não há caminho, mas não há falha de banda pois nada é alocado. Latência é 0.
+            return True
         for u, v in zip(path[:-1], path[1:]):
             edge = self.G.edges[u, v]
             if edge['bandwidth_used'] + bandwidth_required > edge['bandwidth_capacity']:
-                return False, 0
+                # Esta verificação é redundante se _find_viable_path_and_latency funciona bem,
+                # mas é uma boa salvaguarda.
+                return False
+        
         vnf = self.sfc.get_vnf_by_id(ms_name)
         for u, v in zip(path[:-1], path[1:]):
             self._commit_bandwidth_on_link(u, v, vnf, bandwidth_required)
-        return True, (len(path) - 1) * VALOR_LATENCIA_SALTO
+        
+        # Não retorna mais a latência aqui
+        return True
         
     def _commit_bandwidth_on_link(self, u, v, vnf, bandwidth_required):
         edge = self.G.edges[u, v]
@@ -314,6 +323,7 @@ class NetworkEnv(gym.Env):
         current_vnf = self.sfc.get_vnf_by_id(self.service)
         base_cpu_req = current_vnf.get_cpu_request()
         base_cache_req = current_vnf.get_cache_request()
+
         for node_id in self.valid_nodes:
             node = self.G.nodes[node_id]
             can_reuse = self.can_reuse_vnf_on_node(node_id, self.service)
@@ -327,14 +337,28 @@ class NetworkEnv(gym.Env):
             else:
                 proj_cpu_cost = (node["cpu_used"] + effective_cpu_req) / cpu_capacity
                 proj_cache_cost = (node["cache_used"] + effective_cache_req) / cache_capacity
-            path_latency = (len(nx.shortest_path(self.G, source=self.current_location, target=node_id)) - 1) * VALOR_LATENCIA_SALTO
+
+
+            _, path_latency = self._find_viable_path_and_latency(self.current_location, node_id)
+            
             latency_request = self.latency_request or 1
-            proj_latency_cost = (self.latency_used + path_latency) / latency_request
+            
+            # Se a latência for infinita, o custo é máximo.
+            if path_latency == float('inf'):
+                proj_latency_cost = 1.0 
+            else:
+                proj_latency_cost = (self.latency_used + path_latency) / latency_request
+
             is_server_used = 1.0 if node_id in self.servers_used else 0.0
+            
+            # A verificação de `cant_allocate` agora usa a latência realista.
             cant_allocate = 1.0 if (proj_cpu_cost >= 1.0 or proj_cache_cost >= 1.0 or proj_latency_cost > 1.0) else 0.0
-            offers_reuse_flag = 1.0 if can_reuse else 0.0
+            
+            offers_reuse_flag = 1.0 if self.can_reuse_vnf_on_node(node_id, self.service) else 0.0
+            
             node_state = [min(proj_cpu_cost, 1.0), min(proj_cache_cost, 1.0), min(proj_latency_cost, 1.0), is_server_used, cant_allocate, offers_reuse_flag]
             state_vectors.extend(node_state)
+            
         return np.array(state_vectors, dtype=np.float32)
 
     def is_shareable(self, service_name):
@@ -352,3 +376,45 @@ class NetworkEnv(gym.Env):
             available = edge.get('bandwidth_capacity', 0) - edge.get('bandwidth_used', 0)
             min_available = min(min_available, available)
         return min_available
+    
+
+    def _find_viable_path_and_latency(self, source, target):
+        """
+        Encontra um caminho viável de source para target e retorna o caminho e sua latência em saltos.
+        A "fonte da verdade" para o roteamento.
+        
+        1. Tenta o caminho mais curto em saltos.
+        2. Se não tiver banda, busca um caminho alternativo com banda suficiente.
+        
+        Retorna:
+            (list, int): Uma tupla contendo o caminho (lista de nós) e a latência (número de saltos).
+            (None, float('inf')): Se nenhum caminho viável for encontrado.
+        """
+        if source == target:
+            return [source], 0
+
+        # Tenta primeiro o caminho mais curto (cached ou calculado)
+        cache_key = (source, target)
+        path = self.cached_paths.get(cache_key)
+        if not path:
+            try:
+                path = nx.shortest_path(self.G, source, target)
+                self.cached_paths[cache_key] = path
+            except nx.NetworkXNoPath:
+                return None, float('inf')
+
+        # Verifica se o caminho mais curto tem banda
+        if self.get_critical_link_bandwidth(path) >= self.bandwidth_required:
+            return path, len(path) - 1
+
+        # Se não tiver, busca um alternativo (aqui a lógica de fallback é crucial)
+        # Esta função externa deve ser otimizada para encontrar o caminho mais curto que satisfaça a banda
+        path_alternative = get_available_shortest_path(self.G, source, target, self.bandwidth_required, rounded=True)
+        
+        if path_alternative:
+            # Atualiza o cache com o novo caminho viável
+            self.cached_paths[cache_key] = path_alternative
+            return path_alternative, len(path_alternative) - 1
+        
+        # Se nenhum caminho (nem o original, nem o alternativo) for viável
+        return None, float('inf')

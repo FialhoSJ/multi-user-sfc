@@ -121,7 +121,7 @@ if __name__ == '__main__':
         print(f"   -> Modelo encontrado! Carregando de '{model_path_zip}'...")
         # Carrega o modelo e o associa ao ambiente atual para continuar o treinamento
         model = model_class.load(MODEL_SAVE_PATH, env=env)
-        model.ent_coef = 0.002
+        model.ent_coef = 0.1
     else:
         print(f"   -> Nenhum modelo encontrado. Criando um novo modelo {MODEL_CHOICE}...")
         # "MlpPolicy" é uma política padrão que usa uma rede neural (Multi-Layer Perceptron)
@@ -174,3 +174,8 @@ if __name__ == '__main__':
         print(f"Sucesso na alocação: {env.success}")
     else:
         print(f"Falha na alocação: {env.fail_reason}")
+        print(f"Servers used {env.servers_used}")
+        print(f"ultimo server {env.valid_nodes[action]}")
+        # print(f"Rede")
+        # for node in env.G.nodes:
+        #     print(f"{node} - {env.G.nodes[node]}")
