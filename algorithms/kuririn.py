@@ -19,7 +19,7 @@ logger.addHandler(file_handler)
 N_STEPS = 4096
 IS_TRAINING = 0
 VERBOSE = False
-MAX_LATENCY = 9
+MAX_LATENCY = 12
 os.environ["CUDA_VISIBLE_DEVICES"] = ""  # Desabilita o uso da GPU
 
 def collect_session(text):
@@ -256,7 +256,7 @@ class Kuririn:
             
             return [], None
         if not VERBOSE:
-            print(f"Solução sfc {self.sfc.id}: {self.env.servers_used} || Custo: {-self.env.total_reward}")
+            print(f"Solução sfc {self.sfc.id}: {self.env.servers_used} || Latencia: {self.env.latency_used}")
             # for server_results in self.env.allocation_results:
             #     print("Servidor: ",self.env.allocation_results[server_results]["allocated_server"],\
             #           "Custo: ",self.env.allocation_results[server_results]['cost'])

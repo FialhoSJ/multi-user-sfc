@@ -50,10 +50,10 @@ class SFCInstatiator:
             # algorithm = copy.deepcopy(self.alg)
             # algorithm.clear_all()
             # algorithm.install_substrate_network(substrate_network)
-            salvar_variavel(graph, "lista_grafo1")
-            salvar_variavel(sfc, "lista_sfc1")
-            # if "p4_7" in sfc.id:
-            #     aqui=1
+            # salvar_variavel(graph, "lista_grafo3")
+            # salvar_variavel(sfc, "lista_sfc3")
+            if "p4_12" in sfc.id:
+                aqui=1
             algorithm.install_SFC(sfc)
             algorithm.install_substrate_network(copy.deepcopy(graph))
             s = time.time()

@@ -1,32 +1,38 @@
-import copy # Importamos copy no topo
+import copy 
 import gymnasium as gym
 import numpy as np
 import networkx as nx
-from gymnasium import spaces
-from utils.david.utils_rl import subtrair_valor_padrao
+import random 
 
+from gymnasium import spaces
+from utils.david.utils_rl import add_mobile_user_to_graph
+from utils.david.utils_rl import subtrair_valor_padrao
 from algorithms.networkUtils import get_available_shortest_path, calculate_computational_latency, calculate_latency_betwen_nodes
 
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 VALOR_LATENCIA_SALTO = 1
 
-# ... (funções auxiliares como latency_rounded permanecem iguais) ...
 def latency_rounded(u, v, data):
     return int(round(data.get('latency', 0), 3) * 1000)
 
 class NetworkEnv(gym.Env):
-    def __init__(self, graph, valid_nodes, pesos):
+    def __init__(self, graph, valid_nodes, pesos, all_sfc_lists: list):
         super().__init__()
 
-        # SOLUÇÃO CORRETA: Usamos deepcopy no grafo inteiro, apenas uma vez.
         self.initial_G = copy.deepcopy(graph) 
         self.G = copy.deepcopy(graph)
         
+        # ARMAZENA A COLEÇÃO COMPLETA DE LISTAS DE SFCs
+        if not all_sfc_lists:
+            raise ValueError("A coleção de listas de SFCs (all_sfc_lists) não pode ser vazia.")
+        self.all_sfc_lists = all_sfc_lists
+        
+        self.lista_SFCs = [] # Esta será a lista do episódio ATUAL, preenchida no reset
+        
         self.valid_nodes = valid_nodes
         self.cached_paths = {}
-        # ... o resto do __init__ permanece igual ...
-        self.lista_SFCs = []
         self.current_sfc_idx = 0
+        self.verbose = 0
         self.sfc = None
         self.services = None
         self.latency_request = None
@@ -52,18 +58,18 @@ class NetworkEnv(gym.Env):
 
     def reset(self, seed=None, options=None):
         """
-        CORRIGIDO E OTIMIZADO: Restaura o estado usando uma cópia profunda
-        do grafo mestre. É correto e mais rápido que a implementação original.
+        A cada reset (início de um novo episódio), seleciona aleatoriamente
+        uma lista de SFCs da coleção para o treinamento.
         """
-        if not self.lista_SFCs:
-            raise ValueError("Chame set_sfcs_list() antes de resetar o ambiente.")
-            
-        # SOLUÇÃO CORRETA: A linha abaixo garante uma cópia totalmente independente.
-        self.G = copy.deepcopy(self.initial_G)
-        
-        self.cached_paths.clear()
+        # --- LÓGICA DE GENERALIZAÇÃO ---
+        # Seleciona aleatoriamente uma das listas de SFCs disponíveis
+        self.lista_SFCs = random.choice(self.all_sfc_lists) #
+        # --------------------------------
 
-        # Reseta as variáveis de controle do episódio
+        # O resto do reset continua como antes, mas agora operando na lista recém-selecionada
+        self.G = copy.deepcopy(self.initial_G) #
+        self.cached_paths.clear() #
+
         self.reward = 0
         self.total_reward = 0
         self.total_cost = 0
@@ -71,9 +77,9 @@ class NetworkEnv(gym.Env):
         self.fail_reason = None
         self.allocation_results = {}
         
-        self._load_sfc(0)
+        self._load_sfc(0) #
         
-        return self.get_normalized_state(), {}
+        return self.get_normalized_state(), {} #
 
     def set_graph(self, graph):
         """
@@ -153,6 +159,8 @@ class NetworkEnv(gym.Env):
         mobile_device_id = self.sfc.dst_node
         self.valid_nodes[-1] = mobile_device_id
         self.update_bandwidth_required()
+        if mobile_device_id not in self.G.nodes:
+            add_mobile_user_to_graph(self.G, [self.sfc])
 
     def step(self, action):
         if not 0 <= action < len(self.valid_nodes):
@@ -184,6 +192,8 @@ class NetworkEnv(gym.Env):
             return self._fail_step('latency')
 
         self.servers_used.append(server_to_allocate)
+        if self.verbose:
+            print(self.servers_used)
         self.total_cost = self.calculate_total_cost(server_to_allocate, path)
         self.reward = -self.total_cost
         self.total_reward += self.reward
@@ -243,6 +253,14 @@ class NetworkEnv(gym.Env):
         self.success = False
         self.reward = -2000
         done = True
+
+        # if self.current_sfc_idx == len(self.lista_SFCs) - 1:
+        #     # print("Alocou tudo com sucesso.")
+        #     done = True
+        #     self.success = True
+        # else:
+        #     self._load_sfc(self.current_sfc_idx + 1)
+
         return self.get_normalized_state(), self.reward, done, False, {}
 
     def _get_path_with_fallback(self, source, target):
@@ -319,10 +337,21 @@ class NetworkEnv(gym.Env):
     def get_normalized_state(self):
         if self.sfc is None:
             return np.zeros(self.observation_space.shape, dtype=np.float32)
+
         state_vectors = []
         current_vnf = self.sfc.get_vnf_by_id(self.service)
         base_cpu_req = current_vnf.get_cpu_request()
         base_cache_req = current_vnf.get_cache_request()
+
+        # --- OTIMIZAÇÃO APLICADA ---
+        # 1. Pré-calculamos as latências do local atual para todos os nós válidos
+        #    e armazenamos em um dicionário para acesso instantâneo.
+        #    Isso evita chamar a função de busca de caminho repetidamente dentro do loop.
+        latencies_from_current = {
+            node_id: self._find_viable_path_and_latency(self.current_location, node_id)[1]
+            for node_id in self.valid_nodes
+        }
+        # ---------------------------
 
         for node_id in self.valid_nodes:
             node = self.G.nodes[node_id]
@@ -331,19 +360,23 @@ class NetworkEnv(gym.Env):
             effective_cache_req = 0 if can_reuse else base_cache_req
             cpu_capacity = node["cpu_capacity"] or 1
             cache_capacity = node["cache_capacity"] or 1
-            if (node["cpu_used"] + base_cpu_req) > cpu_capacity or (node["cache_used"] + base_cache_req) > cache_capacity:
+
+            if (node["cpu_used"] + base_cpu_req) > cpu_capacity or \
+               (node["cache_used"] + base_cache_req) > cache_capacity:
                 proj_cpu_cost = 1.0
                 proj_cache_cost = 1.0
             else:
                 proj_cpu_cost = (node["cpu_used"] + effective_cpu_req) / cpu_capacity
                 proj_cache_cost = (node["cache_used"] + effective_cache_req) / cache_capacity
 
+            # --- OTIMIZAÇÃO APLICADA ---
+            # 2. Usamos a latência que já foi calculada e está no dicionário.
+            #    Esta operação é extremamente rápida (consulta a um hash map).
+            path_latency = latencies_from_current[node_id]
+            # ---------------------------
 
-            _, path_latency = self._find_viable_path_and_latency(self.current_location, node_id)
-            
             latency_request = self.latency_request or 1
             
-            # Se a latência for infinita, o custo é máximo.
             if path_latency == float('inf'):
                 proj_latency_cost = 1.0 
             else:
@@ -351,16 +384,21 @@ class NetworkEnv(gym.Env):
 
             is_server_used = 1.0 if node_id in self.servers_used else 0.0
             
-            # A verificação de `cant_allocate` agora usa a latência realista.
             cant_allocate = 1.0 if (proj_cpu_cost >= 1.0 or proj_cache_cost >= 1.0 or proj_latency_cost > 1.0) else 0.0
             
             offers_reuse_flag = 1.0 if self.can_reuse_vnf_on_node(node_id, self.service) else 0.0
             
-            node_state = [min(proj_cpu_cost, 1.0), min(proj_cache_cost, 1.0), min(proj_latency_cost, 1.0), is_server_used, cant_allocate, offers_reuse_flag]
+            node_state = [
+                min(proj_cpu_cost, 1.0), 
+                min(proj_cache_cost, 1.0), 
+                min(proj_latency_cost, 1.0), 
+                is_server_used, 
+                cant_allocate, 
+                offers_reuse_flag
+            ]
             state_vectors.extend(node_state)
             
         return np.array(state_vectors, dtype=np.float32)
-
     def is_shareable(self, service_name):
         return service_name.startswith(SHAREABLE_PREFIXES)
 

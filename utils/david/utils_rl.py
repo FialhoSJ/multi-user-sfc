@@ -1,4 +1,4 @@
-import re
+import re, copy
 
 def subtrair_valor_padrao(texto_original: str) -> str:
     """
@@ -31,3 +31,25 @@ def subtrair_valor_padrao(texto_original: str) -> str:
     )
 
     return texto_modificado
+
+
+def add_mobile_user_to_graph(graph,sfc_list):
+    mobile_device_id = sfc_list[0].dst_node
+    closer_router    = sfc_list[0].closer_router
+
+    graph.add_node(mobile_device_id,type='mobile_device',
+                            cpu_capacity=25,
+                            cache_capacity=10,
+                            cpu_used=0,
+                            cache_used=0,
+                            position=59.97796454320501,
+                            services={},
+                            ips=10000000000.0,
+                            reuse=[])
+    router = graph._node[closer_router]
+    wireless_free = router['w_channel_capacity'] - router['w_channel_used']
+    
+    # TODO Permitir que o próprio algoritmo escolha o roteador
+    # TODO calcular a latência do sinal
+    signal_latency = 1
+    graph.add_edge(mobile_device_id, closer_router, bandwidth_capacity=wireless_free, bandwidth_used=0.00 , latency=signal_latency, services_in_transit={})
