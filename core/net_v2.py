@@ -412,6 +412,42 @@ class Net2:
 
     def get_node_sfcs(self, node_id):
         return self.graph.nodes[node_id]["sfcs_list"]
+    
+    def get_total_cpu_request(self):
+        """
+        Retorna o total de CPU que foi requisitado por todas as SFCs.
+
+        Returns:
+            float: O valor total de CPU requisitada.
+        """
+        return self.total_cpu_requested
+
+    def get_total_cache_request(self):
+        """
+        Retorna o total de cache que foi requisitado por todas as SFCs.
+
+        Returns:
+            float: O valor total de cache requisitado.
+        """
+        return self.total_cache_requested
+    
+    def get_total_cpu_saved(self):
+        """
+        Retorna o total de CPU que foi economizado devido ao compartilhamento de serviços.
+
+        Returns:
+            float: O valor total de CPU economizada.
+        """
+        return self.total_cpu_saved
+
+    def get_total_cache_saved(self):
+        """
+        Retorna o total de cache que foi economizado devido ao compartilhamento de serviços.
+
+        Returns:
+            float: O valor total de cache economizado.
+        """
+        return self.total_cache_saved
 
     def get_sfc_by_id(self, sfc_id):
         return self.sfc_dict[sfc_id]

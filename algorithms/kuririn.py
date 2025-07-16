@@ -17,7 +17,7 @@ logger.addHandler(file_handler)
 
 # Constants
 N_STEPS = 256
-IS_TRAINING = 1
+IS_TRAINING = 0
 VERBOSE = False
 os.environ["CUDA_VISIBLE_DEVICES"] = ""  # Desabilita o uso da GPU
 
@@ -48,7 +48,7 @@ class Kuririn:
         self.cpu_factor = 4
         self.cache_factor = 4
         self.band_factor = 1
-        self.latency_factor = 2
+        self.latency_factor = 3.5
         self.boot_factor = 0
         self.env = None
 
