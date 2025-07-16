@@ -141,6 +141,10 @@ class SFCInstatiator:
                 if not self.is_shareable(service_id):        # Se não for compartilhável
                     node['cpu_used'] += cpu_required
                     node['cache_used'] += cache_required
+                # else:
+                #     print("reuso no sfc_instantiator no nó", node_id)
+                #     aux = node_id
+
             else:
                 node['services'][service_key] = {'cpu': cpu_required, 'cache': cache_required, 'copys': 1}
                 node['cpu_used'] += cpu_required

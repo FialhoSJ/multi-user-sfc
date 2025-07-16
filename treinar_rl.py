@@ -105,7 +105,7 @@ for i in range(3):
         # print(f"\n4. Iniciando o treinamento por {TIMESTEPS} timesteps...")
         # O treinamento irá resetar o ambiente (se for o início) ou continuar de onde parou.
         # reset_num_timesteps=False garante que o contador de passos não seja zerado se o modelo foi carregado.
-        model.learn(total_timesteps=TIMESTEPS, reset_num_timesteps=False)
+        # model.learn(total_timesteps=TIMESTEPS, reset_num_timesteps=False)
         # print("\nTreinamento concluído!")
         
         # --- 5. Salvando o Modelo Treinado ---
@@ -139,7 +139,9 @@ for i in range(3):
         else:
             print(f"Falha na alocação: {env.fail_reason}")
             # print(f"Servers used {env.servers_used}")
-            print(f"ultimo server {env.valid_nodes[action]}")
+            # print(f"ultimo server {env.valid_nodes[action]}")
             # print(f"Rede")
             # for node in env.G.nodes:
             #     print(f"{node} - {env.G.nodes[node]}")
+
+

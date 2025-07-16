@@ -1,6 +1,6 @@
 import re, copy
 
-def subtrair_valor_padrao(texto_original: str) -> str:
+def subtrair_valor_padrao(texto_original: str, valor_menos: int) -> str:
     """
     Encontra o padrão "p{num1}_{num2}" em uma string e subtrai 6 de num2.
 
@@ -26,7 +26,7 @@ def subtrair_valor_padrao(texto_original: str) -> str:
     # match.group(2) é o segundo número (como string)
     texto_modificado = re.sub(
         pattern,
-        lambda match: f"p{match.group(1)}_{int(match.group(2)) - 6}",
+        lambda match: f"p{match.group(1)}_{int(match.group(2)) - valor_menos}",
         texto_original
     )
 

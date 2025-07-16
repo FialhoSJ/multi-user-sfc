@@ -16,10 +16,9 @@ file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 
 # Constants
-N_STEPS = 4096
-IS_TRAINING = 0
+N_STEPS = 256
+IS_TRAINING = 1
 VERBOSE = False
-MAX_LATENCY = 12
 os.environ["CUDA_VISIBLE_DEVICES"] = ""  # Desabilita o uso da GPU
 
 def collect_session(text):
@@ -32,7 +31,6 @@ class Kuririn:
         self.model_name = model_name
         self.model_path = f'saved_models_rl/{self.model_name}_sfc_allocation'
         self.name = "kuririn"
-        self.model = None
         self.env = None
         self.graph = None
         self.sfc = None
@@ -43,13 +41,14 @@ class Kuririn:
         self.can_host_multiple_sfs = True
         self.is_backup = False
         self.valid_nodes = None
+        self.last_propose= None
         self.precomputed_paths = {}
     
         # Cost weights
-        self.cpu_factor = 3
-        self.cache_factor = 3
+        self.cpu_factor = 4
+        self.cache_factor = 4
         self.band_factor = 1
-        self.latency_factor = 3
+        self.latency_factor = 2
         self.boot_factor = 0
         self.env = None
 
@@ -72,14 +71,12 @@ class Kuririn:
             "band": self.band_factor,
             "latency": self.latency_factor
         })
-
-        # aux = self.env.observation_space.shape
-        # self.model = self._load_or_create_model(self.env)
+        self.model = self._load_or_create_model(self.env)
         return self.graph
 
     def install_SFC(self, sfc):
         self.sfc = sfc
-        self.latency_request = MAX_LATENCY
+        self.latency_request = sfc.get_latency_request()
         self.dst_vnf = self.sfc.get_dst_vnf()
         return sfc
 
@@ -97,7 +94,7 @@ class Kuririn:
         self.latency = None
 
     def check_solution(self):
-        if not isinstance(self.latency, (int, float)) or not (0 <= self.latency <= MAX_LATENCY) or not self.route_info:
+        if not isinstance(self.latency, (int, float)) or not (0 <= self.latency <= self.sfc.get_latency_request()) or not self.route_info:
             return False
         if len(self.route_info) != 6:
             return False
@@ -169,50 +166,30 @@ class Kuririn:
         return resources
 
     def prepare_service_requirements(self, sfs_dict):
-        """
-        Prepara os requisitos de serviço buscando os dados diretamente do objeto SFC.
-        """
         service_requirements = {}
-        # Obtém a lista de nomes de serviços (VNFs) a partir do dicionário do SFC
         services = [item['name'] for item in sfs_dict]
-        
         for item in sfs_dict:
             name = item['name']
-            # Obtém o objeto VNF correspondente ao nome
-            vnf = self.sfc.get_vnf_by_id(name)
-            
-            # Popula o dicionário de requisitos usando os métodos do objeto VNF
-            if vnf:
-                service_requirements[name] = {
-                    'cpu': vnf.get_cpu_request(),
-                    'cache': vnf.get_cache_request(),
-                    # A banda de saída é usada pelo ambiente para alocação de enlace
-                    'out_bw': vnf.get_outcome_interface_bandwidth(),
-                    'in_bw': vnf.get_income_interface_bandwidth()
-                    # 'latency': vnf.get_latency()
-                }
-
-        # Adiciona a entrada para o destino (dst), que não consome recursos
-        service_requirements['dst'] = {'cpu': 0, 'cache': 0, 'out_bw': 0, 'in_bw': 0, 'latency': 0}
-        
-        # Retorna a lista de serviços na ordem inversa (do destino para a origem) e os requisitos
+            service_requirements[name] = {
+                'cpu': item['CPU'],
+                'cache': item['cache'],
+                'out_bw': item['out_bw'],
+                'in_bw': item['in_bw'],
+                'latency': item['latency']
+            }
+        service_requirements['dst'] = {'CPU': 0, 'cache': 0, 'out_bw': 0, 'in_bw': 0, 'latency': 0}
         return list(reversed(services)), service_requirements
-
 
     def find_best_allocation_for_sfc(self, G, service_requirements,services, dst):
         self.env.set_graph(graph=G)
         # self.env.set_server_resources(server_resources)
-        # self.env.valid_nodes = self.valid_nodes
-        sfc = self.sfc
-        self.env.set_sfcs_list([sfc])
-        self.env.reset()
-        # self.env.services, self.env.service_requirements,self.env.service = services, service_requirements,services[0]
-        self.env.latency_request= self.latency_request
-        
-        # self.env.set_dst_node(dst)
-        
-        # self.env.session_number = collect_session(self.sfc.id)
-        # self.env.update_bandwidth_required()
+        self.env.valid_nodes = self.valid_nodes
+        self.env.services, self.env.service_requirements,self.env.service = services, service_requirements,services[0]
+        self.env.latency_request= 13
+        self.env.set_dst_node(dst)
+        self.env.sfc = self.sfc
+        self.env.session_number = collect_session(self.sfc.id)
+        self.env.update_bandwidth_required()
 
         # self.env.dst_vnf = self.dst_vnf
         # self.env.current_vnf = self.dst_vnf   
@@ -223,7 +200,8 @@ class Kuririn:
             self._load_or_create_model(self.env)
 
         # log_callback = LogTrainingProgressCallback(log_interval=N_STEPS // 10)
-        # if IS_TRAINING :self.model.learn(total_timesteps=N_STEPS)
+        if IS_TRAINING:
+            self.model.learn(total_timesteps=N_STEPS)
         state, _ = self.env.reset()
         self.env.is_training = False
 
@@ -234,25 +212,25 @@ class Kuririn:
             action, _ = self.model.predict(state, deterministic=True)
             state, _, done, _, _ = self.env.step(action)
 
-        # if not self.env.success and IS_TRAINING:
-        #     state, _ = self.env.reset()
-        #     self.model.learn(total_timesteps=N_STEPS*8)
-        #     # self.model.learn(total_timesteps=N_STEPS*8)
-        #     state, _ = self.env.reset()
-        #     self.env.is_training = False
-        #     self.env.allocation_results['dst'] = {'allocated_server': dst, 'path': [], 'cost': 0}
-        #     done = False
-        #     while not done:
-        #         action, _ = self.model.predict(state, deterministic=True)
-        #         state, _, done, _, _ = self.env.step(action)
+        if not self.env.success and IS_TRAINING:
+            state, _ = self.env.reset()
+            self.model.learn(total_timesteps=N_STEPS*8)
+            # self.model.learn(total_timesteps=N_STEPS*8)
+            state, _ = self.env.reset()
+            self.env.is_training = False
+            self.env.allocation_results['dst'] = {'allocated_server': dst, 'path': [], 'cost': 0}
+            done = False
+            while not done:
+                action, _ = self.model.predict(state, deterministic=True)
+                state, _, done, _, _ = self.env.step(action)
         
         if not self.env.success:
             if not VERBOSE:
                 # print(f"Alocação falha sugerida SFC :{self.env.servers_used} - ultimo nó escolhido {self.env.server}")
                 print(f"Causa Falha: {self.env.fail_reason}")
             self.fail_reason = self.env.fail_reason
-            # if self.fail_reason == 'latency':
-            #     print(f"Alocação: [{self.env.servers_used}] || Custo latencia: {self.env.latency_used}")
+            if self.fail_reason == 'latency':
+                print(f"Alocação: [{self.env.servers_used}] || Custo latencia: {self.env.latency_used}")
             
             return [], None
         if not VERBOSE:
@@ -260,13 +238,11 @@ class Kuririn:
             # for server_results in self.env.allocation_results:
             #     print("Servidor: ",self.env.allocation_results[server_results]["allocated_server"],\
             #           "Custo: ",self.env.allocation_results[server_results]['cost'])
-            
-            route_info = {}
-            for key, value in self.env.allocation_results.items():
-                route_info[key] = list(reversed(value['path']))
-            
-    
-
+        self.last_propose = self.env.servers_used
+        route_info = {
+            key: list(reversed(value['path']))
+            for key, value in self.env.allocation_results.items()
+        }
 
         # Armazene caminhos em um dicionário para evitar recalcular
         if (self.env.current_location, 0) not in self.precomputed_paths:
@@ -289,34 +265,14 @@ class Kuririn:
         return True
 
     def _load_or_create_model(self, env):
-        # HIPERPARÂMETROS CONSISTENTES
-        # n_steps deve ser igual ao N_STEPS do seu treinamento incremental
-        # PPO_KWARGS = {
-        #     "policy": "MlpPolicy",
-        #     "env": env,
-        #     "n_steps": N_STEPS,  # Mude para usar a constante N_STEPS (256)
-        #     "batch_size": int(N_STEPS/64),
-        #     "learning_rate": 0.0003,
-        #     "ent_coef": 0.01, # Reduzido para aprendizado mais fino
-        #     "verbose": 0,
-        #     "device": 'cpu'
-        # }
-
         if self.model_name == "ppo":
-            # if os.path.exists(self.model_path + ".zip"):
-                # CORREÇÃO: Carregue o modelo e continue usando ele
-                # print(f"Continuando treinamento do modelo: {self.model_path}")
-                try:
-                    self.model = PPO.load(self.model_path, env=env, verbose = 0)
-                    # Garante que os parâmetros do ambiente estão atualizados
-                except Exception as e:
-                    raise e
-                    
-
-            # else:
-            #     # Crie o modelo apenas se ele não existir
-            #     # print("Criando novo modelo PPO do zero.")
-            #     self.model = PPO(**PPO_KWARGS)
+            if os.path.exists(self.model_path + ".zip"):
+                model = PPO.load(self.model_path)
+                self.model = PPO("MlpPolicy", env, verbose=0, learning_rate=0.00015, batch_size=16, n_steps=256, ent_coef=0.3,
+                                device ='cpu')
+                self.model.policy.load_state_dict(model.policy.state_dict())
+            else:
+                self.model = PPO("MlpPolicy", env, verbose=0, learning_rate=0.00015, batch_size=16, n_steps=256, ent_coef=0.3, device='cpu')
         elif self.model_name == "dqn":
             if os.path.exists(self.model_path + ".zip"):
                 model = DQN.load(self.model_path)
@@ -328,17 +284,3 @@ class Kuririn:
     def _save_model(self):
         self.model.save(self.model_path)
 
-
-
-# from stable_baselines3.common.callbacks import BaseCallback
-
-# class LogTrainingProgressCallback(BaseCallback):
-#     def __init__(self, log_interval, verbose=0):
-#         super().__init__(verbose)
-#         self.log_interval = log_interval
-
-#     def _on_step(self) -> bool:
-#         if self.n_calls % self.log_interval == 0:
-#             print(f"Step {self.n_calls}/{self.model.num_timesteps} - "
-#                   f"Reward: {self.model.get_env().get_attr('reward')[0]}")  # Exemplo de log
-#         return True

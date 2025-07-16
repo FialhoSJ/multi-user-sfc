@@ -62,5 +62,5 @@ def carregar_lista(nome_lista, pasta='variaveis_salvas'):
         # print(f"Lista carregada de {caminho_arquivo}. Total de itens: {len(lista)}.")
         return lista
     else:
-        print(f"Arquivo {caminho_arquivo} não encontrado.")
+        # print(f"Arquivo {caminho_arquivo} não encontrado.")
         return []  # Retorna uma lista vazia caso o arquivo não exista
