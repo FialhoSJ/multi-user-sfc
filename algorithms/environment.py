@@ -23,15 +23,20 @@ class NetworkEnv(gym.Env):
     alocar uma cadeia de serviços sequencialmente, minimizando um custo combinado de
     recursos computacionais (CPU, cache), latência e largura de banda.
     """
-    def __init__(self, graph, valid_nodes, pesos):
+    def __init__(self, list_graph: list, list_sfc: list,valid_nodes: list, pesos, is_training=True): # MODIFICADO
         super().__init__()
 
+        # --- Validação das listas ---
+        if not list_graph or not list_sfc:
+            raise ValueError("As listas de grafos e SFCs não podem ser vazias.")
+        if len(list_graph) != len(list_sfc):
+            raise ValueError("A lista de grafos e a lista de SFCs devem ter o mesmo tamanho.")
+
         # --- Topologia e Configuração da Rede ---
-        # self.G_backup = copy.deepcopy(graph)  # Backup para o reset
-        self.G = graph
+        self.list_graph = list_graph
+        self.list_sfc = list_sfc
+        self.G = None  # Será definido a cada reset
         self.initial_resource_snapshot = {}
-        self.valid_nodes = valid_nodes
-        # self.menor_reward = -float("inf")
         self.cached_paths = {}
 
         # --- Parâmetros da SFC e Estado Atual ---
@@ -43,10 +48,11 @@ class NetworkEnv(gym.Env):
         self.current_location = None
         self.service = None
         self.session_number = None
+        self.valid_nodes = valid_nodes  # Lista de nós válidos para alocação
 
         # --- Métricas de Desempenho e Controle ---
         self.latency_used = 0
-        self.is_training = True
+        self.is_training = is_training
         self.servers_used = []
         self.allocation_results = {}
         self.success = False
@@ -57,47 +63,49 @@ class NetworkEnv(gym.Env):
         self.cache_factor = pesos.get("cache", 1)
         self.band_factor = pesos.get("band", 1)
         self.latency_factor = pesos.get("latency", 1)
-        
+        self._initialize_snapshots()
         # --- Espaços de Ação e Observação ---
         self.action_space = spaces.Discrete(len(self.valid_nodes))
         self.observation_space = spaces.Box(
             low=0.0,
             high=1.0,
-            shape=(len(self.valid_nodes) * 5,),  # 5 métricas por nó válido
+            shape=(len(valid_nodes) * 5,),  # 5 métricas por nó válido
             dtype=np.float32
         )
+
 
     # --------------------------------------------------------------------------
     # --- MÉTODOS PRINCIPAIS DO GYMNASIUM (CORE API) ---
     # --------------------------------------------------------------------------
 
     def reset(self, seed=None, options=None):
-        """
-        Reinicia o ambiente restaurando o grafo ao seu 'snapshot' inicial,
-        o que é muito mais rápido que um deepcopy.
-        """
-        # self.G = copy.deepcopy(self.G_backup)
+        super().reset(seed=seed)
 
-        snapshot_nodes = self.initial_resource_snapshot['nodes']
-
-        for node_id, initial_state in snapshot_nodes.items():
-            node = self.G.nodes[node_id]
-            node['cpu_used'] = initial_state['cpu_used']
-            node['cache_used'] = initial_state['cache_used']
-
-        snapshot_edges = self.initial_resource_snapshot['edges']
-        for (u, v), initial_state in snapshot_edges.items():
-            edge = self.G.edges[u, v]
-            edge['bandwidth_used'] = initial_state['bandwidth_used']
-            
-        # Reinicializa estado da alocação
-        self.latency_used = 0
-        self.current_location = self.dst_node
-        self.servers_used.clear()
-        self.service = self.services[0]
-        self.update_bandwidth_required()
+        idx = np.random.randint(len(self.list_graph))
         
-        # Reinicializa métricas de recompensa e resultado
+        # Define self.G como uma referência ao grafo da lista (que será modificado)
+        self.G = self.list_graph[idx]
+        sfc_for_episode = self.list_sfc[idx]
+
+        # Busca o snapshot PRÉ-CALCULADO e limpo do grafo correspondente
+        snapshot_nodes = self.initial_resource_snapshot[idx]['nodes']
+        for node_id, initial_state in snapshot_nodes.items():
+            if node_id in self.G.nodes:
+                self.G.nodes[node_id]['cpu_used'] = initial_state['cpu_used']
+                self.G.nodes[node_id]['cache_used'] = initial_state['cache_used']
+
+        snapshot_edges = self.initial_resource_snapshot[idx]['edges']
+        for (u, v), initial_state in snapshot_edges.items():
+            if self.G.has_edge(u, v):
+                self.G.edges[u, v]['bandwidth_used'] = initial_state['bandwidth_used']
+
+        # Agora que o grafo está resetado, configure a SFC para o episódio
+        self.set_sfc(sfc_for_episode)
+
+        # Reinicializa o resto do estado do episódio
+        self.latency_used = 0
+        self.servers_used.clear()
+        self.cached_paths.clear()
         self.reward = 0
         self.total_reward = 0
         self.total_cost = 0
@@ -106,21 +114,30 @@ class NetworkEnv(gym.Env):
         self.allocation_results = {}
         
         return self.get_normalized_state(), {}
-
     def step(self, action):
         """
         Executa um passo no ambiente a partir de uma ação do agente.
         A ação corresponde a escolher um nó para alocar o serviço atual da SFC.
         """
-        if not 0 <= action < len(self.valid_nodes):
-            raise ValueError(f"Ação inválida: {action}.")
-        
-        self.server = self.valid_nodes[int(action)]
+        if action == len(self.valid_nodes) - 1:
+            # Se for, o servidor escolhido é o dst_node da SFC atual
+            chosen_server = self.sfc.dst_node
+        else:
+            # Caso contrário, o mapeamento é direto da lista
+            chosen_server = self.valid_nodes[action]
 
+        # Agora, o resto da função usa 'chosen_server' que já foi traduzido corretamente
+        self.server = chosen_server
+
+        # A verificação de validade da ação já não é mais necessária aqui
+        # if not 0 <= action < len(copy_valid_nodes):
+        #    raise ValueError(f"Ação inválida: {action}.")
 
         self.reuse = self.is_reusable_at_node(self.server, self.service, self.sfc.id.split("_")[-1])
 
+
         # 1. Alocar recursos no nó (CPU/Cache)
+        # print(f"No dst da sfc {self.sfc.dst_node}")
         if not self.allocate_resources_on_node(self.server, self.reuse):
             return self._fail_step('resource')
 
@@ -182,7 +199,32 @@ class NetworkEnv(gym.Env):
         """Define e faz backup do grafo da rede."""
         # self.G_backup = copy.deepcopy(graph)
         self.G = graph
-        self._capture_initial_snapshot()
+        
+
+    def set_list_graph(self, list_graph):
+        """Define a lista de grafos para o ambiente."""
+        if not isinstance(list_graph, list):
+            raise ValueError("list_graph deve ser uma lista de grafos.")
+        self.list_graph = list_graph
+
+    def set_list_sfcs(self, list_sfc):
+        """Define a lista de SFCs para o ambiente."""
+        if not isinstance(list_sfc, list):
+            raise ValueError("list_sfc deve ser uma lista de SFCs.")
+        self.services = list_sfc
+
+    def set_sfc(self, sfc):
+        """Define a SFC atual e captura suas propriedades."""
+        if not sfc:
+            raise ValueError("SFC não pode ser None.")
+        self.sfc = sfc
+        # print(f"Trocou dst_node para: {self.sfc.dst_node}")
+        self.services, self.service_requirements = self.prepare_service_requirements(self.sfc.vnfs_dict)
+        self.latency_request = sfc.get_latency_request()
+        self.dst_node = self.sfc.get_substrate_node(self.sfc.get_dst_vnf())
+        self.current_location = self.dst_node
+        self.service = self.services[0]
+        self.update_bandwidth_required()
 
     def set_dst_node(self, dst_node):
         """Define o nó de destino inicial da SFC."""
@@ -203,6 +245,7 @@ class NetworkEnv(gym.Env):
         self.success = False
         self.reward = -2000  # Penalidade fixa e alta por falha
         done = True
+
         return self.get_normalized_state(), self.reward, done, False, {}
 
     def _get_path_with_fallback(self, source, target):
@@ -243,33 +286,15 @@ class NetworkEnv(gym.Env):
         effective_cache_req = 0 if can_reuse else cache_req
 
         # Esta verificação de segurança agora usa o valor efetivo (corrigindo o Erro 2)
-        if (self.G.nodes[node_id]['cpu_used'] + cpu_req >= self.G.nodes[node_id]['cpu_capacity']) or \
-            (self.G.nodes[node_id]['cache_used'] + cache_req) >= self.G.nodes[node_id]['cache_capacity']:
+        if (self.G.nodes[node_id]['cpu_used'] + cpu_req > self.G.nodes[node_id]['cpu_capacity']) or \
+            (self.G.nodes[node_id]['cache_used'] + cache_req) > self.G.nodes[node_id]['cache_capacity']:
             return False
         
         # Aloca os recursos efetivos
         self.G.nodes[node_id]['cpu_used'] += effective_cpu_req
         self.G.nodes[node_id]['cache_used'] += effective_cache_req
 
-        # --- INÍCIO DA MODIFICAÇÃO PRINCIPAL ---
-        # Registra a alocação no dicionário 'services' do nó dentro do grafo da simulação.
-        # Isso imita o comportamento do sfcs_instantiator.
-        # if 'services' not in self.G.nodes[node_id]:
-        #     self.G.nodes[node_id]['services'] = {}
-        
-        # # A sessão é obtida de 'self.session_number', que é definido em kuririn.py
-        # service_key = (self.service, self.sfc.id.split("_")[-1]) 
-        
-        # if service_key not in self.G.nodes[node_id]['services']:
-        #      self.G.nodes[node_id]['services'][service_key] = {'copys': 1}
-        # else:
-        #      self.G.nodes[node_id]['services'][service_key]['copys'] += 1
-        # # --- FIM DA MODIFICAÇÃO PRINCIPAL ---
 
-        # if can_reuse and not self.is_training:
-        #     print("reuso no kuririn no nó", node_id)
-        #     aux = node_id
-        
         return True
     
     def allocate_bandwidth_along_path(self, path, bandwidth_required, ms_name):
@@ -345,8 +370,22 @@ class NetworkEnv(gym.Env):
 
     def get_normalized_state(self):
         """Gera o vetor de estado normalizado para o agente de RL."""
+
         state_vectors = []
-        for node_id in self.valid_nodes:
+
+        # Itera sobre a lista valid_nodes com seu índice
+        for i, node_id_or_placeholder in enumerate(self.valid_nodes):
+            
+            # --- LÓGICA DE TRADUÇÃO DO NÓ ---
+            # Determina para qual nó real devemos calcular o estado
+            if i == len(self.valid_nodes) - 1:
+                # Se estamos no slot do placeholder, o nó alvo é o dst_node atual
+                node_id = self.sfc.dst_node
+            else:
+                # Senão, é o nó estático da lista
+                node_id = node_id_or_placeholder
+
+            # Agora, todo o cálculo de estado é feito para o 'node_id'
             node = self.G.nodes[node_id]
 
             # 1. Custos de Recursos (CPU & Cache)
@@ -466,21 +505,43 @@ class NetworkEnv(gym.Env):
                 return True
         return False
 
-    def _capture_initial_snapshot(self):
+    def _initialize_snapshots(self):
         """
-        Captura o estado de uso de recursos (CPU, cache, banda) do grafo atual.
-        Deve ser chamado sempre que um novo grafo é definido no ambiente.
+        Cria um snapshot do estado inicial de todos os grafos na lista, uma única vez.
+        Isso garante que temos uma cópia "limpa" de referência para o reset.
         """
-        self.initial_resource_snapshot['nodes'] = {}
-        for node_id, data in self.G.nodes(data=True):
-            self.initial_resource_snapshot['nodes'][node_id] = {
-                'cpu_used': data.get('cpu_used', 0),
-                'cache_used': data.get('cache_used', 0),
+        self.initial_resource_snapshot = {}
+        for idx, graph in enumerate(self.list_graph):
+            snapshot_nodes = {}
+            for node_id, data in graph.nodes(data=True):
+                snapshot_nodes[node_id] = {
+                    'cpu_used': data.get('cpu_used', 0),
+                    'cache_used': data.get('cache_used', 0),
+                }
+            
+            snapshot_edges = {}
+            for u, v, data in graph.edges(data=True):
+                snapshot_edges[(u, v)] = {
+                    'bandwidth_used': data.get('bandwidth_used', 0),
+                }
+            
+            self.initial_resource_snapshot[idx] = {
+                'nodes': snapshot_nodes,
+                'edges': snapshot_edges
             }
+        
 
-         # Captura estado das arestas
-        self.initial_resource_snapshot['edges'] = {}
-        for u, v, data in self.G.edges(data=True):
-            self.initial_resource_snapshot['edges'][(u, v)] = {
-                'bandwidth_used': data.get('bandwidth_used', 0),
+    def prepare_service_requirements(self, sfs_dict):
+        service_requirements = {}
+        services = [item['name'] for item in sfs_dict]
+        for item in sfs_dict:
+            name = item['name']
+            service_requirements[name] = {
+                'cpu': item['CPU'],
+                'cache': item['cache'],
+                'out_bw': item['out_bw'],
+                'in_bw': item['in_bw'],
+                'latency': item['latency']
             }
+        service_requirements['dst'] = {'CPU': 0, 'cache': 0, 'out_bw': 0, 'in_bw': 0, 'latency': 0}
+        return list(reversed(services)), service_requirements
