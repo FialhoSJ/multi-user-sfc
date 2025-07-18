@@ -125,6 +125,7 @@ class NetworkEnv(gym.Env):
             return self._fail_step('resource')
 
         # 2. Encontrar caminho e alocar banda
+        # self.path = self._get_path_with_fallback(self.current_location, self.server)
         self.path = self._get_path_with_fallback(self.current_location, self.server)
         if not self.path:
             return self._fail_step('bandwidth')
@@ -137,9 +138,9 @@ class NetworkEnv(gym.Env):
 
         self.latency_used += path_latency
         
-        # 4. Verificar restrição de latência
-        if self.latency_used > self.latency_request:
-            return self._fail_step('latency')
+        # # 4. Verificar restrição de latência
+        # if self.latency_used > self.latency_request:
+        #     return self._fail_step('latency')
 
         # 5. Calcular custo e recompensa
         self.servers_used.append(self.server)
@@ -209,7 +210,7 @@ class NetworkEnv(gym.Env):
         # Tenta o caminho mais rápido (Dijkstra puro)
 
         if (source, target) not in self.cached_paths:
-            path = nx.dijkstra_path(self.G, source, target, weight=latency_rounded)
+            path = get_available_shortest_path(self.G, source, target, self.bandwidth_required, rounded=True)
             self.cached_paths[(source, target)] = path
         else:
             path = self.cached_paths[(source, target)]
@@ -371,10 +372,10 @@ class NetworkEnv(gym.Env):
             
             
             # 2. Custos de Rede (Latência)
-            if (self.current_location, node_id) not in self.cached_paths:
-                self.cached_paths[(self.current_location, node_id)] = nx.dijkstra_path(self.G, self.current_location, node_id, weight=latency_rounded)
+            # if (self.current_location, node_id) not in self.cached_paths:
+            #     self.cached_paths[(self.current_location, node_id)] = ge
            
-            path =  self.cached_paths[(self.current_location, node_id)]
+            path =  self._get_path_with_fallback(self.current_location, node_id)
             path_latency = self.calculate_path_latency(path, self.service)
             latency_request = self.latency_request or 1
             proj_latency_cost = (self.latency_used + path_latency) / latency_request
@@ -382,7 +383,7 @@ class NetworkEnv(gym.Env):
             # 3. Flags de Estado
            
             
-            cant_allocate = 1.0 if (proj_cpu_cost > 1.0 or proj_cache_cost > 1.0 or proj_latency_cost > 1.0) else 0.0
+            cant_allocate = 1.0 if (proj_cpu_cost > 1.0 or proj_cache_cost > 1.0) else 0.0
 
             # 4. Montagem do Vetor de Estado do Nó
             node_state = [

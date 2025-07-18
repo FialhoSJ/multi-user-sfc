@@ -48,7 +48,7 @@ class Kuririn:
         self.cpu_factor = 4
         self.cache_factor = 4
         self.band_factor = 1
-        self.latency_factor = 3.5
+        self.latency_factor = 4
         self.boot_factor = 0
         self.env = None
 

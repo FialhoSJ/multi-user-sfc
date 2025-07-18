@@ -3,10 +3,13 @@ import argparse
 from multiprocessing import Pool
 from datetime import datetime as dt
 import time
+import sys  # 1. Importe o módulo sys
 
 def run_process(process):
     """Executa um comando em um subprocesso."""
-    os.system('python {}'.format(process))
+    # 2. Use sys.executable para chamar o python explicitamente
+    command_to_run = f'{sys.executable} {process}'
+    os.system(command_to_run)
     print(process)
 
 if __name__ == '__main__':
@@ -14,10 +17,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Select MUAR arguments')
     parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
     parser.add_argument('--n_players', type=int, help='(int) number of players', default=4)
-    parser.add_argument('--threads', type=int, help='(int) number of cores to use', default=11)
+    parser.add_argument('--threads', type=int, help='(int) number of cores to use', default=5)
     parser.add_argument('--repetition', type=int, help='(int) repetitions', default=33)
     parser.add_argument('--sfc', type=str, help='(str) on or off', default='on')
-    parser.add_argument('--alg', type=str, help='(str) algorithm name', default='msf') # osfem, msf, musfico, ga;...
+    parser.add_argument('--alg', type=str, help='(str) algorithm name', default='kuririn_ppo') # osfem, msf, musfico, ga;...
     # parser.add_argument('--share', type=str, help='(str) whether to share sfs or not', default='y')
     # parser.add_argument('--shareband', type=str, help='(str) whether to share sfs or not', default='y')
 #     parser.add_argument('--servers_to_crash', type=str, nargs='+', help='(list) list of reliability values',default=[3]) #0.95, 0.975, 0.99

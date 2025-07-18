@@ -92,25 +92,33 @@ def get_shortest_path(graph, source, target):
     except nx.NetworkXNoPath:
         return []
 
-def get_available_shortest_path(graph, source, target, bandwidth_required, rounded=False, latencia_saltos = False):
-    """Get the shortest path from source to target minimizing latency,
-    considering only edges with bandwidth >= bandwidth_required."""
-    mygraph = copy.deepcopy(graph)
-    try:
-        # Cria subgrafo com arestas que têm banda suficiente
-        edges_filtered = [(u, v, d) for u, v, d in mygraph.edges(data=True) if d.get('bandwidth_capacity') - d.get('bandwidth_used') >= bandwidth_required]
-        subgraph = nx.Graph()
-        subgraph.add_nodes_from(mygraph.nodes(data=True))
-        subgraph.add_edges_from(edges_filtered)
+import networkx as nx
 
-        # Executa Dijkstra no subgrafo filtrado, ponderando pela latência
+def get_available_shortest_path(graph, source, target, bandwidth_required, rounded=False, latencia_saltos=False):
+    """
+    Obtém o caminho mais curto entre source e target minimizando latência,
+    considerando apenas arestas com banda disponível >= bandwidth_required.
+    """
+    try:
+        # Cria subgrafo com nós do grafo original e apenas arestas com banda suficiente
+        subgraph = nx.Graph()
+        subgraph.add_nodes_from(graph.nodes(data=True))
+        for u, v, d in graph.edges(data=True):
+            if d.get('bandwidth_capacity', 0) - d.get('bandwidth_used', 0) >= bandwidth_required:
+                subgraph.add_edge(u, v, **d)
+
+        # Executa Dijkstra no subgrafo filtrado
         if rounded:
             return nx.dijkstra_path(subgraph, source, target, weight=latency_rounded)
-        if latencia_saltos:
-            return nx.dijkstra_path(subgraph, source, target)
-        return nx.dijkstra_path(subgraph, source, target, weight='latency')
+        elif latencia_saltos:
+            return nx.dijkstra_path(subgraph, source, target)  # peso padrão: 1 por salto
+        else:
+            return nx.dijkstra_path(subgraph, source, target, weight='latency')
     except nx.NetworkXNoPath:
         return []
+    except nx.NodeNotFound:
+        return []
+
     
 
 def latency_rounded(u,v,data):

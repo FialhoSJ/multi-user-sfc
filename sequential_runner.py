@@ -16,7 +16,7 @@ def run_process(process):
 
 if __name__ == '__main__':
     # Análise de argumentos de linha de comando
-    horas=8
+    horas=1
     simul_em_hora = 3.6
     num_simul = int(horas*simul_em_hora)
     parser = argparse.ArgumentParser(description='Select MUAR arguments')

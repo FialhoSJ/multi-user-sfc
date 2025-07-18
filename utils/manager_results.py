@@ -164,8 +164,10 @@ class OutputWritter:
         cache_utilization = round(substrate_network.get_cache_utilization_rate(), 4)
         bw_utilization = round(substrate_network.get_bandwidth_utilization_rate(), 4)
 
-        reuse_cpu_rate = (substrate_network.get_total_cpu_saved()/round(substrate_network.get_total_cpu_request(), 4))*100
-        reuse_cache_rate = (substrate_network.get_total_cache_saved()/round(substrate_network.get_total_cache_request(), 4))*100
+        total_cpu_request = round(substrate_network.get_total_cpu_request(), 4)
+        reuse_cpu_rate = (substrate_network.get_total_cpu_saved()/total_cpu_request)*100 if total_cpu_request > 0 else 0
+        total_cache_request = round(substrate_network.get_total_cache_request(), 4)
+        reuse_cache_rate = (substrate_network.get_total_cache_saved()/total_cache_request)*100 if total_cache_request > 0 else 0
 
         mobile_cpu_utilization = round(substrate_network.mobile_cpu_used, 4)
         mobile_cache_utilization = round(substrate_network.mobile_cache_used, 4)
