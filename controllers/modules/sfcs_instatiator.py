@@ -6,7 +6,7 @@ import random
 import traceback
 from utils.k_shortest_paths import k_shortest_paths
 from algorithms.networkUtils import calculate_computational_latency,calculate_latency_betwen_nodes
-from salvar_var import salvar_variavel
+from salvar_var import salvar_duas_variaveis_seguramente
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 
 class SFCInstatiator:
@@ -32,6 +32,8 @@ class SFCInstatiator:
 
         sequential_sub = True
         if sequential_sub:
+            if (substrate_network.total_cpu_used + substrate_network.mobile_cpu_used)/substrate_network.total_cpu_capacity > 0.5:
+                aqui=1
             solution,is_success = self.sequential_search(algorithm,sfc_list,graph,default_solution_format)
         else:
             # TODO  Isso pode ser necessário mudar caso o algoritmo não precise instanciar sequencialmente. Ou seja, ele pode instanciar em lotes
@@ -50,10 +52,8 @@ class SFCInstatiator:
             # algorithm = copy.deepcopy(self.alg)
             # algorithm.clear_all()
             # algorithm.install_substrate_network(substrate_network)
-            salvar_variavel(graph, "lista_grafo")
-            salvar_variavel(sfc, "lista_sfc")
-            if "p4_12" in sfc.id:
-                aqui=1
+
+
             algorithm.install_SFC(sfc)
             algorithm.install_substrate_network(copy.deepcopy(graph))
             s = time.time()
@@ -78,6 +78,8 @@ class SFCInstatiator:
                     self.alg.handle_failure()
                     search_success = False
             else:
+                salvar_duas_variaveis_seguramente(graph, "lista_grafo", sfc, "lista_sfc")
+
                 total_latency = None
                 search_success = False            
             

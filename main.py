@@ -50,25 +50,25 @@ args = parser.parse_args()
 # -------------- Inicializa Topologia ----------------
 topology = TopologyInstantiator().instantiate_topology(args.topology)
 
-# Criando a fila de SFCs
+# Criando a fila de SFCs 
 sfc_queue = SFCQueue()
 
 # Criando emissor Poisson
 test = 10
-official = 20
+official = 20 
 sfc_poisson_emitter = PoissonEmitter(official)
 
 # Criando instância da classe MuarScenario
 muar_scenario = MuarScenario(args, sfc_queue,topology, sfc_poisson_emitter)
 
-# Iniciando a simulação
+# Iniciando a simulação 
 sfc_poisson_emitter.start(muar_scenario.generate_sfc_session,(None))
 
 ALG = AlgorithmInstantiator().instantiate_algorithm(args.alg)
-
+ 
 network = topology.generate_substrate_network()
 network.verbose = 'y'
-
+ 
 parallel_run = False
 if parallel_run:
     sbn_controller = SubstrateNetworkControllerP() # run parallel

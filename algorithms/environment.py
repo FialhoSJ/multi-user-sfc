@@ -5,7 +5,7 @@ import networkx as nx
 from gymnasium import spaces
 
 # Supondo que essas funções existem em um módulo `algorithms.networkUtils`
-from algorithms.networkUtils import get_available_shortest_path, calculate_computational_latency, calculate_latency_betwen_nodes
+from algorithms.networkUtils import get_available_shortest_path_optimized, calculate_computational_latency, calculate_latency_betwen_nodes
 
 # --- CONSTANTES ---
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
@@ -14,6 +14,17 @@ SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 def latency_rounded(u, v, data):
     """Função de peso para o NetworkX, usada para arredondar a latência."""
     return int(round(data.get('latency', 0), 3) * 1000)
+
+def equalizar_listas(lista1, lista2):
+    """
+    Ajusta o tamanho de duas listas para que fiquem do mesmo comprimento.
+    Remove os últimos elementos da lista maior até igualar ao tamanho da menor.
+    """
+    while len(lista1) > len(lista2):
+        lista1.pop()
+    while len(lista2) > len(lista1):
+        lista2.pop()
+    return lista1, lista2
 
 # --- CLASSE DO AMBIENTE ---
 class NetworkEnv(gym.Env):
@@ -25,6 +36,8 @@ class NetworkEnv(gym.Env):
     """
     def __init__(self, list_graph: list, list_sfc: list,valid_nodes: list, pesos, is_training=True): # MODIFICADO
         super().__init__()
+
+        list_graph, list_sfc = equalizar_listas(list_graph, list_sfc)
 
         # --- Validação das listas ---
         if not list_graph or not list_sfc:
@@ -69,7 +82,7 @@ class NetworkEnv(gym.Env):
         self.observation_space = spaces.Box(
             low=0.0,
             high=1.0,
-            shape=(len(valid_nodes) * 5,),  # 5 métricas por nó válido
+            shape=(len(valid_nodes) * 6,),  # 5 métricas por nó válido
             dtype=np.float32
         )
 
@@ -129,21 +142,15 @@ class NetworkEnv(gym.Env):
         # Agora, o resto da função usa 'chosen_server' que já foi traduzido corretamente
         self.server = chosen_server
 
-        # A verificação de validade da ação já não é mais necessária aqui
-        # if not 0 <= action < len(copy_valid_nodes):
-        #    raise ValueError(f"Ação inválida: {action}.")
-
         self.reuse = self.is_reusable_at_node(self.server, self.service, self.sfc.id.split("_")[-1])
 
-
-        # 1. Alocar recursos no nó (CPU/Cache)
-        # print(f"No dst da sfc {self.sfc.dst_node}")
         if not self.allocate_resources_on_node(self.server, self.reuse):
             return self._fail_step('resource')
 
-        # 2. Encontrar caminho e alocar banda
-        # self.path = self._get_path_with_fallback(self.current_location, self.server)
-        self.path = self._get_path_with_fallback(self.current_location, self.server)
+        self.path = get_available_shortest_path_optimized(
+            self.G, self.current_location, chosen_server, 
+            self.bandwidth_required, rounded=True
+        )
         if not self.path:
             return self._fail_step('bandwidth')
 
@@ -155,16 +162,12 @@ class NetworkEnv(gym.Env):
 
         self.latency_used += path_latency
         
-        # # 4. Verificar restrição de latência
-        # if self.latency_used > self.latency_request:
-        #     return self._fail_step('latency')
+        # 4. Verificar restrição de latência
+        if self.latency_used > self.latency_request:
+            return self._fail_step('latency')
 
         # 5. Calcular custo e recompensa
         self.servers_used.append(self.server)
-        # if self.servers_used[0] and isinstance(self.servers_used[0],str): 
-        #     if len(self.servers_used) > 1 :
-        #         if self.servers_used[0] == self.servers_used[1]:
-        #             aqui = 1
         self.total_cost = self.calculate_total_cost(self.server, self.path)
         self.reward = -self.total_cost
         self.total_reward += self.reward
@@ -181,9 +184,7 @@ class NetworkEnv(gym.Env):
         if self.service == self.services[-1]:
             done = True
             self.success = True
-            # if self.total_reward > self.menor_reward:
-            #     print("Solucao ",self.servers_used, f" reward: {self.total_reward}")
-            #     self.menor_reward = self.total_reward
+
         else:
             current_index = self.services.index(self.service)
             self.service = self.services[current_index + 1]
@@ -220,7 +221,7 @@ class NetworkEnv(gym.Env):
         self.sfc = sfc
         # print(f"Trocou dst_node para: {self.sfc.dst_node}")
         self.services, self.service_requirements = self.prepare_service_requirements(self.sfc.vnfs_dict)
-        self.latency_request = sfc.get_latency_request()
+        self.latency_request = 10
         self.dst_node = self.sfc.get_substrate_node(self.sfc.get_dst_vnf())
         self.current_location = self.dst_node
         self.service = self.services[0]
@@ -253,7 +254,7 @@ class NetworkEnv(gym.Env):
         # Tenta o caminho mais rápido (Dijkstra puro)
 
         if (source, target) not in self.cached_paths:
-            path = get_available_shortest_path(self.G, source, target, self.bandwidth_required, rounded=True)
+            path = get_available_shortest_path_optimized(self.G, source, target, self.bandwidth_required, rounded=True)
             self.cached_paths[(source, target)] = path
         else:
             path = self.cached_paths[(source, target)]
@@ -263,7 +264,7 @@ class NetworkEnv(gym.Env):
             return path
         
         # Fallback: Se não tem banda, busca um caminho viável (pode ser mais lento)
-        path = get_available_shortest_path(self.G, source, target, self.bandwidth_required, rounded=True)
+        path = get_available_shortest_path_optimized(self.G, source, target, self.bandwidth_required, rounded=True)
         if not path:
             return self.cached_paths[(source, target)]
         else:
@@ -332,6 +333,8 @@ class NetworkEnv(gym.Env):
         latency = calculate_latency_betwen_nodes(self.G, u, v, vnf)
         return latency
 
+    # new_environment.py
+
     def calculate_total_cost(self, server_id, path):
         """Calcula o custo total da alocação de um serviço."""
         node = self.G.nodes[server_id]
@@ -343,12 +346,6 @@ class NetworkEnv(gym.Env):
         cache_capacity = node["cache_capacity"] or 1
         cache_cost = (node["cache_used"] / cache_capacity + 1) ** self.cache_factor if not self.reuse else 0
         
-
-        # # Penalidade se o nó já foi usado na mesma SFC
-        # if server_id in self.servers_used:
-        #     cpu_cost *= 1.5 # Aumenta o custo em 50%
-        #     cache_cost *= 1.5
-
         # Custo de Rede (Latência e Banda)
         self.latency_cost = 0
         bandwidth_cost = 0
@@ -356,36 +353,26 @@ class NetworkEnv(gym.Env):
             latency_request = self.latency_request or 1
             self.latency_cost = ((self.latency_used / latency_request) + 1) ** self.latency_factor
             
-            # # Custo de banda baseado no link crítico do caminho
-            # cap_band, used_band = self.get_critical_link_info(path)
-            # cap_band = cap_band or 1
-            # bandwidth_cost = (used_band / cap_band + 1) ** self.band_factor
+            # Custo de banda baseado no link crítico do caminho (LINHAS DESCOMENTADAS)
+            cap_band, used_band = self.get_critical_link_info(path)
+            cap_band = cap_band or 1  # Evita divisão por zero
+            bandwidth_cost = ((used_band / cap_band) + 1) ** self.band_factor
  
-
         return sum([cpu_cost, cache_cost, self.latency_cost, bandwidth_cost])
-
     # --------------------------------------------------------------------------
     # --- MÉTODOS DE GERAÇÃO DE ESTADO ---
     # --------------------------------------------------------------------------
 
     def get_normalized_state(self):
         """Gera o vetor de estado normalizado para o agente de RL."""
-
         state_vectors = []
 
-        # Itera sobre a lista valid_nodes com seu índice
         for i, node_id_or_placeholder in enumerate(self.valid_nodes):
-            
-            # --- LÓGICA DE TRADUÇÃO DO NÓ ---
-            # Determina para qual nó real devemos calcular o estado
             if i == len(self.valid_nodes) - 1:
-                # Se estamos no slot do placeholder, o nó alvo é o dst_node atual
                 node_id = self.sfc.dst_node
             else:
-                # Senão, é o nó estático da lista
                 node_id = node_id_or_placeholder
 
-            # Agora, todo o cálculo de estado é feito para o 'node_id'
             node = self.G.nodes[node_id]
 
             # 1. Custos de Recursos (CPU & Cache)
@@ -393,43 +380,46 @@ class NetworkEnv(gym.Env):
             cache_capacity = node["cache_capacity"] or 1
             is_reusable = int(self.is_reusable_at_node(node_id, self.service, self.sfc.id.split("_")[-1]))
             
-
-                
             cpu_req = 0 if is_reusable else self.service_requirements[self.service]["cpu"]
             cache_req = 0 if is_reusable else self.service_requirements[self.service]["cache"]
 
+            # Calcula custos projetados de CPU e Cache
             if (self.service_requirements[self.service]["cpu"] + node["cpu_used"]) > node["cpu_capacity"] or \
             (self.service_requirements[self.service]["cache"] + node["cache_used"]) > node["cache_capacity"]:
-                proj_cpu_cost = 1
-                proj_cache_cost = 1
-            
+                proj_cpu_cost = 1.0
+                proj_cache_cost = 1.0
             else:
                 proj_cpu_cost = (node["cpu_used"] + cpu_req) / cpu_capacity
                 proj_cache_cost = (node["cache_used"] + cache_req) / cache_capacity
+            
+            # 2. Custos de Rede (Latência e Banda)
+            path = get_available_shortest_path_optimized(
+                self.G, self.current_location, node_id, 
+                self.bandwidth_required, rounded=True
+            )
 
+            # Lógica de custo de banda projetado (CORRIGIDA)
+            proj_bandwidth_cost = 1.0
+            if path:
+                cap_band, used_band = self.get_critical_link_info(path)
+                cap_band = cap_band or 1
+                proj_bandwidth_cost = (used_band + self.bandwidth_required) / cap_band
             
-            
-            
-            # 2. Custos de Rede (Latência)
-            # if (self.current_location, node_id) not in self.cached_paths:
-            #     self.cached_paths[(self.current_location, node_id)] = ge
-           
-            path =  self._get_path_with_fallback(self.current_location, node_id)
+            # Custo de latência projetado
             path_latency = self.calculate_path_latency(path, self.service)
             latency_request = self.latency_request or 1
             proj_latency_cost = (self.latency_used + path_latency) / latency_request
 
-            # 3. Flags de Estado
-           
-            
-            cant_allocate = 1.0 if (proj_cpu_cost > 1.0 or proj_cache_cost > 1.0) else 0.0
+            # 3. Flag de "Não pode alocar"
+            cant_allocate = 1.0 if (proj_cpu_cost > 1.0 or proj_cache_cost > 1.0 or not path or proj_latency_cost > 1.0 or proj_bandwidth_cost > 1.0) else 0.0
 
-            # 4. Montagem do Vetor de Estado do Nó
+            # 4. Montagem do Vetor de Estado (MELHORADO)
             node_state = [
                 min(proj_cpu_cost, 1.0),
                 min(proj_cache_cost, 1.0),
                 min(proj_latency_cost, 1.0),
-                is_reusable,
+                min(proj_bandwidth_cost, 1.0), # <- NOVA MÉTRICA ADICIONADA
+                float(is_reusable),
                 cant_allocate
             ]
             state_vectors.extend(node_state)

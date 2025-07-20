@@ -115,10 +115,46 @@ def get_available_shortest_path(graph, source, target, bandwidth_required, round
         else:
             return nx.dijkstra_path(subgraph, source, target, weight='latency')
     except nx.NetworkXNoPath:
+        # Ocorre se não houver caminho com peso finito entre source e target
         return []
     except nx.NodeNotFound:
         return []
 
+
+def get_available_shortest_path_optimized(graph, source, target, bandwidth_required, rounded=False, latencia_saltos=False):
+    """
+    Obtém o caminho mais curto de forma otimizada, usando uma função de peso
+    para desconsiderar arestas sem banda disponível.
+    """
+
+    def weight_function(u, v, d):
+        """
+        Função de peso para o Dijkstra. Retorna o peso real se a banda for
+        suficiente, ou infinito caso contrário.
+        """
+        # Verifica se a aresta tem banda suficiente
+        if d.get('bandwidth_capacity', 0) - d.get('bandwidth_used', 0) >= bandwidth_required:
+            # Se sim, retorna o peso apropriado baseado nos parâmetros da função principal
+            if rounded:
+                # Supondo que latency_rounded() seja uma função externa, como no seu código original
+                return latency_rounded(u, v, d) 
+            elif latencia_saltos:
+                return 1  # Peso padrão para contar saltos
+            else:
+                return d.get('latency', 1) # Usa o atributo de latência
+        
+        # Se não tem banda, retorna um valor infinito para que Dijkstra ignore esta aresta
+        return math.inf
+
+    try:
+        # Executa Dijkstra DIRETAMENTE no grafo original usando a função de peso customizada
+        return nx.dijkstra_path(graph, source, target, weight=weight_function)
+    
+    except nx.NetworkXNoPath:
+        # Ocorre se não houver caminho com peso finito entre source e target
+        return []
+    except nx.NodeNotFound:
+        return []
     
 
 def latency_rounded(u,v,data):

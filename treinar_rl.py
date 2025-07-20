@@ -27,7 +27,7 @@ def load_user_data():
     
     lista_grafos = carregar_lista("lista_grafo")
     lista_sfcs = carregar_lista("lista_sfc")
-    pesos = {"cpu": 3, "cache": 3, "latency": 3, "band": 3}  # Exemplo de pesos
+    pesos = {"cpu": 3, "cache": 3, "latency":4, "band": 3}  # Exemplo de pesos
 
     valid_nodes = []
     for node in lista_grafos[0].nodes():
@@ -56,10 +56,10 @@ def train_rl_model():
         return
 
     # --- Definição de Parâmetros de Treinamento ---
-    TOTAL_TIMESTEPS = 50_000
+    TOTAL_TIMESTEPS = len(list_graph) * 75  # Total de timesteps para o treinamento
     N_ENVS = 4
     
-    # --- CORREÇÃO AQUI ---
+    # --- As definições de diretório e a criação já estavam corretas ---
     LOG_DIR = "./rl_logs/"
     SAVE_DIR = "./saved_rl_models/"  # Pasta de destino para o modelo salvo
     os.makedirs(LOG_DIR, exist_ok=True)
@@ -72,29 +72,38 @@ def train_rl_model():
         env = NetworkEnv(list_graph=list_graph, valid_nodes=valid_nodes, list_sfc=list_sfc, pesos=pesos)
         env.action_space = gym.spaces.Discrete(len(valid_nodes))
         env.observation_space = gym.spaces.Box(
-            low=0.0, high=1.0, shape=(len(valid_nodes) * 5,), dtype=np.float32
+            low=0.0, high=1.0, shape=(len(valid_nodes) * 6,), dtype=np.float32
         )
         return env
 
     train_env = make_vec_env(env_creator, n_envs=N_ENVS)
     
-    model = PPO(
-        "MlpPolicy",
-        train_env,
-        verbose=1,
-        ent_coef=0.01,
-        gamma=0.99,
-        n_steps=2048,
-        tensorboard_log=LOG_DIR
-    )
+    from pathlib import Path
+
+    model_path = Path(SAVE_DIR) / "ppo_sfc_allocation.zip"
+    if model_path.exists():
+        print("\nModelo salvo encontrado. Carregando para continuar o treinamento...")
+        model = PPO.load(model_path, env=train_env, n_steps = len(list_graph)*4, ent_coef=0.001, gamma=0.99, gae_lambda=0.90, clip_range=0.3)
+      
+    else:
+        print("\nNenhum modelo salvo encontrado. Inicializando novo agente PPO...")
+        model = PPO(
+            "MlpPolicy",
+            train_env,
+            verbose=1,
+            ent_coef=0.05,
+            gamma=0.99,
+            n_steps=len(list_graph) * 2,  # Número de passos por atualização
+            tensorboard_log=LOG_DIR
+        )
+
 
     # --- Passo 3: Treinamento com Avaliação Contínua ---
+    # O callback ainda é útil para gerar logs de avaliação, mesmo que não usemos o 'best_model.zip'
     print("\nPasso 3: Configurando o callback de avaliação...")
     
     eval_env = env_creator()
     
-    # --- CORREÇÃO AQUI ---
-    # O callback agora salva o melhor modelo (best_model.zip) na pasta SAVE_DIR
     eval_callback = EvalCallback(
         eval_env,
         best_model_save_path=SAVE_DIR,
@@ -120,51 +129,60 @@ def train_rl_model():
     
     print("\nTreinamento concluído!")
 
-    # --- Passo 5: Carregar e Usar o Melhor Modelo ---
-    print("\nPasso 5: Carregando e demonstrando o melhor modelo salvo...")
+    # ### ALTERAÇÃO PRINCIPAL AQUI ###
+    # --- Passo 5: Salvar e Usar o ÚLTIMO Modelo ---
+    print("\nPasso 5: Salvando e demonstrando o último modelo do treinamento...")
     
-    # --- CORREÇÃO AQUI ---
-    # Caminho correto para o melhor modelo salvo pelo callback
-    best_model_path = os.path.join(SAVE_DIR, 'best_model.zip')
+    # Define o caminho final para o modelo
+    final_model_path = os.path.join(SAVE_DIR, 'ppo_sfc_allocation.zip')
     
-    # Caminho final com o nome que você deseja
-    final_model_path = os.path.join(SAVE_DIR, 'ppo_saved_model.zip')
+    # Salva o estado atual do 'model' (o último modelo) no caminho desejado.
+    # O método .save() substitui o arquivo se ele já existir.
+    model.save(final_model_path)
+    print(f"Último modelo salvo em: {final_model_path}")
+    
+    # Carrega o modelo que acabamos de salvar para a demonstração
+    # Usamos uma nova variável 'loaded_model' para clareza
+    loaded_model = PPO.load(final_model_path)
+    
+    print("\nDemonstração do último modelo no ambiente de avaliação:")
+    
+    # Testando o modelo por alguns episódios
+    cont = 0
+    i = int(len(list_graph) * 5)
+    for episode in range(i):
+        obs, info = eval_env.reset()
+        # print(f"Closer router atual: {eval_env.sfc.closer_router}")
+        done = False
+        total_reward = 0
+        step = 0
+        # print(f"\n--- Episódio de Demonstração {episode + 1} ---")
+        
+        while not done:
+            action, _states = loaded_model.predict(obs, deterministic=True)
+            obs, reward, done, truncated, info = eval_env.step(action)
+            
+            chosen_node = eval_env.valid_nodes[action]
+            # print(f"Passo {step}: Ação={action} (Nó: {chosen_node}), Recompensa={reward:.2f}")
+            
+            total_reward += reward
+            step += 1
+        
+        # print(f"Resultado do Episódio: Recompensa Total = {total_reward:.2f}")
+        # print(f"Alocação bem-sucedida: {eval_env.success}")
+        if eval_env.success:
+            cont += 1
+            # print(f"Servidores Usados: {eval_env.servers_used}")
+            # print(f"Latencia usada: {eval_env.latency_used}")
+        else:
+            print(f"Falha na alocação: {eval_env.fail_reason}")
+    fim = cont/i
+    print(f"\n Taxa de alocações bem-sucedidas: {fim}.")
+    return fim
 
-    if os.path.exists(best_model_path):
-        # Carrega o melhor modelo
-        best_model = PPO.load(best_model_path)
-        
-        # Salva o melhor modelo com o nome final desejado
-        best_model.save(final_model_path)
-        print(f"Melhor modelo salvo com o nome final em: {final_model_path}")
-        
-        print("\nDemonstração do modelo final no ambiente de avaliação:")
-        
-        # Testando o modelo por alguns episódios
-        for episode in range(3):
-            obs, info = eval_env.reset()
-            done = False
-            total_reward = 0
-            step = 0
-            print(f"\n--- Episódio de Demonstração {episode + 1} ---")
-            
-            while not done:
-                action, _states = best_model.predict(obs, deterministic=True)
-                obs, reward, done, truncated, info = eval_env.step(action)
-                
-                # Mantendo sua lógica original de print
-                chosen_node = eval_env.valid_nodes[action]
-                print(f"Passo {step}: Ação={action} (Nó: {chosen_node}), Recompensa={reward:.2f}")
-                
-                total_reward += reward
-                step += 1
-            
-            print(f"Resultado do Episódio: Recompensa Total = {total_reward:.2f}")
-            print(f"Alocação bem-sucedida: {eval_env.success}")
-            if eval_env.success:
-                print(f"Servidores Usados: {eval_env.servers_used}")
-    else:
-        # Mensagem de erro corrigida para apontar para o local certo
-        print(f"ERRO: Nenhum modelo foi salvo pelo callback em '{best_model_path}'. Verifique os logs de treinamento.")
 if __name__ == '__main__':
-    train_rl_model()
+    for i in range(1):
+        fim = train_rl_model()
+        if fim >=0.95:
+            break
+

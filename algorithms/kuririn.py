@@ -29,7 +29,7 @@ def collect_session(text):
 class Kuririn:
     def __init__(self, model_name):
         self.model_name = model_name
-        self.model_path = f'saved_models_rl/{self.model_name}_sfc_allocation'
+        self.model_path = f'saved_rl_models/{self.model_name}_sfc_allocation'
         self.name = "kuririn"
         self.env = None
         self.graph = None
@@ -63,16 +63,7 @@ class Kuririn:
 
     def install_substrate_network(self, graph, shareable_sfs=[]):
         self.graph = graph
-        self.valid_nodes = [node for node in self.graph.nodes() if self.graph.nodes[node]['type'] != 'router' and node != 0]
 
-        self.env = NetworkEnv(graph=self.graph, valid_nodes=self.valid_nodes, pesos={
-            "cpu": self.cpu_factor,
-            "cache": self.cache_factor,
-            "band": self.band_factor,
-            "latency": self.latency_factor
-        })
-        self.model = self._load_or_create_model(self.env)
-        return self.graph
 
     def install_SFC(self, sfc):
         self.sfc = sfc
@@ -113,6 +104,7 @@ class Kuririn:
         self.cpu_factor, self.cache_factor, self.band_factor = costs_parameters
 
     def start_algorithm(self):
+        self.valid_nodes = [node for node in self.graph.nodes() if self.graph.nodes[node]['type'] != 'router' and node != 0]
         self.algorithm()
         if self.check_solution():
             try:
@@ -181,23 +173,17 @@ class Kuririn:
         return list(reversed(services)), service_requirements
 
     def find_best_allocation_for_sfc(self, G, service_requirements,services, dst):
-        self.env.set_graph(graph=G)
-        # self.env.set_server_resources(server_resources)
-        self.env.valid_nodes = self.valid_nodes
-        self.env.services, self.env.service_requirements,self.env.service = services, service_requirements,services[0]
-        self.env.latency_request= 13
-        self.env.set_dst_node(dst)
-        self.env.sfc = self.sfc
-        self.env.session_number = collect_session(self.sfc.id)
-        self.env.update_bandwidth_required()
 
-        # self.env.dst_vnf = self.dst_vnf
-        # self.env.current_vnf = self.dst_vnf   
-        # self.env.sfc = self.sfc
-        # self.env.set_dst_vnf(dst_vnf=self.dst_vnf)
-        
-        if not self.model:
-            self._load_or_create_model(self.env)
+
+        self.env = NetworkEnv(list_graph=[self.graph],list_sfc=[self.sfc],valid_nodes=self.valid_nodes,pesos={
+            "cpu": self.cpu_factor,
+            "cache": self.cache_factor,
+            "band": self.band_factor,
+            "latency": self.latency_factor
+        })
+
+
+        self._load_or_create_model(self.env)
 
         # log_callback = LogTrainingProgressCallback(log_interval=N_STEPS // 10)
         if IS_TRAINING:
@@ -266,13 +252,7 @@ class Kuririn:
 
     def _load_or_create_model(self, env):
         if self.model_name == "ppo":
-            if os.path.exists(self.model_path + ".zip"):
-                model = PPO.load(self.model_path)
-                self.model = PPO("MlpPolicy", env, verbose=0, learning_rate=0.00015, batch_size=16, n_steps=256, ent_coef=0.3,
-                                device ='cpu')
-                self.model.policy.load_state_dict(model.policy.state_dict())
-            else:
-                self.model = PPO("MlpPolicy", env, verbose=0, learning_rate=0.00015, batch_size=16, n_steps=256, ent_coef=0.3, device='cpu')
+            self.model = PPO.load(self.model_path)
         elif self.model_name == "dqn":
             if os.path.exists(self.model_path + ".zip"):
                 model = DQN.load(self.model_path)
