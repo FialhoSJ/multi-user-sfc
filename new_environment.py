@@ -156,11 +156,14 @@ class NetworkEnv(gym.Env):
 
         # 3. Alocar banda e calcular latência do caminho
         success_band, path_latency = self.allocate_bandwidth_along_path(self.path, self.bandwidth_required, self.service)
+        
         if not success_band:
             # Esta verificação é uma dupla segurança, o fallback já deveria ter resolvido.
             return self._fail_step('bandwidth')
 
         self.latency_used += path_latency
+        
+        
         
         # 4. Verificar restrição de latência
         if self.latency_used > self.latency_request:
@@ -169,6 +172,8 @@ class NetworkEnv(gym.Env):
         # 5. Calcular custo e recompensa
         self.servers_used.append(self.server)
         self.total_cost = self.calculate_total_cost(self.server, self.path)
+        if True:
+            print(f"Custos envolvendo nó movel: {self.total_cost}")
         self.reward = -self.total_cost
         self.total_reward += self.reward
 
