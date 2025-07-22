@@ -3,6 +3,8 @@ import logging
 import re
 import networkx as nx
 from stable_baselines3 import PPO, DQN
+from sb3_contrib import MaskablePPO
+
 from algorithms.environment import NetworkEnv
 import os
 from config import ROOT_PATH
@@ -182,6 +184,8 @@ class Kuririn:
             "latency": self.latency_factor
         })
 
+        self.env.reset()
+
 
         self._load_or_create_model(self.env)
 
@@ -195,7 +199,7 @@ class Kuririn:
 
         done = False
         while not done:
-            action, _ = self.model.predict(state, deterministic=True)
+            action, _ = self.model.predict(state, deterministic=False)
             state, _, done, _, _ = self.env.step(action)
 
         if not self.env.success and IS_TRAINING:
@@ -252,7 +256,7 @@ class Kuririn:
 
     def _load_or_create_model(self, env):
         if self.model_name == "ppo":
-            self.model = PPO.load(self.model_path)
+            self.model = MaskablePPO.load(self.model_path, env=env, action_masks=env.action_masks())
         elif self.model_name == "dqn":
             if os.path.exists(self.model_path + ".zip"):
                 model = DQN.load(self.model_path)

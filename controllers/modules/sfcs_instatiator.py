@@ -54,6 +54,8 @@ class SFCInstatiator:
             # algorithm.install_substrate_network(substrate_network)
 
 
+            
+
             algorithm.install_SFC(sfc)
             algorithm.install_substrate_network(copy.deepcopy(graph))
             s = time.time()
@@ -79,7 +81,6 @@ class SFCInstatiator:
                     search_success = False
             else:
                 salvar_duas_variaveis_seguramente(graph, "lista_grafo", sfc, "lista_sfc")
-
                 total_latency = None
                 search_success = False            
             

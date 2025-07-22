@@ -34,16 +34,16 @@ class NetworkEnv(gym.Env):
     alocar uma cadeia de serviços sequencialmente, minimizando um custo combinado de
     recursos computacionais (CPU, cache), latência e largura de banda.
     """
-    def __init__(self, list_graph: list, list_sfc: list,valid_nodes: list, pesos, is_training=True): # MODIFICADO
+    def __init__(self, list_graph: list, list_sfc: list, valid_nodes: list, pesos, is_training=True):
         super().__init__()
 
-        list_graph, list_sfc = equalizar_listas(list_graph, list_sfc)
-
-        # --- Validação das listas ---
+        # --- Validação dos dados de entrada ---
+        # Recomendação: É melhor garantir que os dados estão corretos ANTES de criar o ambiente.
+        # A função `equalizar_listas` foi removida pois pode mascarar problemas nos dados ao descartar informações.
         if not list_graph or not list_sfc:
             raise ValueError("As listas de grafos e SFCs não podem ser vazias.")
         if len(list_graph) != len(list_sfc):
-            raise ValueError("A lista de grafos e a lista de SFCs devem ter o mesmo tamanho.")
+            raise ValueError("A lista de grafos e a lista de SFCs devem ter o mesmo tamanho para um mapeamento 1-para-1.")
 
         # --- Topologia e Configuração da Rede ---
         self.list_graph = list_graph
@@ -62,29 +62,58 @@ class NetworkEnv(gym.Env):
         self.service = None
         self.session_number = None
         self.valid_nodes = valid_nodes  # Lista de nós válidos para alocação
+        self.num_valid_nodes = len(self.valid_nodes)
 
-        # --- Métricas de Desempenho e Controle ---
+        # --- Métricas de Desempenho e Controle (inicializadas) ---
         self.latency_used = 0
         self.is_training = is_training
         self.servers_used = []
         self.allocation_results = {}
         self.success = False
         self.reuse = False
+        self.fail_reason = None
+        self.reward = 0
+        self.total_reward = 0
+        self.total_cost = 0
         
         # --- Fatores de Custo para a Recompensa ---
         self.cpu_factor = pesos.get("cpu", 1)
         self.cache_factor = pesos.get("cache", 1)
         self.band_factor = pesos.get("band", 1)
         self.latency_factor = pesos.get("latency", 1)
+        
+        # Cria os snapshots para resetar o estado dos grafos de forma eficiente
         self._initialize_snapshots()
-        # --- Espaços de Ação e Observação ---
-        self.action_space = spaces.Discrete(len(self.valid_nodes))
-        self.observation_space = spaces.Box(
-            low=0.0,
-            high=1.0,
-            shape=(len(valid_nodes) * 6,),  # 5 métricas por nó válido
-            dtype=np.float32
-        )
+
+        # --------------------------------------------------------------------------
+        # --- ESPAÇOS DE AÇÃO E OBSERVAÇÃO (ESTRUTURA CORRIGIDA) ---
+        # --------------------------------------------------------------------------
+
+        # O espaço de ação não muda: uma escolha discreta entre os nós candidatos.
+        self.action_space = spaces.Discrete(self.num_valid_nodes)
+
+        # Definindo constantes para clareza e manutenção do código
+        self.features_per_node = 6  # [cpu_free, cache_free, is_reusable, band_free, band_req, latency_total]
+        self.features_per_vnf = 2  # [cpu_req, cache_req]
+
+        # **CORREÇÃO PRINCIPAL: Usando um Dicionário para a Observação**
+        # Isso preserva a estrutura dos seus dados, permitindo que o agente (com uma MultiInputPolicy)
+        # aprenda de forma muito mais eficaz.
+        self.observation_space = spaces.Dict({
+            # Parte 1: Requisitos da VNF que estamos tentando alocar.
+            # O agente sabe "o que" ele precisa fazer.
+            "vnf_reqs": spaces.Box(low=0.0, high=1.0, shape=(self.features_per_vnf,), dtype=np.float32),
+
+            # Parte 2: Matriz com o estado de todos os nós candidatos.
+            # Dimensões: (número de nós, número de features por nó).
+            # O agente tem uma visão comparativa de "onde" ele pode alocar.
+            "nodes_state": spaces.Box(low=0.0, high=1.0, shape=(self.num_valid_nodes, self.features_per_node), dtype=np.float32),
+
+            # Parte 3: A Máscara de Ações.
+            # Vetor binário que diz ao agente quais ações (nós) são válidas no estado atual.
+            # Essencial para acelerar o treinamento e garantir a estabilidade.
+            "action_mask": spaces.Box(low=0, high=1, shape=(self.action_space.n,), dtype=np.int8)
+        })
 
 
     # --------------------------------------------------------------------------
@@ -156,11 +185,14 @@ class NetworkEnv(gym.Env):
 
         # 3. Alocar banda e calcular latência do caminho
         success_band, path_latency = self.allocate_bandwidth_along_path(self.path, self.bandwidth_required, self.service)
+        
         if not success_band:
             # Esta verificação é uma dupla segurança, o fallback já deveria ter resolvido.
             return self._fail_step('bandwidth')
 
         self.latency_used += path_latency
+        
+        
         
         # 4. Verificar restrição de latência
         if self.latency_used > self.latency_request:
@@ -221,7 +253,7 @@ class NetworkEnv(gym.Env):
         self.sfc = sfc
         # print(f"Trocou dst_node para: {self.sfc.dst_node}")
         self.services, self.service_requirements = self.prepare_service_requirements(self.sfc.vnfs_dict)
-        self.latency_request = 10
+        self.latency_request = 9
         self.dst_node = self.sfc.get_substrate_node(self.sfc.get_dst_vnf())
         self.current_location = self.dst_node
         self.service = self.services[0]
@@ -249,27 +281,6 @@ class NetworkEnv(gym.Env):
 
         return self.get_normalized_state(), self.reward, done, False, {}
 
-    def _get_path_with_fallback(self, source, target):
-        """Tenta obter o caminho do cache, senão busca o caminho mais curto com banda disponível."""
-        # Tenta o caminho mais rápido (Dijkstra puro)
-
-        if (source, target) not in self.cached_paths:
-            path = get_available_shortest_path_optimized(self.G, source, target, self.bandwidth_required, rounded=True)
-            self.cached_paths[(source, target)] = path
-        else:
-            path = self.cached_paths[(source, target)]
-        
-        # Verifica se este caminho rápido tem banda
-        if self.get_critical_link_bandwidth(path) >= self.bandwidth_required:
-            return path
-        
-        # Fallback: Se não tem banda, busca um caminho viável (pode ser mais lento)
-        path = get_available_shortest_path_optimized(self.G, source, target, self.bandwidth_required, rounded=True)
-        if not path:
-            return self.cached_paths[(source, target)]
-        else:
-            self.cached_paths[(source, target)] = path
-            return path
         
 
     # environment.py
@@ -356,76 +367,106 @@ class NetworkEnv(gym.Env):
             # Custo de banda baseado no link crítico do caminho (LINHAS DESCOMENTADAS)
             cap_band, used_band = self.get_critical_link_info(path)
             cap_band = cap_band or 1  # Evita divisão por zero
-            bandwidth_cost = ((used_band / cap_band) + 1) ** self.band_factor
+            # bandwidth_cost = ((used_band / cap_band) + 1) ** self.band_factor
  
         return sum([cpu_cost, cache_cost, self.latency_cost, bandwidth_cost])
     # --------------------------------------------------------------------------
     # --- MÉTODOS DE GERAÇÃO DE ESTADO ---
     # --------------------------------------------------------------------------
 
-    def get_normalized_state(self):
-        """Gera o vetor de estado normalizado para o agente de RL."""
-        state_vectors = []
+    # Em get_normalized_state
 
+# Em NetworkEnv
+
+    def get_normalized_state(self):
+        """
+        Gera um dicionário de estado normalizado para o agente de RL.
+        A estrutura do dicionário corresponde exatamente ao `observation_space` definido no __init__.
+        """
+        # --- 1. Preparar os vetores/matrizes de saída ---
+        vnf_reqs_vector = np.zeros(self.features_per_vnf, dtype=np.float32)
+        nodes_state_matrix = np.zeros((self.num_valid_nodes, self.features_per_node), dtype=np.float32)
+        action_mask = np.ones(self.action_space.n, dtype=np.int8)  # Começa com todas as ações como válidas (1)
+
+        # --- 2. Obter os requisitos da VNF atual ---
+        # Normalização por um fator razoável (ex: 100 para CPU, 100 para cache)
+        # Certifique-se de que os valores máximos resultem em algo próximo a 1.0
+        current_vnf = self.sfc.get_vnf_by_id(self.service)
+        cpu_req_norm = current_vnf.get_cpu_request() / 100.0
+        cache_req_norm = current_vnf.get_cache_request() / 100.0
+        vnf_reqs_vector[:] = [cpu_req_norm, cache_req_norm]
+
+        # --- 3. Iterar sobre cada nó candidato para preencher a matriz de estado e a máscara de ação ---
         for i, node_id_or_placeholder in enumerate(self.valid_nodes):
+            # Lógica para obter o ID do nó real (considerando o caso especial do dst_node)
             if i == len(self.valid_nodes) - 1:
                 node_id = self.sfc.dst_node
             else:
                 node_id = node_id_or_placeholder
 
+            # --- Lógica de Validação da Ação (para construir a máscara) ---
             node = self.G.nodes[node_id]
-
-            # 1. Custos de Recursos (CPU & Cache)
+            
+            # Normalização por capacidade (garante que o valor fique entre 0 e 1)
             cpu_capacity = node["cpu_capacity"] or 1
             cache_capacity = node["cache_capacity"] or 1
+            cpu_free = (cpu_capacity - node["cpu_used"]) / cpu_capacity
+            cache_free = (cache_capacity - node["cache_used"]) / cache_capacity
+            
             is_reusable = int(self.is_reusable_at_node(node_id, self.service, self.sfc.id.split("_")[-1]))
-            
-            cpu_req = 0 if is_reusable else self.service_requirements[self.service]["cpu"]
-            cache_req = 0 if is_reusable else self.service_requirements[self.service]["cache"]
 
-            # Calcula custos projetados de CPU e Cache
-            if (self.service_requirements[self.service]["cpu"] + node["cpu_used"]) > node["cpu_capacity"] or \
-            (self.service_requirements[self.service]["cache"] + node["cache_used"]) > node["cache_capacity"]:
-                proj_cpu_cost = 1.0
-                proj_cache_cost = 1.0
-            else:
-                proj_cpu_cost = (node["cpu_used"] + cpu_req) / cpu_capacity
-                proj_cache_cost = (node["cache_used"] + cache_req) / cache_capacity
-            
-            # 2. Custos de Rede (Latência e Banda)
+            # Se não for reutilizável, verifica se há recursos suficientes. Se não houver, a ação é inválida.
+            if cpu_req_norm > cpu_free or cache_req_norm > cache_free:
+                action_mask[i] = 0
+
+            # Encontra o caminho mais curto com banda disponível
             path = get_available_shortest_path_optimized(
                 self.G, self.current_location, node_id, 
                 self.bandwidth_required, rounded=True
             )
 
-            # Lógica de custo de banda projetado (CORRIGIDA)
-            proj_bandwidth_cost = 1.0
+            # Se não houver caminho, a ação é inválida
+            if not path:
+                action_mask[i] = 0
+
+            # --- Cálculo das Features do Nó (mesmo que a ação seja inválida, preenchemos os dados) ---
+            band_free_norm = 0.0
+            band_req_norm = 1.0  # Pior caso se não houver caminho/capacidade
+            latency_total_norm = 1.0 # Pior caso se não houver caminho
+
             if path:
+                # Cálculo da banda
                 cap_band, used_band = self.get_critical_link_info(path)
-                cap_band = cap_band or 1
-                proj_bandwidth_cost = (used_band + self.bandwidth_required) / cap_band
+                if cap_band > 0:
+                    band_free_norm = (cap_band - used_band) / cap_band
+                    band_req_norm = self.bandwidth_required / cap_band
+                
+                # Cálculo da latência projetada
+                path_latency = self.calculate_path_latency(path, self.service)
+                latency_request = self.latency_request or 1
+                proj_total_latency = self.latency_used + path_latency
+                latency_total_norm = proj_total_latency / latency_request
+
+                # Se a latência projetada já excede o limite, a ação é inválida
+                if latency_total_norm > 1.0:
+                    action_mask[i] = 0
             
-            # Custo de latência projetado
-            path_latency = self.calculate_path_latency(path, self.service)
-            latency_request = self.latency_request or 1
-            proj_latency_cost = (self.latency_used + path_latency) / latency_request
-
-            # 3. Flag de "Não pode alocar"
-            cant_allocate = 1.0 if (proj_cpu_cost > 1.0 or proj_cache_cost > 1.0 or not path or proj_latency_cost > 1.0 or proj_bandwidth_cost > 1.0) else 0.0
-
-            # 4. Montagem do Vetor de Estado (MELHORADO)
-            node_state = [
-                min(proj_cpu_cost, 1.0),
-                min(proj_cache_cost, 1.0),
-                min(proj_latency_cost, 1.0),
-                min(proj_bandwidth_cost, 1.0), # <- NOVA MÉTRICA ADICIONADA
+            # Preenche a linha 'i' da matriz de estado dos nós
+            nodes_state_matrix[i, :] = [
+                cpu_free,
+                cache_free,
                 float(is_reusable),
-                cant_allocate
+                band_free_norm,
+                min(band_req_norm, 1.0), # Garante que não passe de 1.0
+                min(latency_total_norm, 1.0) # Garante que não passe de 1.0
             ]
-            state_vectors.extend(node_state)
 
-        return np.array(state_vectors, dtype=np.float32)
-
+        # --- 4. Montar e retornar o dicionário de observação final ---
+        return {
+            "vnf_reqs": vnf_reqs_vector,
+            "nodes_state": nodes_state_matrix,
+            "action_mask": action_mask
+        }
     # --------------------------------------------------------------------------
     # --- MÉTODOS UTILITÁRIOS E DE CONSULTA ---
     # --------------------------------------------------------------------------
@@ -535,3 +576,14 @@ class NetworkEnv(gym.Env):
             }
         service_requirements['dst'] = {'CPU': 0, 'cache': 0, 'out_bw': 0, 'in_bw': 0, 'latency': 0}
         return list(reversed(services)), service_requirements
+    
+    def action_masks(self):
+        """
+        Este é o método que o MaskablePPO procura nativamente.
+        Ele retorna um array booleano (True/False) indicando as ações válidas.
+        """
+        # A maneira mais simples é chamar sua função de estado e extrair a máscara.
+        # O estado do ambiente (self.service, etc.) já estará correto quando
+        # este método for chamado pelo agente.
+        obs_dict = self.get_normalized_state()
+        return obs_dict["action_mask"].astype(bool)
