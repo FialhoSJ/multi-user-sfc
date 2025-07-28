@@ -6,7 +6,7 @@ import random
 import traceback
 from utils.k_shortest_paths import k_shortest_paths
 from algorithms.networkUtils import calculate_computational_latency,calculate_latency_betwen_nodes
-from salvar_var import salvar_duas_variaveis_seguramente
+from salvar_var import salvar_variavel
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 
 class SFCInstatiator:
@@ -16,6 +16,7 @@ class SFCInstatiator:
         self.sfc_queue = []
         self.sfcs_routing_info = {}
         self.sfcs_that_deployed = []
+        self.session_id = None
         self.sfcs_that_crashed = []
         self.verbose = True
 
@@ -55,7 +56,13 @@ class SFCInstatiator:
 
 
             
+            salvar_variavel(sfc, "list_sfc")
 
+            session_id = sfc.id.split("_")[-1]
+            if session_id != self.session_id:
+                salvar_variavel(graph, "list_graph")
+                self.session_id = session_id
+                
             algorithm.install_SFC(sfc)
             algorithm.install_substrate_network(copy.deepcopy(graph))
             s = time.time()
@@ -80,7 +87,7 @@ class SFCInstatiator:
                     self.alg.handle_failure()
                     search_success = False
             else:
-                salvar_duas_variaveis_seguramente(graph, "lista_grafo", sfc, "lista_sfc")
+                
                 total_latency = None
                 search_success = False            
             
