@@ -3,7 +3,7 @@ import gymnasium
 from gymnasium import spaces
 import numpy as np
 from networkx import Graph
-from typing import Union, List, Dict
+from typing import Tuple, Union, List, Dict
 
 from core.sfc import SFC, VNF
 from algorithms.networkUtils import get_available_shortest_path_optimized, calcular_latencia_total
@@ -71,7 +71,6 @@ class SFC_AllocationEnv(gymnasium.Env):
             "valid_node_resource": spaces.Box(low=0, high=1, shape=(2, len(self.valid_nodes)), dtype=np.float32),
             "valid_node_lat_band": spaces.Box(low=0, high=1, shape=(2, len(self.valid_nodes)), dtype=np.float32),
             "valid_node_reuse": spaces.Box(low=0, high=1, shape=(len(self.valid_nodes),), dtype=np.float32),
-            "action_mask": spaces.Box(low=0, high=1, shape=(len(self.valid_nodes),), dtype=np.int8),
         })
 
     def reset(self, seed=None, options=None):
@@ -114,7 +113,11 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.fail_reason = None
         self.allocation_results = {}
 
-        return self._get_obs(), {}
+         # 🚀 CORREÇÃO: Obtenha a observação e a máscara separadamente.
+        obs = self._get_obs_and_info()
+        
+        # 🚀 CORREÇÃO: Retorne a observação e o dicionário 'info' com a máscara.
+        return obs, {}
 
     def step(self, action: int):
         """
@@ -138,7 +141,7 @@ class SFC_AllocationEnv(gymnasium.Env):
             return self._fail_step('bandwidth')
 
         # 4. Calcular latência e verificar restrição
-        path_latency = calcular_latencia_total(self.graph, self.path, self.current_vnf)
+        path_latency = calcular_latencia_total(self.path, self.graph)
         self.latency_used += path_latency
         if self.latency_used > self.latency_request:
             return self._fail_step('latency')
@@ -156,7 +159,7 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         # 7. Verificar conclusão e avançar para a próxima VNF/SFC
         done = False
-        if not self.current_vnf.previous_vnf:
+        if not self.current_vnf.previous_vnf or self.current_vnf.previous_vnf.id == 'src':
             if self.current_sfc.id == self.list_sfcs[-1].id:
                 done = True
                 self.success = True
@@ -171,7 +174,11 @@ class SFC_AllocationEnv(gymnasium.Env):
             self.current_vnf = self.current_sfc.get_previous_vnf(self.current_vnf)
             self.update_band_request()
 
-        return self._get_obs(), reward, done, False, {}
+         # 🚀 CORREÇÃO: Obtenha a nova observação e o 'info' (com a máscara).
+        obs = self._get_obs_and_info()
+        
+        # 🚀 CORREÇÃO: Retorne todos os valores, incluindo o dicionário 'info'.
+        return obs, reward, done, False, {}
 
     def render(self):
         """Método para renderização (não implementado)."""
@@ -185,7 +192,7 @@ class SFC_AllocationEnv(gymnasium.Env):
     # 2. Lógica Central da Simulação e Estado
     # =================================================================================
 
-    def _get_obs(self) -> Dict[str, np.ndarray]:
+    def _get_obs_and_info(self) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray]]:        
         """
         Monta e retorna a observação atual do ambiente, incluindo a máscara de ações válidas.
         A observação normaliza o estado dos recursos da rede em relação à requisição atual.
@@ -198,7 +205,6 @@ class SFC_AllocationEnv(gymnasium.Env):
         node_resource_obs = np.zeros((2, num_valid_nodes), dtype=np.float32)
         node_lat_band_obs = np.zeros((2, num_valid_nodes), dtype=np.float32)
         node_reuse_obs = np.zeros(num_valid_nodes, dtype=np.float32)
-        action_mask = np.ones(num_valid_nodes, dtype=np.int8)
 
         for i, node_id in enumerate(self.valid_nodes):
             is_action_valid = True
@@ -219,11 +225,12 @@ class SFC_AllocationEnv(gymnasium.Env):
             # --- Normalização de Recursos do Caminho (Latência/Banda) ---
             path = get_available_shortest_path_optimized(self.graph, self.current_location, node_id, self.band_request, rounded=True)
             if path:
-                latencia_path = calcular_latencia_total(self.graph, path, self.current_vnf)
+    
+                latencia_path = calcular_latencia_total(path, self.graph)
                 latencia_normalizada = min((self.latency_used + latencia_path) / self.latency_request, 1.0)
                 
                 band_cap, band_used = self.get_critical_link_info(path)
-                band_normalizada = min((band_used + self.band_request) / band_cap, 1.0)
+                band_normalizada = min((band_used + self.band_request) / band_cap, 1.0) if band_cap > 0 else 0
             else:
                 latencia_normalizada, band_normalizada = 1.0, 1.0
                 is_action_valid = False
@@ -237,16 +244,60 @@ class SFC_AllocationEnv(gymnasium.Env):
             reusable = self.is_reusable_at_node(node_id, self.current_vnf) if is_action_valid else 0
             node_reuse_obs[i] = reusable
             
-            # --- Máscara de Ação ---
-            if not is_action_valid:
-                action_mask[i] = 0
 
-        return {
+
+        observation = {
             "valid_node_resource": node_resource_obs,
             "valid_node_lat_band": node_lat_band_obs,
             "valid_node_reuse": node_reuse_obs,
-            "action_mask": action_mask,
         }
+        
+
+
+        return observation
+    
+
+
+    def action_masks(self) -> list[bool]:
+        action_mask = np.ones(len(self.valid_nodes), dtype=np.int8)
+        cpu_req = self.current_vnf.get_cpu_request()
+        cache_req = self.current_vnf.get_cache_request()
+        for i, node_id in enumerate(self.valid_nodes):
+            is_action_valid = True
+            node_id = self.current_sfc.dst_node if i == len(self.valid_nodes) - 1 else node_id
+            
+            # --- Normalização de Recursos do Nó (CPU/Cache) ---
+            cpu_cap, cpu_used = self.graph.nodes[node_id]['cpu_capacity'], self.graph.nodes[node_id]['cpu_used']
+            new_cpu_used = min((cpu_req + cpu_used) / cpu_cap, 1.0)
+            
+            cache_cap, cache_used = self.graph.nodes[node_id]['cache_capacity'], self.graph.nodes[node_id]['cache_used']
+            new_cache_used = min((cache_req + cache_used) / cache_cap, 1.0)
+
+            if new_cpu_used >= 1.0 or new_cache_used >= 1.0:
+                is_action_valid = False
+
+            # --- Normalização de Recursos do Caminho (Latência/Banda) ---
+            path = get_available_shortest_path_optimized(self.graph, self.current_location, node_id, self.band_request, rounded=True)
+            if path:
+    
+                latencia_path = calcular_latencia_total(path, self.graph)
+                latencia_normalizada = min((self.latency_used + latencia_path) / self.latency_request, 1.0)
+                
+                band_cap, band_used = self.get_critical_link_info(path)
+                band_normalizada = min((band_used + self.band_request) / band_cap, 1.0) if band_cap > 0 else 0
+            else:
+                latencia_normalizada, band_normalizada = 1.0, 1.0
+                is_action_valid = False
+
+            if latencia_normalizada >= 1.0 or band_normalizada >= 1.0:
+                is_action_valid = False
+
+
+            # --- Máscara de Ação ---
+            if not is_action_valid:
+                action_mask[i] = 0
+            
+        return action_mask
     
     def allocate_resources_on_node(self, node_id: Union[int, str]) -> bool:
         """
@@ -315,7 +366,10 @@ class SFC_AllocationEnv(gymnasium.Env):
         reward = self.reward_config['failure_penalty']
         
         done = True
-        return self._get_obs(), reward, done, False, {}
+        # 🚀 CORREÇÃO: Garanta que mesmo em falha, a última observação e info sejam retornados.
+        obs = self._get_obs_and_info()
+        
+        return obs, reward, done, False, {}
     
     def _initialize_snapshots(self):
         """
@@ -341,7 +395,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         if not sfc:
             raise ValueError("SFC não pode ser None.")
         self.current_sfc = sfc
-        self.current_vnf = self.current_sfc.get_dst_vnf()
+        self.current_vnf = self.current_sfc.get_previous_vnf(sfc.get_dst_vnf())
         self.latency_request = 10  # TODO: Considerar tornar dinâmico
         self.current_location = self.current_sfc.dst_node
         self.latency_used = 0

@@ -1,137 +1,139 @@
 import os
-from pathlib import Path
-
 import gymnasium as gym
 import numpy as np
+from stable_baselines3.common.monitor import Monitor
+# NOVO: Importações para o treinamento em paralelo
+from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3.common.vec_env import SubprocVecEnv
 
-# A importação do ActionMasker foi REMOVIDA
+# Assumindo que suas funções e classes personalizadas estão disponíveis
+# Se 'salvar_var' e 'env_sfc_allocation' estiverem em outros arquivos,
+# certifique-se de que eles possam ser importados corretamente.
+from salvar_var import carregar_lista
+from env_sfc_allocation.env_sfc_allocation import SFC_AllocationEnv
+
+# Importações do Stable Baselines3 e SB3-Contrib
 from sb3_contrib import MaskablePPO
-from stable_baselines3.common.callbacks import EvalCallback
+from sb3_contrib.common.maskable.callbacks import MaskableEvalCallback
+from sb3_contrib.common.maskable.utils import get_action_masks # Importação corrigida para o teste final
 
-os.environ['CUDA_VISIBLE_DEVICES'] = ''
-
-try:
-    # Certifique-se que o new_environment.py modificado seja importado
-    from new_environment import NetworkEnv
-    from salvar_var import carregar_lista
-except ImportError:
-    print("Erro: Verifique se 'new_environment.py' e 'salvar_var.py' estão na mesma pasta.")
-    exit()
-
-def load_user_data():
+# ==============================================================================
+#      FUNÇÃO PARA CARREGAR O AMBIENTE (Seu código original)
+# ==============================================================================
+def carregar_dados_do_ambiente():
     """
-    Função para carregar todos os dados e parâmetros do seu problema.
+    Carrega os dados e inicializa o ambiente SFC_AllocationEnv.
+    (Esta é a sua função, mantida como está).
     """
     try:
-        lista_grafos = carregar_lista("lista_grafo")
-        lista_sfcs = carregar_lista("lista_sfc")
+        list_graph = carregar_lista("list_graph")
+        list_aux_sfc = carregar_lista("list_sfc")
     except FileNotFoundError as e:
         print(f"Erro ao carregar dados: {e}")
-        print("Certifique-se que os arquivos 'lista_grafo' e 'lista_sfc' existem.")
-        return None, None, None, None
+        print("Certifique-se que os arquivos de dados existem.")
+        return None
 
-    pesos = {"cpu": 5, "cache": 5, "latency": 2, "band": 2}
+    list_sfc = []
+    session_id = '1'
+    list_aux = []
+    if list_aux_sfc:
+        for idx, sfc in enumerate(list_aux_sfc):
+            session_sfc = sfc.id.split("_")[-1]
+            if session_sfc != session_id:
+                list_sfc.append(list_aux)
+                list_aux = []
+                session_id = sfc.id.split("_")[-1]
+            list_aux.append(sfc)
+        list_sfc.append(list_aux)
+
     valid_nodes = []
-    if lista_grafos and lista_grafos[0]:
-        for node in lista_grafos[0].nodes():
-            if lista_grafos[0].nodes[node]["type"] == "server":
+    if list_graph and list_graph[0]:
+        for node in list_graph[0].nodes():
+            if list_graph[0].nodes[node]["type"] == "server":
                 valid_nodes.append(node)
-    
     valid_nodes.append("M")
-    print(f"Dados carregados: {len(lista_grafos)} grafos e {len(lista_sfcs)} SFCs.")
-    return lista_grafos, lista_sfcs, valid_nodes, pesos
-
-def train_rl_model():
-    """
-    Função principal que executa o pipeline de treinamento.
-    """
-    print("Passo 1: Carregando dados do usuário...")
-    list_graph, list_sfc, valid_nodes, pesos = load_user_data()
-
-    if not all([list_graph, list_sfc, valid_nodes, pesos]):
-        print("Erro: Falha ao carregar os dados.")
-        return
-
-    TOTAL_TIMESTEPS = 200_000
-    LOG_DIR = "./rl_logs/"
-    SAVE_DIR = "./saved_rl_models/"
-    os.makedirs(LOG_DIR, exist_ok=True)
-    os.makedirs(SAVE_DIR, exist_ok=True)
-
-    print("\nPasso 2: Configurando o ambiente e o agente MaskablePPO...")
     
-    # Criamos a instância do seu ambiente diretamente. NENHUM WRAPPER É NECESSÁRIO.
-    train_env = NetworkEnv(list_graph=list_graph, valid_nodes=valid_nodes, list_sfc=list_sfc, pesos=pesos)
-
-    model_params = {
-        'n_steps': 2048, 'ent_coef': 0.01, 'learning_rate': 0.0003, 'gamma': 0.99,
-        'gae_lambda': 0.95, 'clip_range': 0.2, 'verbose': 1,
-        'tensorboard_log': LOG_DIR, 'device': 'cpu'
-    }
-
-    model_path = Path(SAVE_DIR) / "ppo_sfc_allocation.zip"
+    pesos = {"cpu": 1.0, "cache": 1.0, "lat": 1.0, "band": 1.0}
     
-    if model_path.exists():
-        print(f"\nModelo salvo encontrado em '{model_path}'. Carregando para continuar o treinamento...")
-        model = MaskablePPO.load(model_path, env=train_env, **model_params)
-    else:
-        print("\nNenhum modelo salvo encontrado. Inicializando novo agente MaskablePPO...")
-        model = MaskablePPO("MultiInputPolicy", train_env, **model_params)
+    return SFC_AllocationEnv(list_graph_per_session=list_graph, list_sfcs_per_session=list_sfc, valid_nodes=valid_nodes, pesos_fatores=pesos)
 
-    print("\nPasso 3: Configurando o callback de avaliação...")
-    
-    # O ambiente de avaliação também não precisa de wrapper.
-    eval_env = NetworkEnv(list_graph=list_graph, valid_nodes=valid_nodes, list_sfc=list_sfc, pesos=pesos)
-    
-    eval_callback = EvalCallback(
-        eval_env, best_model_save_path=SAVE_DIR, log_path=LOG_DIR,
-        eval_freq=5000, n_eval_episodes=50, deterministic=True, render=False
-    )
+# ==============================================================================
+#               FLUXO PRINCIPAL DE TREINAMENTO
+# ==============================================================================
 
-    print(f"\nPasso 4: Iniciando o treinamento por {TOTAL_TIMESTEPS} timesteps...")
-    print("=" * 50)
-    print(f"Para monitorar o treinamento, execute: tensorboard --logdir {LOG_DIR}")
-    print("=" * 50)
-    
-    model.learn(
-        total_timesteps=TOTAL_TIMESTEPS, callback=eval_callback,
-        progress_bar=True, reset_num_timesteps=False
-    )
-    
-    print("\nTreinamento concluído!")
-    print("\nPasso 5: Salvando o último estado do modelo para continuidade...")
-    model.save(model_path)
-    print(f"Último modelo salvo em: {model_path}")
-
-    print("\n--- Demonstração do MELHOR modelo encontrado ---")
-    
-    best_model_path = Path(SAVE_DIR) / "best_model.zip"
-    if best_model_path.exists():
-        print(f"Carregando o melhor modelo de: {best_model_path}")
-        # Carregue o modelo sem especificar o env, ele usará a política salva.
-        loaded_model = MaskablePPO.load(best_model_path)
-    else:
-        print("AVISO: 'best_model.zip' não encontrado. Usando o último modelo treinado.")
-        loaded_model = model
-
-    N_DEMO_EPISODES = 500
-    successful_allocations = 0
-    demo_env = NetworkEnv(list_graph=list_graph, valid_nodes=valid_nodes, list_sfc=list_sfc, pesos=pesos)
-    
-    for _ in range(N_DEMO_EPISODES):
-        obs, _ = demo_env.reset()
-        done = False
-        while not done:
-            action, _states = loaded_model.predict(obs, deterministic=True, action_masks=demo_env.action_masks())
-            obs, reward, terminated, truncated, info = demo_env.step(action)
-            done = terminated or truncated
-        
-        print(demo_env.servers_used)
-        if demo_env.success:
-            successful_allocations += 1
-        
-    success_rate = successful_allocations / N_DEMO_EPISODES
-    print(f"\nTaxa de alocações bem-sucedidas em {N_DEMO_EPISODES} episódios: {success_rate:.2%}")
-
+# NOVO: É crucial usar este bloco para o treinamento em paralelo funcionar corretamente
 if __name__ == '__main__':
-    train_rl_model()
+    # --- 1. DEFINIÇÃO DOS DIRETÓRIOS (MODIFICADO) ---
+    log_dir = "logs/"
+    tensorboard_log_dir = "tensorboard_logs/"
+    # Novo diretório para salvar o modelo final
+    save_dir = "rl_saved_models/"
+
+    os.makedirs(log_dir, exist_ok=True)
+    os.makedirs(tensorboard_log_dir, exist_ok=True)
+    os.makedirs(save_dir, exist_ok=True)
+
+
+    # --- 2. CRIAÇÃO DOS AMBIENTES ---
+    # MODIFICADO: Criação de ambientes paralelos para treinamento
+    num_cpu = 4  # Defina o número de processos paralelos (geralmente o número de núcleos da CPU)
+    print(f"Iniciando treinamento com {num_cpu} processos paralelos.")
+    env = make_vec_env(carregar_dados_do_ambiente, n_envs=num_cpu, vec_env_cls=SubprocVecEnv)
+
+    # O ambiente de avaliação permanece único para garantir consistência nos testes
+    eval_env = carregar_dados_do_ambiente()
+    eval_env = Monitor(eval_env)
+
+
+    # --- 3. CONFIGURAÇÃO DO CALLBACK DE AVALIAÇÃO (MODIFICADO) ---
+    eval_callback = MaskableEvalCallback(
+        eval_env,
+        log_path=log_dir,
+        eval_freq=1000,
+        n_eval_episodes=30,
+        deterministic=True,
+        render=False,
+    )
+
+    # --- 4. CRIAÇÃO E TREINAMENTO DO MODELO ---
+    model = MaskablePPO(
+        "MultiInputPolicy",
+        env,
+        verbose=1,
+        tensorboard_log=tensorboard_log_dir
+    )
+
+    # Inicia o treinamento com o callback para gerar dados para os gráficos
+    print("--- Iniciando o treinamento ---")
+    # MODIFICADO: Aumento do número total de passos de treinamento
+    model.learn(
+        total_timesteps=300_000,
+        callback=eval_callback,
+        tb_log_name="MaskablePPO_SFC_Allocation_Parallel"
+    )
+    print("--- Treinamento finalizado ---")
+
+
+    # --- 5. SALVAR O MODELO FINAL (MODIFICADO) ---
+    final_model_path = os.path.join(save_dir, "ppo_allocation_model")
+    model.save(final_model_path)
+
+    print(f"\nModelo final salvo em: {final_model_path}.zip")
+
+    # --- 6. TESTE COM O MODELO FINAL SALVO (OPCIONAL) ---
+    print("\nCarregando o modelo final para um teste...")
+    loaded_model = MaskablePPO.load(final_model_path)
+
+    obs, _ = eval_env.reset()
+    done = False
+    total_reward = 0
+    while not done:
+        action_masks = get_action_masks(eval_env)
+        action, _ = loaded_model.predict(obs, action_masks=action_masks, deterministic=True)
+        obs, reward, terminated, truncated, info = eval_env.step(action)
+        print(eval_env.env.servers_used)
+        total_reward += reward
+        done = terminated or truncated
+
+    print(f"Recompensa total do episódio de teste com o modelo final: {total_reward}")
+    print(eval_env.env.success)

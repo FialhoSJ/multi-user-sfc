@@ -1,514 +1,432 @@
 import copy
-import gymnasium as gym
-import numpy as np
-import networkx as nx
+import gymnasium
 from gymnasium import spaces
+import numpy as np
+from networkx import Graph
+from typing import Tuple, Union, List, Dict
 
-# Supondo que essas funções existem em um módulo `algorithms.networkUtils`
-from algorithms.networkUtils import get_available_shortest_path_optimized, calculate_computational_latency, calculate_latency_betwen_nodes
+from core.sfc import SFC, VNF
+from algorithms.networkUtils import get_available_shortest_path_optimized, calcular_latencia_total
 
-# --- CONSTANTES ---
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 
-# --- FUNÇÕES AUXILIARES EXTERNAS ---
-def latency_rounded(u, v, data):
-    """Função de peso para o NetworkX, usada para arredondar a latência."""
-    return int(round(data.get('latency', 0), 3) * 1000)
 
-def equalizar_listas(lista1, lista2):
+class SFC_AllocationEnv(gymnasium.Env):
     """
-    Ajusta o tamanho de duas listas para que fiquem do mesmo comprimento.
-    Remove os últimos elementos da lista maior até igualar ao tamanho da menor.
+    Ambiente do Gymnasium para o problema de alocação de Service Function Chains (SFCs).
+    
+    Este ambiente simula a alocação de Virtual Network Functions (VNFs) de uma SFC
+    em nós de uma infraestrutura de rede, considerando restrições de CPU, cache,
+    latência e largura de banda.
     """
-    while len(lista1) > len(lista2):
-        lista1.pop()
-    while len(lista2) > len(lista1):
-        lista2.pop()
-    return lista1, lista2
 
-# --- CLASSE DO AMBIENTE ---
-class NetworkEnv(gym.Env):
-    """
-    Ambiente customizado do Gymnasium para simular a alocação de Service Function Chains (SFCs)
-    em uma rede de substrato. O objetivo de um agente de RL neste ambiente é aprender a
-    alocar uma cadeia de serviços sequencialmente, minimizando um custo combinado de
-    recursos computacionais (CPU, cache), latência e largura de banda.
-    """
-    def __init__(self, list_graph: list, list_sfc: list, valid_nodes: list, pesos, is_training=True):
+    # =================================================================================
+    # 1. Métodos Principais da Interface do Gymnasium
+    # =================================================================================
+
+    def __init__(self,
+                 valid_nodes: List[Union[int, str]],
+                 list_graph_per_session: List[Graph],
+                 list_sfcs_per_session: List[SFC],
+                 pesos_fatores: Dict[str, float] = None,
+                 reward_config: Dict[str, float] = None):
+        """
+        Inicializa o ambiente de alocação de SFC.
+        """
         super().__init__()
 
-        # --- Validação dos dados de entrada ---
-        # Recomendação: É melhor garantir que os dados estão corretos ANTES de criar o ambiente.
-        # A função `equalizar_listas` foi removida pois pode mascarar problemas nos dados ao descartar informações.
-        if not list_graph or not list_sfc:
-            raise ValueError("As listas de grafos e SFCs não podem ser vazias.")
-        if len(list_graph) != len(list_sfc):
-            raise ValueError("A lista de grafos e a lista de SFCs devem ter o mesmo tamanho para um mapeamento 1-para-1.")
+        if len(list_graph_per_session) != len(list_sfcs_per_session):
+            raise ValueError("A lista de grafos por sessão deve ter o mesmo tamanho da lista de SFCs.")
 
-        # --- Topologia e Configuração da Rede ---
-        self.list_graph = list_graph
-        self.list_sfc = list_sfc
-        self.G = None  # Será definido a cada reset
-        self.initial_resource_snapshot = {}
-        self.cached_paths = {}
-
-        # --- Parâmetros da SFC e Estado Atual ---
-        self.sfc = None
-        self.services = None
-        self.service_requirements = None
-        self.latency_request = None
-        self.dst_node = None
-        self.current_location = None
-        self.service = None
-        self.session_number = None
-        self.valid_nodes = valid_nodes  # Lista de nós válidos para alocação
-        self.num_valid_nodes = len(self.valid_nodes)
-
-        # --- Métricas de Desempenho e Controle (inicializadas) ---
-        self.latency_used = 0
-        self.is_training = is_training
-        self.servers_used = []
-        self.allocation_results = {}
-        self.success = False
-        self.reuse = False
-        self.fail_reason = None
-        self.reward = 0
-        self.total_reward = 0
-        self.total_cost = 0
+        # --- Parâmetros de Configuração ---
+        self.valid_nodes = valid_nodes
+        self.list_graph_per_session = list_graph_per_session
+        self.list_sfcs_per_session = list_sfcs_per_session
+        self.pesos_fatores = pesos_fatores if pesos_fatores is not None else \
+                             {"cpu": 1.0, "cache": 1.0, "lat": 1.0, "band": 1.0}
         
-        # --- Fatores de Custo para a Recompensa ---
-        self.cpu_factor = pesos.get("cpu", 1)
-        self.cache_factor = pesos.get("cache", 1)
-        self.band_factor = pesos.get("band", 1)
-        self.latency_factor = pesos.get("latency", 1)
+
+        if reward_config is None:
+            self.reward_config = {"success_bonus": 1000.0, "failure_penalty": -1000.0}
+        else:
+            self.reward_config = reward_config
         
-        # Cria os snapshots para resetar o estado dos grafos de forma eficiente
         self._initialize_snapshots()
 
-        # --------------------------------------------------------------------------
-        # --- ESPAÇOS DE AÇÃO E OBSERVAÇÃO (ESTRUTURA CORRIGIDA) ---
-        # --------------------------------------------------------------------------
+        # --- Estado do Episódio ---
+        self.graph: Graph = None
+        self.list_sfcs: List[SFC] = None
+        self.current_sfc: SFC = None
+        self.current_vnf: VNF = None
+        self.current_session = None
+        self.current_location: Union[int, str] = None
+        self.band_request = None
+        self.latency_used = 0
+        self.latency_request = None
+        self.is_training = True
 
-        # O espaço de ação não muda: uma escolha discreta entre os nós candidatos.
-        self.action_space = spaces.Discrete(self.num_valid_nodes)
-
-        # Definindo constantes para clareza e manutenção do código
-        self.features_per_node = 6  # [cpu_free, cache_free, is_reusable, band_free, band_req, latency_total]
-        self.features_per_vnf = 2  # [cpu_req, cache_req]
-
-        # **CORREÇÃO PRINCIPAL: Usando um Dicionário para a Observação**
-        # Isso preserva a estrutura dos seus dados, permitindo que o agente (com uma MultiInputPolicy)
-        # aprenda de forma muito mais eficaz.
+        # --- Espaços de Ação e Observação ---
+        self.action_space = spaces.Discrete(len(self.valid_nodes))
         self.observation_space = spaces.Dict({
-            # Parte 1: Requisitos da VNF que estamos tentando alocar.
-            # O agente sabe "o que" ele precisa fazer.
-            "vnf_reqs": spaces.Box(low=0.0, high=1.0, shape=(self.features_per_vnf,), dtype=np.float32),
-
-            # Parte 2: Matriz com o estado de todos os nós candidatos.
-            # Dimensões: (número de nós, número de features por nó).
-            # O agente tem uma visão comparativa de "onde" ele pode alocar.
-            "nodes_state": spaces.Box(low=0.0, high=1.0, shape=(self.num_valid_nodes, self.features_per_node), dtype=np.float32),
-
-            # Parte 3: A Máscara de Ações.
-            # Vetor binário que diz ao agente quais ações (nós) são válidas no estado atual.
-            # Essencial para acelerar o treinamento e garantir a estabilidade.
-            "action_mask": spaces.Box(low=0, high=1, shape=(self.action_space.n,), dtype=np.int8)
+            "valid_node_resource": spaces.Box(low=0, high=1, shape=(2, len(self.valid_nodes)), dtype=np.float32),
+            "valid_node_lat_band": spaces.Box(low=0, high=1, shape=(2, len(self.valid_nodes)), dtype=np.float32),
+            "valid_node_reuse": spaces.Box(low=0, high=1, shape=(len(self.valid_nodes),), dtype=np.float32),
         })
 
-
-    # --------------------------------------------------------------------------
-    # --- MÉTODOS PRINCIPAIS DO GYMNASIUM (CORE API) ---
-    # --------------------------------------------------------------------------
-
     def reset(self, seed=None, options=None):
+        """
+        Reseta o ambiente para o início de um novo episódio.
+        Seleciona aleatoriamente um grafo e uma lista de SFCs da sessão,
+        restaura o estado inicial dos recursos e prepara a primeira SFC para alocação.
+        """
         super().reset(seed=seed)
 
-        idx = np.random.randint(len(self.list_graph))
-        
-        # Define self.G como uma referência ao grafo da lista (que será modificado)
-        self.G = self.list_graph[idx]
-        sfc_for_episode = self.list_sfc[idx]
+        # Seleciona uma sessão aleatória para o episódio
+        idx = np.random.randint(len(self.list_graph_per_session))
+        self.graph = self.list_graph_per_session[idx]
+        self.list_sfcs = self.list_sfcs_per_session[idx]
 
-        # Busca o snapshot PRÉ-CALCULADO e limpo do grafo correspondente
+        # Restaura o estado do grafo a partir do snapshot inicial
+
+        # IMPLEMENTAR A RESTAURAÇÂO DOS SERVIÇOS ALOCADOS EM CADA NÓ ===================================
         snapshot_nodes = self.initial_resource_snapshot[idx]['nodes']
         for node_id, initial_state in snapshot_nodes.items():
-            if node_id in self.G.nodes:
-                self.G.nodes[node_id]['cpu_used'] = initial_state['cpu_used']
-                self.G.nodes[node_id]['cache_used'] = initial_state['cache_used']
+            if node_id in self.graph.nodes:
+                self.graph.nodes[node_id]['cpu_used'] = initial_state['cpu_used']
+                self.graph.nodes[node_id]['cache_used'] = initial_state['cache_used']
+                self.graph.nodes[node_id]['services'] = copy.deepcopy(initial_state['services'])
+
+        #==============================================================================================
 
         snapshot_edges = self.initial_resource_snapshot[idx]['edges']
         for (u, v), initial_state in snapshot_edges.items():
-            if self.G.has_edge(u, v):
-                self.G.edges[u, v]['bandwidth_used'] = initial_state['bandwidth_used']
+            if self.graph.has_edge(u, v):
+                self.graph.edges[u, v]['bandwidth_used'] = initial_state['bandwidth_used']
 
-        # Agora que o grafo está resetado, configure a SFC para o episódio
-        self.set_sfc(sfc_for_episode)
-
-        # Reinicializa o resto do estado do episódio
+        # Configura a primeira SFC e reinicia as variáveis de estado do episódio
+        self.set_current_sfc(self.list_sfcs[0])
         self.latency_used = 0
-        self.servers_used.clear()
-        self.cached_paths.clear()
+        self.servers_used = []
         self.reward = 0
         self.total_reward = 0
-        self.total_cost = 0
         self.success = False
         self.fail_reason = None
         self.allocation_results = {}
+
+         # 🚀 CORREÇÃO: Obtenha a observação e a máscara separadamente.
+        obs = self._get_obs_and_info()
         
-        return self.get_normalized_state(), {}
-    def step(self, action):
+        # 🚀 CORREÇÃO: Retorne a observação e o dicionário 'info' com a máscara.
+        return obs, {}
+
+    def step(self, action: int):
         """
         Executa um passo no ambiente a partir de uma ação do agente.
-        A ação corresponde a escolher um nó para alocar o serviço atual da SFC.
+        A ação corresponde à escolha de um nó para alocar a VNF atual.
         """
-        if action == len(self.valid_nodes) - 1:
-            # Se for, o servidor escolhido é o dst_node da SFC atual
-            chosen_server = self.sfc.dst_node
-        else:
-            # Caso contrário, o mapeamento é direto da lista
-            chosen_server = self.valid_nodes[action]
-
-        # Agora, o resto da função usa 'chosen_server' que já foi traduzido corretamente
+        # 1. Traduzir a ação para um nó do grafo
+        chosen_server = self.current_sfc.dst_node if action == len(self.valid_nodes) - 1 else self.valid_nodes[action]
         self.server = chosen_server
 
-        self.reuse = self.is_reusable_at_node(self.server, self.service, self.sfc.id.split("_")[-1])
-
-        if not self.allocate_resources_on_node(self.server, self.reuse):
+        # 2. Tentar alocar recursos (CPU/cache) no nó escolhido
+        if not self.allocate_resources_on_node(self.server):
             return self._fail_step('resource')
 
+        # 3. Encontrar e alocar recursos no caminho (banda)
         self.path = get_available_shortest_path_optimized(
-            self.G, self.current_location, chosen_server, 
-            self.bandwidth_required, rounded=True
+            self.graph, self.current_location, self.server,
+            self.band_request, rounded=True
         )
-        if not self.path:
+        if not self.path or not self.allocate_bandwidth_along_path(self.path, self.band_request):
             return self._fail_step('bandwidth')
 
-        # 3. Alocar banda e calcular latência do caminho
-        success_band, path_latency = self.allocate_bandwidth_along_path(self.path, self.bandwidth_required, self.service)
-        
-        if not success_band:
-            # Esta verificação é uma dupla segurança, o fallback já deveria ter resolvido.
-            return self._fail_step('bandwidth')
-
+        # 4. Calcular latência e verificar restrição
+        path_latency = calcular_latencia_total(self.path, self.graph)
         self.latency_used += path_latency
-        
-        
-        
-        # 4. Verificar restrição de latência
         if self.latency_used > self.latency_request:
             return self._fail_step('latency')
 
         # 5. Calcular custo e recompensa
         self.servers_used.append(self.server)
-        self.total_cost = self.calculate_total_cost(self.server, self.path)
-        self.reward = -self.total_cost
-        self.total_reward += self.reward
+        total_cost = self.calculate_total_cost(self.server, self.path)
+        reward = -total_cost
+        self.total_reward += reward
 
         # 6. Atualizar estado para o próximo passo
-        
         self.current_location = self.server
-
         if not self.is_training:
-            self.allocation_results[self.service] = {'allocated_server': self.server, 'path': self.path, 'cost': self.total_cost}
+            self.allocation_results[self.current_vnf.id] = {'allocated_server': self.server, 'path': self.path, 'cost': total_cost}
 
-        # 7. Verificar se o episódio terminou
+        # 7. Verificar conclusão e avançar para a próxima VNF/SFC
         done = False
-        if self.service == self.services[-1]:
-            done = True
-            self.success = True
-
+        if not self.current_vnf.previous_vnf or self.current_vnf.previous_vnf.id == 'src':
+            if self.current_sfc.id == self.list_sfcs[-1].id:
+                done = True
+                self.success = True
+                
+                # --- USA O BÔNUS DE SUCESSO CONFIGURADO ---
+                reward += self.reward_config['success_bonus']
+            else:
+                idx = self.list_sfcs.index(self.current_sfc)
+                self.set_current_sfc(self.list_sfcs[idx + 1])
+                # Note que a linha 'self.update_band_request()' é chamada dentro de 'set_current_sfc'
         else:
-            current_index = self.services.index(self.service)
-            self.service = self.services[current_index + 1]
-            self.update_bandwidth_required()
+            self.current_vnf = self.current_sfc.get_previous_vnf(self.current_vnf)
+            self.update_band_request()
+
+         # 🚀 CORREÇÃO: Obtenha a nova observação e o 'info' (com a máscara).
+        obs = self._get_obs_and_info()
         
-        return self.get_normalized_state(), self.reward, done, False, {}
+        # 🚀 CORREÇÃO: Retorne todos os valores, incluindo o dicionário 'info'.
+        return obs, reward, done, False, {}
+
+    def render(self):
+        """Método para renderização (não implementado)."""
+        pass
+
+    def close(self):
+        """Método para fechar o ambiente e liberar recursos (não implementado)."""
+        pass
+
+    # =================================================================================
+    # 2. Lógica Central da Simulação e Estado
+    # =================================================================================
+
+    def _get_obs_and_info(self) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray]]:        
+        """
+        Monta e retorna a observação atual do ambiente, incluindo a máscara de ações válidas.
+        A observação normaliza o estado dos recursos da rede em relação à requisição atual.
+        """
+        cpu_req = self.current_vnf.get_cpu_request()
+        cache_req = self.current_vnf.get_cache_request()
+        num_valid_nodes = len(self.valid_nodes)
+
+        # Inicializa arrays de observação
+        node_resource_obs = np.zeros((2, num_valid_nodes), dtype=np.float32)
+        node_lat_band_obs = np.zeros((2, num_valid_nodes), dtype=np.float32)
+        node_reuse_obs = np.zeros(num_valid_nodes, dtype=np.float32)
+
+        for i, node_id in enumerate(self.valid_nodes):
+            is_action_valid = True
+            node_id = self.current_sfc.dst_node if i == len(self.valid_nodes) - 1 else node_id
+            
+            # --- Normalização de Recursos do Nó (CPU/Cache) ---
+            cpu_cap, cpu_used = self.graph.nodes[node_id]['cpu_capacity'], self.graph.nodes[node_id]['cpu_used']
+            new_cpu_used = min((cpu_req + cpu_used) / cpu_cap, 1.0)
+            
+            cache_cap, cache_used = self.graph.nodes[node_id]['cache_capacity'], self.graph.nodes[node_id]['cache_used']
+            new_cache_used = min((cache_req + cache_used) / cache_cap, 1.0)
+
+            node_resource_obs[0, i] = new_cpu_used
+            node_resource_obs[1, i] = new_cache_used
+            if new_cpu_used >= 1.0 or new_cache_used >= 1.0:
+                is_action_valid = False
+
+            # --- Normalização de Recursos do Caminho (Latência/Banda) ---
+            path = get_available_shortest_path_optimized(self.graph, self.current_location, node_id, self.band_request, rounded=True)
+            if path:
     
-    # --------------------------------------------------------------------------
-    # --- MÉTODOS DE CONFIGURAÇÃO DO AMBIENTE ---
-    # --------------------------------------------------------------------------
+                latencia_path = calcular_latencia_total(path, self.graph)
+                latencia_normalizada = min((self.latency_used + latencia_path) / self.latency_request, 1.0)
+                
+                band_cap, band_used = self.get_critical_link_info(path)
+                band_normalizada = min((band_used + self.band_request) / band_cap, 1.0) if band_cap > 0 else 0
+            else:
+                latencia_normalizada, band_normalizada = 1.0, 1.0
+                is_action_valid = False
+            
+            node_lat_band_obs[0, i] = latencia_normalizada
+            node_lat_band_obs[1, i] = band_normalizada
+            if latencia_normalizada >= 1.0 or band_normalizada >= 1.0:
+                is_action_valid = False
 
-    def set_graph(self, graph):
-        """Define e faz backup do grafo da rede."""
-        # self.G_backup = copy.deepcopy(graph)
-        self.G = graph
+            # --- Observação de Reutilização ---
+            reusable = self.is_reusable_at_node(node_id, self.current_vnf) if is_action_valid else 0
+            node_reuse_obs[i] = reusable
+            
+
+
+        observation = {
+            "valid_node_resource": node_resource_obs,
+            "valid_node_lat_band": node_lat_band_obs,
+            "valid_node_reuse": node_reuse_obs,
+        }
         
 
-    def set_list_graph(self, list_graph):
-        """Define a lista de grafos para o ambiente."""
-        if not isinstance(list_graph, list):
-            raise ValueError("list_graph deve ser uma lista de grafos.")
-        self.list_graph = list_graph
 
-    def set_list_sfcs(self, list_sfc):
-        """Define a lista de SFCs para o ambiente."""
-        if not isinstance(list_sfc, list):
-            raise ValueError("list_sfc deve ser uma lista de SFCs.")
-        self.services = list_sfc
-
-    def set_sfc(self, sfc):
-        """Define a SFC atual e captura suas propriedades."""
-        if not sfc:
-            raise ValueError("SFC não pode ser None.")
-        self.sfc = sfc
-        # print(f"Trocou dst_node para: {self.sfc.dst_node}")
-        self.services, self.service_requirements = self.prepare_service_requirements(self.sfc.vnfs_dict)
-        self.latency_request = 9
-        self.dst_node = self.sfc.get_substrate_node(self.sfc.get_dst_vnf())
-        self.current_location = self.dst_node
-        self.service = self.services[0]
-        self.update_bandwidth_required()
-
-    def set_dst_node(self, dst_node):
-        """Define o nó de destino inicial da SFC."""
-        if not dst_node:
-            raise ValueError("Nó de destino (dst_node) não pode ser None.")
-        self.dst_node = dst_node
-        self.current_location = dst_node
-
+        return observation
     
 
-    # --------------------------------------------------------------------------
-    # --- MÉTODOS AUXILIARES DE LÓGICA INTERNA ---
-    # --------------------------------------------------------------------------
 
-    def _fail_step(self, reason):
-        """Padroniza a finalização de um episódio por falha."""
-        self.fail_reason = reason
-        self.success = False
-        self.reward = -2000  # Penalidade fixa e alta por falha
-        done = True
+    def action_masks(self) -> list[bool]:
+        action_mask = np.ones(len(self.valid_nodes), dtype=np.int8)
+        cpu_req = self.current_vnf.get_cpu_request()
+        cache_req = self.current_vnf.get_cache_request()
+        for i, node_id in enumerate(self.valid_nodes):
+            is_action_valid = True
+            node_id = self.current_sfc.dst_node if i == len(self.valid_nodes) - 1 else node_id
+            
+            # --- Normalização de Recursos do Nó (CPU/Cache) ---
+            cpu_cap, cpu_used = self.graph.nodes[node_id]['cpu_capacity'], self.graph.nodes[node_id]['cpu_used']
+            new_cpu_used = min((cpu_req + cpu_used) / cpu_cap, 1.0)
+            
+            cache_cap, cache_used = self.graph.nodes[node_id]['cache_capacity'], self.graph.nodes[node_id]['cache_used']
+            new_cache_used = min((cache_req + cache_used) / cache_cap, 1.0)
 
-        return self.get_normalized_state(), self.reward, done, False, {}
+            if new_cpu_used >= 1.0 or new_cache_used >= 1.0:
+                is_action_valid = False
 
-        
+            # --- Normalização de Recursos do Caminho (Latência/Banda) ---
+            path = get_available_shortest_path_optimized(self.graph, self.current_location, node_id, self.band_request, rounded=True)
+            if path:
+    
+                latencia_path = calcular_latencia_total(path, self.graph)
+                latencia_normalizada = min((self.latency_used + latencia_path) / self.latency_request, 1.0)
+                
+                band_cap, band_used = self.get_critical_link_info(path)
+                band_normalizada = min((band_used + self.band_request) / band_cap, 1.0) if band_cap > 0 else 0
+            else:
+                latencia_normalizada, band_normalizada = 1.0, 1.0
+                is_action_valid = False
 
-    # environment.py
+            if latencia_normalizada >= 1.0 or band_normalizada >= 1.0:
+                is_action_valid = False
 
-    def allocate_resources_on_node(self, node_id, is_reusable):
-        """Aloca CPU e Cache em um nó, considerando a possibilidade de reuso."""
-        
-        vnf = self.sfc.get_vnf_by_id(self.service)
-        
+
+            # --- Máscara de Ação ---
+            if not is_action_valid:
+                action_mask[i] = 0
+            
+        return action_mask
+    
+    def allocate_resources_on_node(self, node_id: Union[int, str]) -> bool:
+        """
+        Aloca CPU e Cache em um nó, considerando o reuso de serviços.
+        Retorna True se a alocação for bem-sucedida, False caso contrário.
+        """
+        node = self.graph.nodes[node_id]
+        vnf = self.current_vnf
         cpu_req = vnf.get_cpu_request()
         cache_req = vnf.get_cache_request()
-        can_reuse = self.is_reusable_at_node(node_id,vnf.id,self.sfc.id.split("_")[-1])
-        # Recurso necessário é zero se for reutilizável
+        
+        # Se o serviço for reutilizável, o custo efetivo de recursos é zero
+        can_reuse = self.is_reusable_at_node(node_id, vnf)
         effective_cpu_req = 0 if can_reuse else cpu_req
         effective_cache_req = 0 if can_reuse else cache_req
+        
+        # Verifica se há capacidade disponível para a alocação
+        if (node['cpu_used'] + effective_cpu_req > node['cpu_capacity']) or \
+           (node['cache_used'] + effective_cache_req > node['cache_capacity']):
+            return False
 
-        # Esta verificação de segurança agora usa o valor efetivo (corrigindo o Erro 2)
-        if (self.G.nodes[node_id]['cpu_used'] + cpu_req > self.G.nodes[node_id]['cpu_capacity']) or \
-            (self.G.nodes[node_id]['cache_used'] + cache_req) > self.G.nodes[node_id]['cache_capacity']:
+        # Aloca os recursos e atualiza os metadados do serviço
+        node['cpu_used'] += effective_cpu_req
+        node['cache_used'] += effective_cache_req
+        
+        if 'services' not in node:
+            node['services'] = {}
+            
+        session_id = self.current_sfc.id.split("_")[-1]
+        service_key = (vnf.id, session_id)
+        
+        if service_key in node['services']:
+            node['services'][service_key]['copys'] += 1
+        else:
+            node['services'][service_key] = {'cpu': cpu_req, 'cache': cache_req, 'copys': 1}
+            
+        return True
+
+    def allocate_bandwidth_along_path(self, path: List, bandwidth_required: float) -> bool:
+        """
+        Aloca largura de banda ao longo de um caminho de forma atômica.
+        Verifica todos os links primeiro e, se todos tiverem capacidade, aloca a banda.
+        Retorna True em caso de sucesso, False caso contrário.
+        """
+        # 1. Verificar se todos os links no caminho têm capacidade suficiente
+        for u, v in zip(path[:-1], path[1:]):
+            edge = self.graph.edges[u, v]
+            available_bw = edge.get('bandwidth_capacity', 0) - edge.get('bandwidth_used', 0)
+            if available_bw < bandwidth_required - 1e-9: # Tolerância para ponto flutuante
+                return False
+
+        # 2. Se a verificação passou, alocar a banda em todos os links
+        for u, v in zip(path[:-1], path[1:]):
+            self.graph.edges[u, v]['bandwidth_used'] += bandwidth_required
+        
+        return True
+
+    def _fail_step(self, reason: str):
+        """
+        Finaliza um episódio com falha, aplicando uma penalidade alta.
+        """
+        self.fail_reason = reason
+        self.success = False
+        
+        # --- USA A PENALIDADE CONFIGURADA ---
+        reward = self.reward_config['failure_penalty']
+        
+        done = True
+        # 🚀 CORREÇÃO: Garanta que mesmo em falha, a última observação e info sejam retornados.
+        obs = self._get_obs_and_info()
+        
+        return obs, reward, done, False, {}
+    
+    def _initialize_snapshots(self):
+        """
+        Cria um snapshot do estado inicial dos recursos de todos os grafos
+        para garantir um reset consistente dos episódios.
+        """
+        self.initial_resource_snapshot = {}
+        for idx, graph in enumerate(self.list_graph_per_session):
+            nodes = {n_id: {'cpu_used': data.get('cpu_used', 0),
+                            'cache_used': data.get('cache_used', 0),
+                            'services': copy.deepcopy(data.get('services', {}))}
+                     for n_id, data in graph.nodes(data=True)}
+            edges = {(u, v): {'bandwidth_used': data.get('bandwidth_used', 0)}
+                     for u, v, data in graph.edges(data=True)}
+            self.initial_resource_snapshot[idx] = {'nodes': nodes, 'edges': edges}
+
+    # =================================================================================
+    # 3. Funções Utilitárias e de Suporte
+    # =================================================================================
+
+    def set_current_sfc(self, sfc: SFC):
+        """Define a SFC atual para alocação e inicializa seus parâmetros."""
+        if not sfc:
+            raise ValueError("SFC não pode ser None.")
+        self.current_sfc = sfc
+        self.current_vnf = self.current_sfc.get_previous_vnf(sfc.get_dst_vnf())
+        self.latency_request = 10  # TODO: Considerar tornar dinâmico
+        self.current_location = self.current_sfc.dst_node
+        self.latency_used = 0
+        self.servers_used = []
+        self.update_band_request()
+        self.current_session = self.current_sfc.id.split("_")[-1]
+
+    def update_band_request(self):
+        """Atualiza a banda necessária para a VNF atual."""
+        self.band_request = self.current_vnf.get_outcome_interface_bandwidth()
+
+    def is_reusable_at_node(self, node_id: Union[int, str], vnf: VNF) -> bool:
+        """Verifica se uma VNF compartilhável já está alocada em um nó."""
+        service_name = vnf.id
+        if not service_name.startswith(SHAREABLE_PREFIXES):
             return False
         
-        # Aloca os recursos efetivos
-        self.G.nodes[node_id]['cpu_used'] += effective_cpu_req
-        self.G.nodes[node_id]['cache_used'] += effective_cache_req
-
-
-        return True
-    
-    def allocate_bandwidth_along_path(self, path, bandwidth_required, ms_name):
-        """
-        Aloca banda ao longo de um caminho usando uma abordagem de duas passagens (verificar, depois alocar).
-        Retorna (True, latência_total) em sucesso, ou (False, 0.0) em falha.
-        """
-        if not path or len(path) < 2:
-            return True, 0.0
-
-        # --- 1ª Passagem: VERIFICAÇÃO ---
-        # Percorre todo o caminho para garantir que cada enlace tem capacidade suficiente.
-        for u, v in zip(path[:-1], path[1:]):
-            edge = self.G.edges[u, v]
-            if edge['bandwidth_used'] + bandwidth_required > edge['bandwidth_capacity']:
-                # Se qualquer enlace no caminho falhar na verificação, a operação inteira é abortada.
-                return False, 0.0
-
-        # --- 2ª Passagem: ALOCAÇÃO (COMMIT) ---
-        # Se o código chegou a este ponto, o caminho inteiro é válido.
-        # Agora, percorremos o caminho novamente para efetivamente alocar os recursos.
-        total_latency = 0.0
-        vnf = self.sfc.get_vnf_by_id(ms_name)
-        for u, v in zip(path[:-1], path[1:]):
-            # A chamada para _commit_bandwidth_on_link agora é garantida de não exceder a capacidade.
-            latency = self._commit_bandwidth_on_link(u, v, vnf, bandwidth_required)
-            total_latency += latency
-
-        return True, total_latency
+        session_id = self.current_sfc.id.split("_")[-1]
+        service_key = (service_name, session_id)
         
-    def _commit_bandwidth_on_link(self, u, v, vnf, bandwidth_required):
-        """Aloca banda e calcula latência para um único enlace (u, v)."""
-        edge = self.G.edges[u, v]
-        edge['bandwidth_used'] += bandwidth_required
-        latency = calculate_latency_betwen_nodes(self.G, u, v, vnf)
-        return latency
+        return service_key in self.graph.nodes[node_id].get('services', {})
 
-    # new_environment.py
-
-    def calculate_total_cost(self, server_id, path):
-        """Calcula o custo total da alocação de um serviço."""
-        node = self.G.nodes[server_id]
-
-        # Custo de CPU e Cache (zero se houver reuso)
-        cpu_capacity = node["cpu_capacity"] or 1
-        cpu_cost = (node["cpu_used"] / cpu_capacity + 1) ** self.cpu_factor if not self.reuse else 0
-        
-        cache_capacity = node["cache_capacity"] or 1
-        cache_cost = (node["cache_used"] / cache_capacity + 1) ** self.cache_factor if not self.reuse else 0
-        
-        # Custo de Rede (Latência e Banda)
-        self.latency_cost = 0
-        bandwidth_cost = 0
-        if len(path) >= 2:
-            latency_request = self.latency_request or 1
-            self.latency_cost = ((self.latency_used / latency_request) + 1) ** self.latency_factor
-            
-            # Custo de banda baseado no link crítico do caminho (LINHAS DESCOMENTADAS)
-            cap_band, used_band = self.get_critical_link_info(path)
-            cap_band = cap_band or 1  # Evita divisão por zero
-            # bandwidth_cost = ((used_band / cap_band) + 1) ** self.band_factor
- 
-        return sum([cpu_cost, cache_cost, self.latency_cost, bandwidth_cost])
-    # --------------------------------------------------------------------------
-    # --- MÉTODOS DE GERAÇÃO DE ESTADO ---
-    # --------------------------------------------------------------------------
-
-    # Em get_normalized_state
-
-# Em NetworkEnv
-
-    def get_normalized_state(self):
-        """
-        Gera um dicionário de estado normalizado para o agente de RL.
-        A estrutura do dicionário corresponde exatamente ao `observation_space` definido no __init__.
-        """
-        # --- 1. Preparar os vetores/matrizes de saída ---
-        vnf_reqs_vector = np.zeros(self.features_per_vnf, dtype=np.float32)
-        nodes_state_matrix = np.zeros((self.num_valid_nodes, self.features_per_node), dtype=np.float32)
-        action_mask = np.ones(self.action_space.n, dtype=np.int8)  # Começa com todas as ações como válidas (1)
-
-        # --- 2. Obter os requisitos da VNF atual ---
-        # Normalização por um fator razoável (ex: 100 para CPU, 100 para cache)
-        # Certifique-se de que os valores máximos resultem em algo próximo a 1.0
-        current_vnf = self.sfc.get_vnf_by_id(self.service)
-        cpu_req_norm = current_vnf.get_cpu_request() / 100.0
-        cache_req_norm = current_vnf.get_cache_request() / 100.0
-        vnf_reqs_vector[:] = [cpu_req_norm, cache_req_norm]
-
-        # --- 3. Iterar sobre cada nó candidato para preencher a matriz de estado e a máscara de ação ---
-        for i, node_id_or_placeholder in enumerate(self.valid_nodes):
-            # Lógica para obter o ID do nó real (considerando o caso especial do dst_node)
-            if i == len(self.valid_nodes) - 1:
-                node_id = self.sfc.dst_node
-            else:
-                node_id = node_id_or_placeholder
-
-            # --- Lógica de Validação da Ação (para construir a máscara) ---
-            node = self.G.nodes[node_id]
-            
-            # Normalização por capacidade (garante que o valor fique entre 0 e 1)
-            cpu_capacity = node["cpu_capacity"] or 1
-            cache_capacity = node["cache_capacity"] or 1
-            cpu_free = (cpu_capacity - node["cpu_used"]) / cpu_capacity
-            cache_free = (cache_capacity - node["cache_used"]) / cache_capacity
-            
-            is_reusable = int(self.is_reusable_at_node(node_id, self.service, self.sfc.id.split("_")[-1]))
-
-            # Se não for reutilizável, verifica se há recursos suficientes. Se não houver, a ação é inválida.
-            if cpu_req_norm > cpu_free or cache_req_norm > cache_free:
-                action_mask[i] = 0
-
-            # Encontra o caminho mais curto com banda disponível
-            path = get_available_shortest_path_optimized(
-                self.G, self.current_location, node_id, 
-                self.bandwidth_required, rounded=True
-            )
-
-            # Se não houver caminho, a ação é inválida
-            if not path:
-                action_mask[i] = 0
-
-            # --- Cálculo das Features do Nó (mesmo que a ação seja inválida, preenchemos os dados) ---
-            band_free_norm = 0.0
-            band_req_norm = 1.0  # Pior caso se não houver caminho/capacidade
-            latency_total_norm = 1.0 # Pior caso se não houver caminho
-
-            if path:
-                # Cálculo da banda
-                cap_band, used_band = self.get_critical_link_info(path)
-                if cap_band > 0:
-                    band_free_norm = (cap_band - used_band) / cap_band
-                    band_req_norm = self.bandwidth_required / cap_band
-                
-                # Cálculo da latência projetada
-                path_latency = self.calculate_path_latency(path, self.service)
-                latency_request = self.latency_request or 1
-                proj_total_latency = self.latency_used + path_latency
-                latency_total_norm = proj_total_latency / latency_request
-
-                # Se a latência projetada já excede o limite, a ação é inválida
-                if latency_total_norm > 1.0:
-                    action_mask[i] = 0
-            
-            # Preenche a linha 'i' da matriz de estado dos nós
-            nodes_state_matrix[i, :] = [
-                cpu_free,
-                cache_free,
-                float(is_reusable),
-                band_free_norm,
-                min(band_req_norm, 1.0), # Garante que não passe de 1.0
-                min(latency_total_norm, 1.0) # Garante que não passe de 1.0
-            ]
-
-        # --- 4. Montar e retornar o dicionário de observação final ---
-        return {
-            "vnf_reqs": vnf_reqs_vector,
-            "nodes_state": nodes_state_matrix,
-            "action_mask": action_mask
-        }
-    # --------------------------------------------------------------------------
-    # --- MÉTODOS UTILITÁRIOS E DE CONSULTA ---
-    # --------------------------------------------------------------------------
-
-    def update_bandwidth_required(self):
-        """Atualiza a necessidade de banda para o serviço atual na SFC."""
-        if not self.service:
-            raise ValueError("Serviço atual não definido.")
-        self.bandwidth_required = self.sfc.get_vnf_by_id(self.service).get_outcome_interface_bandwidth()
-
-    def calculate_path_latency(self, path, ms_name):
-        """Calcula a latência total de um caminho sem modificar o grafo."""
-        if not path or len(path) < 2:
-            return 0.0
-        
-        total_latency = 0.0
-        vnf = self.sfc.get_vnf_by_id(ms_name)
-        for u, v in zip(path[:-1], path[1:]):
-            total_latency += calculate_latency_betwen_nodes(self.G, u, v, vnf)
-        return total_latency
-
-    def get_critical_link_bandwidth(self, path):
-        """Retorna a menor banda disponível em um caminho."""
-        if not path or len(path) < 2:
-            return float('inf')
-        
-        min_available = float('inf')
-        for u, v in zip(path[:-1], path[1:]):
-            edge = self.G.edges[u, v]
-            available = edge.get('bandwidth_capacity', 0) - edge.get('bandwidth_used', 0)
-            min_available = min(min_available, available)
-        return min_available
-
-    def get_critical_link_info(self, path):
-        """Retorna a capacidade e o uso do link mais crítico (menor banda livre) em um caminho."""
+    def get_critical_link_info(self, path: List):
+        """Retorna a capacidade e o uso do link mais sobrecarregado em um caminho."""
         if not path or len(path) < 2:
             return 0, 0
 
         min_available = float('inf')
         crit_cap, crit_used = 0, 0
         for u, v in zip(path[:-1], path[1:]):
-            edge = self.G.edges[u, v]
+            edge = self.graph.edges[u, v]
             cap = edge.get('bandwidth_capacity', 0)
             used = edge.get('bandwidth_used', 0)
             available = cap - used
@@ -517,73 +435,30 @@ class NetworkEnv(gym.Env):
                 crit_cap, crit_used = cap, used
         return crit_cap, crit_used
     
-    def is_shareable(self,service_name):
-        # TODO Mudar para a informação de compartilháveis estar em uma variável separável.
-        #if self.shareable_node:
-        if True:
-            return service_name.startswith(SHAREABLE_PREFIXES)
-        else:
-            return False
 
-    # environment.py
 
-    def is_reusable_at_node(self, node_id, service_name, session_id):
+    def calculate_total_cost(self, server_id, path):
+        """Calcula o custo total da alocação de um serviço."""
+        node = self.graph.nodes[server_id]
 
-        if not service_name.startswith(SHAREABLE_PREFIXES):
-            return False
-        service_key = (service_name,session_id)
-        if service_key in self.G.nodes[node_id]['services']:
-                return True
-        return False
-
-    def _initialize_snapshots(self):
-        """
-        Cria um snapshot do estado inicial de todos os grafos na lista, uma única vez.
-        Isso garante que temos uma cópia "limpa" de referência para o reset.
-        """
-        self.initial_resource_snapshot = {}
-        for idx, graph in enumerate(self.list_graph):
-            snapshot_nodes = {}
-            for node_id, data in graph.nodes(data=True):
-                snapshot_nodes[node_id] = {
-                    'cpu_used': data.get('cpu_used', 0),
-                    'cache_used': data.get('cache_used', 0),
-                }
-            
-            snapshot_edges = {}
-            for u, v, data in graph.edges(data=True):
-                snapshot_edges[(u, v)] = {
-                    'bandwidth_used': data.get('bandwidth_used', 0),
-                }
-            
-            self.initial_resource_snapshot[idx] = {
-                'nodes': snapshot_nodes,
-                'edges': snapshot_edges
-            }
+        reusable = self.is_reusable_at_node(server_id, self.current_vnf)
+        # Custo de CPU e Cache (zero se houver reuso)
+        cpu_capacity = node["cpu_capacity"] or 1
+        cpu_cost = (node["cpu_used"] / cpu_capacity + 1) ** self.pesos_fatores['cpu'] if not reusable else 0
         
-
-    def prepare_service_requirements(self, sfs_dict):
-        service_requirements = {}
-        services = [item['name'] for item in sfs_dict]
-        for item in sfs_dict:
-            name = item['name']
-            service_requirements[name] = {
-                'cpu': item['CPU'],
-                'cache': item['cache'],
-                'out_bw': item['out_bw'],
-                'in_bw': item['in_bw'],
-                'latency': item['latency']
-            }
-        service_requirements['dst'] = {'CPU': 0, 'cache': 0, 'out_bw': 0, 'in_bw': 0, 'latency': 0}
-        return list(reversed(services)), service_requirements
-    
-    def action_masks(self):
-        """
-        Este é o método que o MaskablePPO procura nativamente.
-        Ele retorna um array booleano (True/False) indicando as ações válidas.
-        """
-        # A maneira mais simples é chamar sua função de estado e extrair a máscara.
-        # O estado do ambiente (self.service, etc.) já estará correto quando
-        # este método for chamado pelo agente.
-        obs_dict = self.get_normalized_state()
-        return obs_dict["action_mask"].astype(bool)
+        cache_capacity = node["cache_capacity"] or 1
+        cache_cost = (node["cache_used"] / cache_capacity + 1) ** self.pesos_fatores['cache'] if not reusable else 0
+        
+        # Custo de Rede (Latência e Banda)
+        latency_cost = 0
+        bandwidth_cost = 0
+        if len(path) >= 2:
+            latency_request = self.latency_request or 1
+            latency_cost = ((self.latency_used / latency_request) + 1) ** self.pesos_fatores['lat']
+            
+            # Custo de banda baseado no link crítico do caminho (LINHAS DESCOMENTADAS)
+            cap_band, used_band = self.get_critical_link_info(path)
+            cap_band = cap_band or 1  # Evita divisão por zero
+            bandwidth_cost = ((used_band / cap_band) + 1) ** self.pesos_fatores['band']
+ 
+        return sum([cpu_cost, cache_cost, latency_cost, bandwidth_cost])

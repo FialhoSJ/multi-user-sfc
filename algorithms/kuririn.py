@@ -2,10 +2,10 @@ import copy
 import logging
 import re
 import networkx as nx
-from stable_baselines3 import PPO, DQN
+from stable_baselines3 import  DQN
 from sb3_contrib import MaskablePPO
 
-from algorithms.environment import NetworkEnv
+from algorithms.environment import SFC_AllocationEnv
 import os
 from config import ROOT_PATH
 # Logging setup
@@ -31,7 +31,7 @@ def collect_session(text):
 class Kuririn:
     def __init__(self, model_name):
         self.model_name = model_name
-        self.model_path = f'saved_rl_models/{self.model_name}_sfc_allocation'
+        self.model_path = f'rl_saved_models/{self.model_name}_allocation_model.zip'
         self.name = "kuririn"
         self.env = None
         self.graph = None
@@ -177,12 +177,7 @@ class Kuririn:
     def find_best_allocation_for_sfc(self, G, service_requirements,services, dst):
 
 
-        self.env = NetworkEnv(list_graph=[self.graph],list_sfc=[self.sfc],valid_nodes=self.valid_nodes,pesos={
-            "cpu": self.cpu_factor,
-            "cache": self.cache_factor,
-            "band": self.band_factor,
-            "latency": self.latency_factor
-        })
+        self.env = SFC_AllocationEnv(list_graph_per_session=[self.graph],list_sfcs_per_session=[[self.sfc]],valid_nodes=self.valid_nodes)
 
         self.env.reset()
 
@@ -256,7 +251,7 @@ class Kuririn:
 
     def _load_or_create_model(self, env):
         if self.model_name == "ppo":
-            self.model = MaskablePPO.load(self.model_path, env=env, action_masks=env.action_masks())
+            self.model = MaskablePPO.load(self.model_path, env=env)
         elif self.model_name == "dqn":
             if os.path.exists(self.model_path + ".zip"):
                 model = DQN.load(self.model_path)
