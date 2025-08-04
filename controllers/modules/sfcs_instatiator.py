@@ -136,7 +136,6 @@ class SFCInstatiator:
         # Os recursos do Mobile Device devem estar disponíveis somente para sua SFC
         md_info =  copy.deepcopy(substrate_network.md_graph._node[mobile_device_id])
         # md_info["user_session"] = mobile_device_id
-        # salvar_variavel(md_info, "list_md_info")
         graph.add_node(mobile_device_id,type='mobile_device',
                                 cpu_capacity=md_info['cpu_capacity'],
                                 cache_capacity=md_info['cache_capacity'],
@@ -343,7 +342,7 @@ class SFCInstatiator:
     def musfico_method(self, sfc,substrate_network):
         """
         Calculates the latency and obtains the route information for the musfico algorithm.
-
+s
         Args:
             sfc (object): The service function chain (SFC) object containing the SF details.
 
