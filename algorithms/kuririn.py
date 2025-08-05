@@ -1,4 +1,5 @@
-import copy
+from typing import List, Union
+from core.sfc import SFC, VNF
 import logging
 import re
 import networkx as nx
@@ -33,7 +34,7 @@ class Kuririn:
         self.model_name = model_name
         self.model_path = f'rl_saved_models/{self.model_name}_allocation_model.zip'
         self.name = "kuririn"
-        self.env = None
+        self.env: SFC_AllocationEnv = None
         self.graph = None
         self.sfc = None
         self.route_info = self.node_info = {}
@@ -128,86 +129,49 @@ class Kuririn:
         dst = self.sfc.get_substrate_node(self.sfc.get_dst_vnf())
 
         G = self.graph
-        services, service_requirements = self.prepare_service_requirements(self.sfc.vnfs_dict)
+        # services, service_requirements = self.prepare_service_requirements(self.sfc.vnfs_dict)
 
-        route_info, latency = self.find_best_allocation_for_sfc(G, service_requirements,services, dst)
+        # route_info, latency = self.find_best_allocation_for_sfc(G, service_requirements,services, dst)
+        route_info, latency = self.find_best_allocation_for_sfc(G, dst)
+
         return self.evaluate_result(latency, route_info)
+    
 
-    def create_network_graph(self, network_topology):
-        G = nx.Graph()
-        for node, edges in network_topology.items():
-            for target, attr in edges.items():
-                bw_free = attr['bandwidth_capacity'] - attr['bandwidth_used']
-                G.add_edge(node, target, bandwidth=bw_free, weight=1)
-        return G
-
-    def set_nodes_resources(self):
-        resources = {}
-        for server in self.graph.nodes:
-            if self.graph.nodes[server]['type'] == "server":
-                reuse = self.graph.nodes[server].get('reuse', [])
-            else:
-                reuse = []
-            resources[server] = {
-                'cpu_capacity': self.graph.nodes[server]['cpu_capacity'],
-                'cache_capacity': self.graph.nodes[server]['cache_capacity'],
-                'cpu_used': self.graph.nodes[server]['cpu_used'],
-                'cache_used': self.graph.nodes[server]['cache_used'],
-                'cpu_free': self.graph.nodes[server]['cpu_capacity'] - self.graph.nodes[server]['cpu_used'],
-                'cache_free': self.graph.nodes[server]['cache_capacity'] - self.graph.nodes[server]['cache_used'],
-                'reuse': [(service.id, self.sfc.id.split("_")[-1]) for service in reuse]
-            }
-        return resources
-
-    def prepare_service_requirements(self, sfs_dict):
-        service_requirements = {}
-        services = [item['name'] for item in sfs_dict]
-        for item in sfs_dict:
-            name = item['name']
-            service_requirements[name] = {
-                'cpu': item['CPU'],
-                'cache': item['cache'],
-                'out_bw': item['out_bw'],
-                'in_bw': item['in_bw'],
-                'latency': item['latency']
-            }
-        service_requirements['dst'] = {'CPU': 0, 'cache': 0, 'out_bw': 0, 'in_bw': 0, 'latency': 0}
-        return list(reversed(services)), service_requirements
-
-    def find_best_allocation_for_sfc(self, G, service_requirements,services, dst):
+    def find_best_allocation_for_sfc(self, G, dst):
 
 
-        self.env = SFC_AllocationEnv(list_graph_per_session=[self.graph],list_sfcs_per_session=[[self.sfc]],valid_nodes=self.valid_nodes)
+        # SFC_AllocationEnv(list_graph_per_session=[self.graph],list_sfcs_per_session=[[self.sfc]],valid_nodes=self.valid_nodes)
 
+        self._load_or_create_env(graph = self.graph, sfc = self.sfc, valid_nodes = self.valid_nodes)
         self.env.reset()
 
 
         self._load_or_create_model(self.env)
 
         # log_callback = LogTrainingProgressCallback(log_interval=N_STEPS // 10)
-        if IS_TRAINING:
-            self.model.learn(total_timesteps=N_STEPS)
-        state, _ = self.env.reset()
+        # if IS_TRAINING:
+        #     self.model.learn(total_timesteps=N_STEPS)
+        # state, _ = self.env.reset()
         self.env.is_training = False
 
         self.env.allocation_results['dst'] = {'allocated_server': dst, 'path': [], 'cost': 0}
 
         done = False
         while not done:
-            action, _ = self.model.predict(state, deterministic=False)
+            action, _ = self.model.predict(state, deterministic=True)
             state, _, done, _, _ = self.env.step(action)
 
-        if not self.env.success and IS_TRAINING:
-            state, _ = self.env.reset()
-            self.model.learn(total_timesteps=N_STEPS*8)
-            # self.model.learn(total_timesteps=N_STEPS*8)
-            state, _ = self.env.reset()
-            self.env.is_training = False
-            self.env.allocation_results['dst'] = {'allocated_server': dst, 'path': [], 'cost': 0}
-            done = False
-            while not done:
-                action, _ = self.model.predict(state, deterministic=True)
-                state, _, done, _, _ = self.env.step(action)
+        # if not self.env.success and IS_TRAINING:
+        #     state, _ = self.env.reset()
+        #     self.model.learn(total_timesteps=N_STEPS*8)
+        #     # self.model.learn(total_timesteps=N_STEPS*8)
+        #     state, _ = self.env.reset()
+        #     self.env.is_training = False
+        #     self.env.allocation_results['dst'] = {'allocated_server': dst, 'path': [], 'cost': 0}
+        #     done = False
+        #     while not done:
+        #         action, _ = self.model.predict(state, deterministic=True)
+        #         state, _, done, _, _ = self.env.step(action)
         
         if not self.env.success:
             if not VERBOSE:
@@ -218,12 +182,12 @@ class Kuririn:
                 print(f"Alocação: [{self.env.servers_used}] || Custo latencia: {self.env.latency_used}")
             
             return [], None
-        if not VERBOSE:
+        else:
             print(f"Solução sfc {self.sfc.id}: {self.env.servers_used} || Latencia: {self.env.latency_used}")
             # for server_results in self.env.allocation_results:
             #     print("Servidor: ",self.env.allocation_results[server_results]["allocated_server"],\
             #           "Custo: ",self.env.allocation_results[server_results]['cost'])
-        self.last_propose = self.env.servers_used
+      
         route_info = {
             key: list(reversed(value['path']))
             for key, value in self.env.allocation_results.items()
@@ -234,11 +198,22 @@ class Kuririn:
             self.precomputed_paths[(self.env.current_location, 0)] = nx.dijkstra_path(G, self.env.current_location, 0, weight='weight')
 
         path_to_src = self.precomputed_paths[(self.env.current_location, 0)]
-        self.env.close()
+        # self.env.close()
         total_latency = sum(len(p) - 1 for p in route_info.values() if p)
         route_info['src'] = list(reversed(path_to_src))
         
         return route_info, total_latency
+
+    def create_network_graph(self, network_topology):
+        G = nx.Graph()
+        for node, edges in network_topology.items():
+            for target, attr in edges.items():
+                bw_free = attr['bandwidth_capacity'] - attr['bandwidth_used']
+                G.add_edge(node, target, bandwidth=bw_free, weight=1)
+        return G
+    
+
+    
 
     def evaluate_result(self, latency, route_info):
         if self.fail_reason in ['resource', 'latency','bandwidth']:
@@ -262,4 +237,51 @@ class Kuririn:
 
     def _save_model(self):
         self.model.save(self.model_path)
+
+    def _load_or_create_env(self,graph: nx.Graph, sfc: SFC, valid_nodes = List[Union[int, str]]):
+        if not self.env:
+            self.env = SFC_AllocationEnv(valid_nodes=valid_nodes, list_graphs=[graph], list_sfcs = [sfc])
+        else:
+            self.env.set_list_sfcs([sfc])
+            self.set_list_graphs([graph])
+
+
+
+
+
+    
+
+    # def set_nodes_resources(self):
+    #     resources = {}
+    #     for server in self.graph.nodes:
+    #         if self.graph.nodes[server]['type'] == "server":
+    #             reuse = self.graph.nodes[server].get('reuse', [])
+    #         else:
+    #             reuse = []
+    #         resources[server] = {
+    #             'cpu_capacity': self.graph.nodes[server]['cpu_capacity'],
+    #             'cache_capacity': self.graph.nodes[server]['cache_capacity'],
+    #             'cpu_used': self.graph.nodes[server]['cpu_used'],
+    #             'cache_used': self.graph.nodes[server]['cache_used'],
+    #             'cpu_free': self.graph.nodes[server]['cpu_capacity'] - self.graph.nodes[server]['cpu_used'],
+    #             'cache_free': self.graph.nodes[server]['cache_capacity'] - self.graph.nodes[server]['cache_used'],
+    #             'reuse': [(service.id, self.sfc.id.split("_")[-1]) for service in reuse]
+    #         }
+    #     return resources
+
+    # def prepare_service_requirements(self, sfs_dict):
+    #     service_requirements = {}
+    #     services = [item['name'] for item in sfs_dict]
+    #     for item in sfs_dict:
+    #         name = item['name']
+    #         service_requirements[name] = {
+    #             'cpu': item['CPU'],
+    #             'cache': item['cache'],
+    #             'out_bw': item['out_bw'],
+    #             'in_bw': item['in_bw'],
+    #             'latency': item['latency']
+    #         }
+    #     service_requirements['dst'] = {'CPU': 0, 'cache': 0, 'out_bw': 0, 'in_bw': 0, 'latency': 0}
+    #     return list(reversed(services)), service_requirements
+
 

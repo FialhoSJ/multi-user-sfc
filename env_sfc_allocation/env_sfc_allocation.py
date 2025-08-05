@@ -26,8 +26,8 @@ class SFC_AllocationEnv(gymnasium.Env):
 
     def __init__(self,
                  valid_nodes: List[Union[int, str]],
-                 list_graph_per_session: List[Graph],
-                 list_sfcs_per_session: List[SFC],
+                 list_graphs: List[Graph],
+                 list_sfcs: List[SFC],
                  pesos_fatores: Dict[str, float] = None,
                  reward_config: Dict[str, float] = None):
         """
@@ -35,13 +35,13 @@ class SFC_AllocationEnv(gymnasium.Env):
         """
         super().__init__()
 
-        if len(list_graph_per_session) != len(list_sfcs_per_session):
+        if len(list_graphs) != len(list_sfcs):
             raise ValueError("A lista de grafos por sessão deve ter o mesmo tamanho da lista de SFCs.")
 
         # --- Parâmetros de Configuração ---
         self.valid_nodes = valid_nodes
-        self.list_graph_per_session = list_graph_per_session
-        self.list_sfcs_per_session = list_sfcs_per_session
+        self.list_graphs = list_graphs
+        self.list_sfcs = list_sfcs
         self.pesos_fatores = pesos_fatores if pesos_fatores is not None else \
                              {"cpu": 1.0, "cache": 1.0, "lat": 1.0, "band": 1.0}
         
@@ -60,7 +60,6 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.current_vnf: VNF = None
         self.current_session = None
         self.current_location: Union[int, str] = None
-        self.band_request = None
         self.latency_used = 0
         self.latency_request = None
         self.is_training = True
@@ -83,9 +82,9 @@ class SFC_AllocationEnv(gymnasium.Env):
         super().reset(seed=seed)
 
         # Seleciona uma sessão aleatória para o episódio
-        idx = np.random.randint(len(self.list_graph_per_session))
-        self.graph = self.list_graph_per_session[idx]
-        self.list_sfcs = self.list_sfcs_per_session[idx]
+        idx = np.random.randint(len(self.list_graphs))
+        self.graph = self.list_graphs[idx]
+        # self.current_sfc = self.list_sfcs[idx]
 
         # Restaura o estado do grafo a partir do snapshot inicial
 
@@ -105,7 +104,7 @@ class SFC_AllocationEnv(gymnasium.Env):
                 self.graph.edges[u, v]['bandwidth_used'] = initial_state['bandwidth_used']
 
         # Configura a primeira SFC e reinicia as variáveis de estado do episódio
-        self.set_current_sfc(self.list_sfcs[0])
+        self.set_current_sfc(self.list_sfcs[idx])
         self.latency_used = 0
         self.servers_used = []
         self.reward = 0
@@ -126,7 +125,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         """
         # 1. Traduzir a ação para um nó do grafo
         chosen_server = self.current_sfc.dst_node if action == len(self.valid_nodes) - 1 else self.valid_nodes[action]
-         
+        band_req = self.get_band_req()
 
         # 2. Tentar alocar recursos (CPU/cache) no nó escolhido
         if not self.allocate_resources_on_node(chosen_server):
@@ -135,9 +134,9 @@ class SFC_AllocationEnv(gymnasium.Env):
         # 3. Encontrar e alocar recursos no caminho (banda)
         path = get_available_shortest_path_optimized(
             self.graph, self.current_location, chosen_server,
-            self.band_request, rounded=True
+            band_req, rounded=True
         )
-        if not path or not self.allocate_bandwidth_along_path(path, self.band_request):
+        if not path or not self.allocate_bandwidth_along_path(path, band_req):
             return self._fail_step('bandwidth')
 
         # 4. Calcular latência e verificar restrição
@@ -160,21 +159,21 @@ class SFC_AllocationEnv(gymnasium.Env):
         # 7. Verificar conclusão e avançar para a próxima VNF/SFC
         done = False
         if not self.current_vnf.previous_vnf or self.current_vnf.previous_vnf.id == 'src':
-            if self.current_sfc.id == self.list_sfcs[-1].id:
-                done = True
-                self.success = True
-                
-                # --- USA O BÔNUS DE SUCESSO CONFIGURADO ---
-                reward += self.reward_config['success_bonus']
-            else:
-                idx = self.list_sfcs.index(self.current_sfc)
-                self.set_current_sfc(self.list_sfcs[idx + 1])
+            # if self.current_sfc.id == self.list_sfcs[-1].id:
+            done = True
+            self.success = True
+            
+            # --- USA O BÔNUS DE SUCESSO CONFIGURADO ---
+            reward += self.reward_config['success_bonus']
+            # else:
+            #     idx = self.list_sfcs.index(self.current_sfc)
+            #     self.set_current_sfc(self.list_sfcs[idx + 1])
                 # Note que a linha 'self.update_band_request()' é chamada dentro de 'set_current_sfc'
         else:
             self.current_vnf = self.current_sfc.get_previous_vnf(self.current_vnf)
-            self.update_band_request()
-            self.vnf_idx -= 1 # --- ATUALIZAÇÃO DO ÍNDICE ---
-         # 🚀 CORREÇÃO: Obtenha a nova observação e o 'info' (com a máscara).
+        #     self.update_band_request()
+        #     self.vnf_idx -= 1 # --- ATUALIZAÇÃO DO ÍNDICE ---
+        #  # 🚀 CORREÇÃO: Obtenha a nova observação e o 'info' (com a máscara).
         obs = self._get_obs()
         
         # 🚀 CORREÇÃO: Retorne todos os valores, incluindo o dicionário 'info'.
@@ -215,7 +214,7 @@ class SFC_AllocationEnv(gymnasium.Env):
             node_reuse_obs[i] = proj["reusable"]
 
         # Constrói observações de contexto
-        max_cpu_req, max_cache_req = 100.0, 100.0
+        # max_cpu_req, max_cache_req = 100.0, 100.0
         
         # vnf_requirements_obs = np.array([
         #     self.current_vnf.get_cpu_request() / max_cpu_req,
@@ -299,6 +298,15 @@ class SFC_AllocationEnv(gymnasium.Env):
             self.graph.edges[u, v]['bandwidth_used'] += bandwidth_required
         
         return True
+    
+
+    def _set_list_graphs_sfcs(self, list_graphs: List[Graph] ,list_sfcs: List[SFC]):
+        if len(list_graphs) != len(list_sfcs):
+            raise Exception("O tamanho da lista de grafos deve ser igual ao de SFCs para correspondência")
+        else: 
+            self.list_graphs = list_graphs
+            self.list_sfcs = list_sfcs
+
 
     def _fail_step(self, reason: str):
         """
@@ -322,7 +330,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         para garantir um reset consistente dos episódios.
         """
         self.initial_resource_snapshot = {}
-        for idx, graph in enumerate(self.list_graph_per_session):
+        for idx, graph in enumerate(self.list_graphs):
             nodes = {n_id: {'cpu_used': data.get('cpu_used', 0),
                             'cache_used': data.get('cache_used', 0),
                             'services': copy.deepcopy(data.get('services', {}))}
@@ -346,18 +354,10 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.current_location = self.current_sfc.dst_node
         self.latency_used = 0
         self.servers_used = []
-        self.update_band_request()
-        self.current_session = self.current_sfc.id.split("_")[-1]
 
-        # --- ADIÇÃO ---
-        # Contagem total de VNFs na SFC atual
-        self.num_total_vnfs_in_sfc = len(self.current_sfc.vnfs)
-        # O índice da VNF atual. Assumindo que a ordem de processamento é da última para a primeira.
-        self.vnf_idx = self.num_total_vnfs_in_sfc - 1
 
-    def update_band_request(self):
-        """Atualiza a banda necessária para a VNF atual."""
-        self.band_request = self.current_vnf.get_outcome_interface_bandwidth()
+    def get_band_req(self):    
+        return self.current_vnf.get_outcome_interface_bandwidth()
 
     def is_reusable_at_node(self, node_id: Union[int, str], vnf: VNF) -> bool:
         """Verifica se uma VNF compartilhável já está alocada em um nó."""
