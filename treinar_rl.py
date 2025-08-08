@@ -23,24 +23,24 @@ def carregar_dados_do_ambiente():
     """
     try:
         list_graph = carregar_lista("list_graph")
-        list_aux_sfc = carregar_lista("list_sfc")
+        list_sfc = carregar_lista("list_sfc")
     except FileNotFoundError as e:
         print(f"Erro ao carregar dados: {e}")
         print("Certifique-se que os arquivos de dados existem.")
         return None
 
-    list_sfc = []
-    session_id = '1'
-    list_aux = []
-    if list_aux_sfc:
-        for idx, sfc in enumerate(list_aux_sfc):
-            session_sfc = sfc.id.split("_")[-1]
-            if session_sfc != session_id:
-                list_sfc.append(list_aux)
-                list_aux = []
-                session_id = sfc.id.split("_")[-1]
-            list_aux.append(sfc)
-        list_sfc.append(list_aux)
+    # list_sfc = []
+    # session_id = '1'
+    # list_aux = []
+    # if list_aux_sfc:
+    #     for idx, sfc in enumerate(list_aux_sfc):
+    #         session_sfc = sfc.id.split("_")[-1]
+    #         if session_sfc != session_id:
+    #             list_sfc.append(list_aux)
+    #             list_aux = []
+    #             session_id = sfc.id.split("_")[-1]
+    #         list_aux.append(sfc)
+    #     list_sfc.append(list_aux)
 
     valid_nodes = []
     if list_graph and list_graph[0]:
@@ -51,7 +51,7 @@ def carregar_dados_do_ambiente():
     
     pesos = {"cpu": 4, "cache": 4, "lat": 2, "band": 2}
     
-    return SFC_AllocationEnv(list_graph_per_session=list_graph, list_sfcs_per_session=list_sfc, valid_nodes=valid_nodes, pesos_fatores=pesos)
+    return SFC_AllocationEnv(list_graph=list_graph, list_sfc=list_sfc, valid_nodes=valid_nodes, pesos_fatores=pesos)
 
 
 # ==============================================================================

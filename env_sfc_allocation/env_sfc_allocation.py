@@ -26,8 +26,8 @@ class SFC_AllocationEnv(gymnasium.Env):
 
     def __init__(self,
                  valid_nodes: List[Union[int, str]],
-                 list_graphs: List[Graph],
-                 list_sfcs: List[SFC],
+                 list_graph: List[Graph],
+                 list_sfc: List[SFC],
                  pesos_fatores: Dict[str, float] = None,
                  reward_config: Dict[str, float] = None):
         """
@@ -35,13 +35,13 @@ class SFC_AllocationEnv(gymnasium.Env):
         """
         super().__init__()
 
-        if len(list_graphs) != len(list_sfcs):
+        if len(list_graph) != len(list_sfc):
             raise ValueError("A lista de grafos por sessão deve ter o mesmo tamanho da lista de SFCs.")
 
         # --- Parâmetros de Configuração ---
         self.valid_nodes = valid_nodes
-        self.list_graphs = list_graphs
-        self.list_sfcs = list_sfcs
+        self.list_graph = list_graph
+        self.list_sfc = list_sfc
         self.pesos_fatores = pesos_fatores if pesos_fatores is not None else \
                              {"cpu": 1.0, "cache": 1.0, "lat": 1.0, "band": 1.0}
         
@@ -55,7 +55,6 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         # --- Estado do Episódio ---
         self.graph: Graph = None
-        self.list_sfcs: List[SFC] = None
         self.current_sfc: SFC = None
         self.current_vnf: VNF = None
         self.current_session = None
@@ -67,6 +66,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         # --- Espaços de Ação e Observação ---
         self.action_space = spaces.Discrete(len(self.valid_nodes))
         self.observation_space = spaces.Dict({
+        
         "valid_node_resource": spaces.Box(low=0, high=1, shape=(2, len(self.valid_nodes)), dtype=np.float32),
         "valid_node_lat_band": spaces.Box(low=0, high=1, shape=(2, len(self.valid_nodes)), dtype=np.float32),
         "valid_node_reuse": spaces.Box(low=0, high=1, shape=(len(self.valid_nodes),), dtype=np.float32),
@@ -82,9 +82,9 @@ class SFC_AllocationEnv(gymnasium.Env):
         super().reset(seed=seed)
 
         # Seleciona uma sessão aleatória para o episódio
-        idx = np.random.randint(len(self.list_graphs))
-        self.graph = self.list_graphs[idx]
-        # self.current_sfc = self.list_sfcs[idx]
+        idx = np.random.randint(len(self.list_graph))
+        self.graph = self.list_graph[idx]
+        # self.current_sfc = self.list_sfc[idx]
 
         # Restaura o estado do grafo a partir do snapshot inicial
 
@@ -104,7 +104,8 @@ class SFC_AllocationEnv(gymnasium.Env):
                 self.graph.edges[u, v]['bandwidth_used'] = initial_state['bandwidth_used']
 
         # Configura a primeira SFC e reinicia as variáveis de estado do episódio
-        self.set_current_sfc(self.list_sfcs[idx])
+        sfc_sorteada = self.list_sfc[idx]
+        self.set_current_sfc(sfc_sorteada)
         self.latency_used = 0
         self.servers_used = []
         self.reward = 0
@@ -159,15 +160,15 @@ class SFC_AllocationEnv(gymnasium.Env):
         # 7. Verificar conclusão e avançar para a próxima VNF/SFC
         done = False
         if not self.current_vnf.previous_vnf or self.current_vnf.previous_vnf.id == 'src':
-            # if self.current_sfc.id == self.list_sfcs[-1].id:
+            # if self.current_sfc.id == self.list_sfc[-1].id:
             done = True
             self.success = True
             
             # --- USA O BÔNUS DE SUCESSO CONFIGURADO ---
             reward += self.reward_config['success_bonus']
             # else:
-            #     idx = self.list_sfcs.index(self.current_sfc)
-            #     self.set_current_sfc(self.list_sfcs[idx + 1])
+            #     idx = self.list_sfc.index(self.current_sfc)
+            #     self.set_current_sfc(self.list_sfc[idx + 1])
                 # Note que a linha 'self.update_band_request()' é chamada dentro de 'set_current_sfc'
         else:
             self.current_vnf = self.current_sfc.get_previous_vnf(self.current_vnf)
@@ -205,13 +206,13 @@ class SFC_AllocationEnv(gymnasium.Env):
         for i, node_id in enumerate(self.valid_nodes):
             node_id_to_check = self.current_sfc.dst_node if i == len(self.valid_nodes) - 1 else node_id
             
-            proj = self._get_projections_for_node(node_id_to_check)
+            proj = self._get_projections_for_node(node_id_to_check, vnf=self.current_vnf)
             
             node_resource_obs[0, i] = proj["projected_cpu"]
             node_resource_obs[1, i] = proj["projected_cache"]
             node_lat_band_obs[0, i] = proj["projected_latency"]
             node_lat_band_obs[1, i] = proj["projected_bandwidth"]
-            node_reuse_obs[i] = proj["reusable"]
+            node_reuse_obs[i]       = proj["reusable"]
 
         # Constrói observações de contexto
         # max_cpu_req, max_cache_req = 100.0, 100.0
@@ -243,13 +244,12 @@ class SFC_AllocationEnv(gymnasium.Env):
             
         return mask
     
-    def allocate_resources_on_node(self, node_id: Union[int, str]) -> bool:
+    def allocate_resources_on_node(self, node_id: Union[int, str], vnf: VNF) -> bool:
         """
         Aloca CPU e Cache em um nó, considerando o reuso de serviços.
         Retorna True se a alocação for bem-sucedida, False caso contrário.
         """
         node = self.graph.nodes[node_id]
-        vnf = self.current_vnf
         cpu_req = vnf.get_cpu_request()
         cache_req = vnf.get_cache_request()
         
@@ -300,12 +300,12 @@ class SFC_AllocationEnv(gymnasium.Env):
         return True
     
 
-    def _set_list_graphs_sfcs(self, list_graphs: List[Graph] ,list_sfcs: List[SFC]):
-        if len(list_graphs) != len(list_sfcs):
+    def _set_list_graph_sfcs(self, list_graph: List[Graph] ,list_sfc: List[SFC]):
+        if len(list_graph) != len(list_sfc):
             raise Exception("O tamanho da lista de grafos deve ser igual ao de SFCs para correspondência")
         else: 
-            self.list_graphs = list_graphs
-            self.list_sfcs = list_sfcs
+            self.list_graph = list_graph
+            self.list_sfc = list_sfc
 
 
     def _fail_step(self, reason: str):
@@ -330,7 +330,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         para garantir um reset consistente dos episódios.
         """
         self.initial_resource_snapshot = {}
-        for idx, graph in enumerate(self.list_graphs):
+        for idx, graph in enumerate(self.list_graph):
             nodes = {n_id: {'cpu_used': data.get('cpu_used', 0),
                             'cache_used': data.get('cache_used', 0),
                             'services': copy.deepcopy(data.get('services', {}))}
