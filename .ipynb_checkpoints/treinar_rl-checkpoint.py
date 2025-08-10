@@ -1,203 +1,167 @@
 import os
 import gymnasium as gym
 import numpy as np
-from stable_baselines3 import PPO
+from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.callbacks import EvalCallback
-from pathlib import Path
+from stable_baselines3.common.vec_env import SubprocVecEnv
+# NOVO: Importação para reconfigurar o logger
+from stable_baselines3.common.logger import configure
 
-import os
-os.environ['CUDA_VISIBLE_DEVICES'] = ''
-# --- Importações do seu ambiente e dados ---
-# Certifique-se que estes arquivos estão na mesma pasta que este script.
-try:
-    from new_environment import NetworkEnv
-    from salvar_var import carregar_lista
-except ImportError:
-    print("Erro: Verifique se 'new_environment.py' e 'salvar_var.py' estão na mesma pasta.")
-    exit()
+from salvar_var import carregar_lista
+from env_sfc_allocation.env_sfc_allocation import SFC_AllocationEnv
+
+from sb3_contrib import MaskablePPO
+from sb3_contrib.common.maskable.callbacks import MaskableEvalCallback
+from sb3_contrib.common.maskable.utils import get_action_masks
 
 # ==============================================================================
-# --- CONFIGURAÇÃO DO USUÁRIO (TODO) ---
-# Você só precisa modificar esta seção para carregar seus dados.
+#      FUNÇÃO PARA CARREGAR O AMBIENTE (Seu código original, sem alterações)
 # ==============================================================================
-
-def load_user_data():
+def carregar_dados_do_ambiente():
     """
-    Função para carregar todos os dados e parâmetros do seu problema.
-    Modifique o corpo desta função para carregar seus dados reais.
+    Carrega os dados e inicializa o ambiente SFC_AllocationEnv.
     """
     try:
-        lista_grafos = carregar_lista("lista_grafo")
-        lista_sfcs = carregar_lista("lista_sfc")
+        list_graph = carregar_lista("list_graph")
+        list_sfc = carregar_lista("list_sfc")
     except FileNotFoundError as e:
         print(f"Erro ao carregar dados: {e}")
-        print("Certifique-se que os arquivos 'lista_grafo' e 'lista_sfc' existem.")
-        return None, None, None, None
+        print("Certifique-se que os arquivos de dados existem.")
+        return None
 
-    pesos = {"cpu": 4, "cache": 4, "latency": 1.5, "band": 1.5}  # Exemplo de pesos
+    # list_sfc = []
+    # session_id = '1'
+    # list_aux = []
+    # if list_aux_sfc:
+    #     for idx, sfc in enumerate(list_aux_sfc):
+    #         session_sfc = sfc.id.split("_")[-1]
+    #         if session_sfc != session_id:
+    #             list_sfc.append(list_aux)
+    #             list_aux = []
+    #             session_id = sfc.id.split("_")[-1]
+    #         list_aux.append(sfc)
+    #     list_sfc.append(list_aux)
 
     valid_nodes = []
-    if lista_grafos and lista_grafos[0]:
-        for node in lista_grafos[0].nodes():
-            if lista_grafos[0].nodes[node]["type"] == "server":
+    if list_graph and list_graph[0]:
+        for node in list_graph[0].nodes():
+            if list_graph[0].nodes[node]["type"] == "server":
                 valid_nodes.append(node)
+    valid_nodes.append("M")
     
-    valid_nodes.append("M")  # Nó de migração
-    print(len(lista_grafos), " || ",len(lista_sfcs))
-    return lista_grafos, lista_sfcs, valid_nodes, pesos
+    pesos = {"cpu": 2, "cache": 2, "lat":  1, "band": 1}
+    
+    env = SFC_AllocationEnv(list_graph=list_graph, list_sfc=list_sfc, valid_nodes=valid_nodes, pesos_fatores=pesos)
+    env.reset()
+    return env
+
 
 # ==============================================================================
-# --- SCRIPT DE TREINAMENTO AUTOMATIZADO ---
-# Nenhuma modificação necessária abaixo desta linha.
+#               FLUXO PRINCIPAL DE TREINAMENTO (COM ALTERAÇÕES)
 # ==============================================================================
-
-def train_rl_model():
-    """
-    Função principal que executa o pipeline de treinamento do agente de RL.
-    """
-    # --- Passo 1: Carregamento dos Dados ---
-    print("Passo 1: Carregando dados do usuário...")
-    list_graph, list_sfc, valid_nodes, pesos = load_user_data()
-
-    if not all([list_graph, list_sfc, valid_nodes, pesos]):
-        print("Erro: Falha ao carregar os dados. Verifique a função 'load_user_data'.")
-        return
-
-    # --- Definição de Parâmetros de Treinamento ---
-    
-    ### ALTERAÇÃO E JUSTIFICATIVA ###
-    # O valor original (len(list_graph) * 75) era extremamente baixo.
-    # RL precisa de centenas de milhares de passos para aprender tarefas complexas.
-    # Monitore a recompensa no TensorBoard para ver se este valor é suficiente
-    TOTAL_TIMESTEPS = 6*4_500_000
-
-    N_ENVS = 8  # Número de ambientes em paralelo.
-    LOG_DIR = "./rl_logs/"
-    SAVE_DIR = "./saved_rl_models/"
-    os.makedirs(LOG_DIR, exist_ok=True)
-    os.makedirs(SAVE_DIR, exist_ok=True)
-
-    # --- Passo 2: Configuração Inteligente do Agente PPO ---
-    print("\nPasso 2: Configurando o ambiente e o agente PPO...")
-    
-    def env_creator():
-        """Função wrapper para criar o ambiente."""
-        env = NetworkEnv(list_graph=list_graph, valid_nodes=valid_nodes, list_sfc=list_sfc, pesos=pesos)
-        # As definições de space devem ser feitas dentro do ambiente, mas podemos garantir aqui.
-        env.action_space = gym.spaces.Discrete(len(valid_nodes))
-        env.observation_space = gym.spaces.Box(
-            low=0.0, high=1.0, shape=(len(valid_nodes) * 6,), dtype=np.float32
-        )
-        return env
-
-    # Cria ambientes vetorizados para treinamento em paralelo
-    train_env = make_vec_env(env_creator, n_envs=N_ENVS)
-
-    ### ALTERAÇÃO E JUSTIFICATIVA ###
-    # Hiperparâmetros foram unificados em um dicionário para garantir consistência
-    # ao criar um novo modelo ou ao continuar o treinamento de um existente.
-    # Os valores foram ajustados para serem mais robustos e alinhados com os padrões do PPO.
-    model_params = {
-        'n_steps': 2048,           # Tamanho do buffer de rollout. Mais estável que valores pequenos.
-        'ent_coef': 0.1,          # Coeficiente de entropia para incentivar a exploração.
-        'learning_rate': 0.0003,   # Taxa de aprendizado.
-        'gamma': 0.99,             # Fator de desconto para recompensas futuras.
-        'gae_lambda': 0.95,        # Fator do General Advantage Estimation.
-        'clip_range': 0.2,         # Range de clipping do PPO.
-        'verbose': 1,
-        'tensorboard_log': LOG_DIR,
-        'device': 'cpu'
-    }
-
-    model_path = Path(SAVE_DIR) / "ppo_sfc_allocation.zip"
-    if model_path.exists():
-        print(f"\nModelo salvo encontrado em '{model_path}'. Carregando para continuar o treinamento...")
-        # Ao carregar, passamos os parâmetros para garantir que o buffer e outras configurações sejam consistentes.
-        model = PPO.load(model_path, env=train_env, **model_params)
-    else:
-        print("\nNenhum modelo salvo encontrado. Inicializando novo agente PPO...")
-        model = PPO("MlpPolicy", train_env, **model_params)
-
-    # --- Passo 3: Treinamento com Avaliação Contínua ---
-    print("\nPasso 3: Configurando o callback de avaliação...")
-    
-    eval_env = env_creator() # Ambiente único para avaliação
-
-    ### ALTERAÇÃO E JUSTIFICATIVA ###
-    # A frequência de avaliação foi ajustada. Avaliar com muita frequência (a cada poucos passos)
-    # torna o treinamento muito lento. Uma avaliação a cada 5000-10000 passos é mais razoável.
-    EVAL_FREQ_PER_ENV = max(5000 // N_ENVS, 1)
-
-    eval_callback = EvalCallback(
-        eval_env,
-        best_model_save_path=SAVE_DIR,
-        log_path=LOG_DIR,
-        eval_freq=EVAL_FREQ_PER_ENV,
-        n_eval_episodes=50, # 50 episódios é um bom número para ter uma média confiável.
-        deterministic=True,
-        render=False
-    )
-
-    # --- Passo 4: Executar o Treinamento ---
-    print(f"\nPasso 4: Iniciando o treinamento por {TOTAL_TIMESTEPS} timesteps...")
-    print("=" * 50)
-    print("Para monitorar o treinamento, abra um novo terminal e execute:")
-    print(f"tensorboard --logdir {LOG_DIR}")
-    print("=" * 50)
-    
-    model.learn(
-        total_timesteps=TOTAL_TIMESTEPS,
-        callback=eval_callback,
-        progress_bar=True,
-        # Salva o modelo no final, para que possamos continuar o treinamento depois.
-        reset_num_timesteps=False 
-    )
-    
-    print("\nTreinamento concluído!")
-
-    # --- Passo 5: Salvar o Último Modelo e Usar o MELHOR para Demonstração ---
-    print("\nPasso 5: Salvando o último estado do modelo para continuidade...")
-    # Salva o estado final do modelo para que o treinamento possa ser retomado.
-    model.save(model_path)
-    print(f"Último modelo salvo em: {model_path}")
-
-    ### ALTERAÇÃO E JUSTIFICATIVA ###
-    # A lógica foi corrigida para usar o MELHOR modelo encontrado durante o treinamento
-    # (salvo pelo EvalCallback como 'best_model.zip') para a demonstração final.
-    # Este modelo tem o melhor desempenho médio generalizado, não sendo apenas o último.
-    print("\nDemonstração do MELHOR modelo no ambiente de avaliação:")
-    
-    best_model_path = Path(SAVE_DIR) / "best_model.zip"
-    if best_model_path.exists():
-        print(f"Carregando o melhor modelo de: {best_model_path}")
-        loaded_model = PPO.load(best_model_path)
-    else:
-        print(f"AVISO: 'best_model.zip' não encontrado. Usando o último modelo treinado para a demonstração.")
-        loaded_model = model
-
-    ### ALTERAÇÃO E JUSTIFICATIVA ###
-    # O número de episódios de demonstração foi fixado em um valor maior para
-    # obter uma métrica de sucesso estatisticamente mais relevante.
-    N_DEMO_EPISODES = 100
-    successful_allocations = 0
-
-    for episode in range(N_DEMO_EPISODES):
-        obs, info = eval_env.reset()
-        done = False
-        while not done:
-            action, _states = loaded_model.predict(obs, deterministic=True)
-            obs, reward, done, truncated, info = eval_env.step(action)
-        
-        # Após o episódio terminar (done=True), verificamos se foi um sucesso.
-        if eval_env.success:
-            successful_allocations += 1
-
-    success_rate = successful_allocations / N_DEMO_EPISODES
-    print(f"\nTaxa de alocações bem-sucedidas em {N_DEMO_EPISODES} episódios: {success_rate:.2%}")
 
 if __name__ == '__main__':
-    # O loop foi removido, pois a lógica de treinamento contínuo já está
-    # implementada através do carregamento do modelo salvo.
-    # Basta executar o script novamente para continuar o treinamento.
-    train_rl_model()
+    # --- 1. DEFINIÇÃO DOS DIRETÓRIOS ---
+    log_dir = "logs/"
+    tensorboard_log_dir = "tensorboard_logs/"
+    save_dir = "rl_saved_models/"
+
+    os.makedirs(log_dir, exist_ok=True)
+    os.makedirs(tensorboard_log_dir, exist_ok=True)
+    os.makedirs(save_dir, exist_ok=True)
+
+    # --- 2. CRIAÇÃO DOS AMBIENTES ---
+    num_cpu = 10
+    print(f"Iniciando com {num_cpu} processos paralelos.")
+    train_env = make_vec_env(carregar_dados_do_ambiente, n_envs=num_cpu, vec_env_cls=SubprocVecEnv)
+    
+    eval_env = carregar_dados_do_ambiente()
+    eval_env = Monitor(eval_env)
+    
+    # --- 3. CARREGAR MODELO EXISTENTE OU CRIAR UM NOVO ---
+    model_name = "ppo_allocation_model.zip"
+    final_model_path = os.path.join(save_dir, model_name)
+
+    if os.path.exists(final_model_path):
+        # Se o modelo existir, carrega e prepara para continuar o treinamento
+        print(f"Modelo salvo encontrado em '{final_model_path}'. Carregando para continuar o treinamento...")
+        model = MaskablePPO.load(final_model_path, env=train_env)
+        # Reconfigura o logger para que o TensorBoard continue registrando
+        new_logger = configure(tensorboard_log_dir, ["stdout", "tensorboard"])
+        model.set_logger(new_logger)
+    else:
+        # Se o modelo não existir, cria um novo
+        print("Nenhum modelo salvo encontrado. Iniciando novo treinamento...")
+        model = MaskablePPO(
+            "MultiInputPolicy",
+            train_env,
+            verbose=1,
+            tensorboard_log=tensorboard_log_dir
+        )
+
+    # --- 4. TREINAMENTO (NOVO OU CONTINUADO) ---
+    # Este bloco agora é executado em ambos os casos
+    
+    # Configuração do Callback de Avaliação
+    eval_callback = MaskableEvalCallback(
+        eval_env,
+        log_path=log_dir,
+        eval_freq=1000,
+        n_eval_episodes=30,
+        deterministic=True,
+        render=False,
+    )
+    
+    # Define quantos passos de treinamento adicionais serão executados
+    additional_timesteps = 1_000_000
+    
+    print(f"--- Iniciando/Continuando o treinamento por mais {additional_timesteps} passos ---")
+    model.learn(
+        total_timesteps=additional_timesteps,
+        callback=eval_callback,
+        tb_log_name="MaskablePPO_SFC_Allocation_Parallel",
+        reset_num_timesteps=False  # ESSENCIAL: Não reseta o contador de passos
+    )
+    print("--- Treinamento finalizado ---")
+
+    # --- 5. SALVAR O MODELO ATUALIZADO ---
+    model.save(os.path.join(save_dir, "ppo_allocation_model"))
+    print(f"\nModelo final salvo em: {final_model_path}")
+
+    # --- 6. TESTE COM O MODELO FINAL ---
+    print("\n--- Iniciando teste com o modelo em 200 episódios ---")
+    
+    num_episodes = 30
+    all_rewards = []
+    successful_runs = 0
+
+    for i in range(num_episodes):
+        obs, _ = eval_env.reset()
+        done = False
+        total_reward = 0
+        
+        while not done:
+            action_masks = get_action_masks(eval_env)
+            action, _ = model.predict(obs, action_masks=action_masks, deterministic=True)
+            obs, reward, terminated, truncated, info = eval_env.step(action)
+            total_reward += reward
+            print(eval_env.env.servers_used)
+            done = terminated or truncated
+
+        all_rewards.append(total_reward)
+        if eval_env.env.success:
+            successful_runs += 1
+        
+        if (i + 1) % 10 == 0:
+            print(f"Episódio {i + 1}/{num_episodes} concluído. Recompensa: {total_reward:.2f}, Sucesso: {eval_env.env.success}")
+
+    # --- 7. CÁLCULO E EXIBIÇÃO DAS MÉTRICAS DE DESEMPENHO ---
+    print("\n--- Métricas de Desempenho (200 execuções) ---")
+    
+    success_rate = (successful_runs / num_episodes) * 100
+    mean_reward = np.mean(all_rewards)
+    std_reward = np.std(all_rewards)
+    
+    print(f"Taxa de Sucesso: {success_rate:.2f}% ({successful_runs}/{num_episodes})")
+    print(f"Recompensa Média: {mean_reward:.2f}")
+    print(f"Desvio Padrão da Recompensa: {std_reward:.2f} (Variância: {np.var(all_rewards):.2f})")

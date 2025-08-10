@@ -71,7 +71,7 @@ if __name__ == '__main__':
     os.makedirs(save_dir, exist_ok=True)
 
     # --- 2. CRIAÇÃO DOS AMBIENTES ---
-    num_cpu = 5
+    num_cpu = 10
     print(f"Iniciando com {num_cpu} processos paralelos.")
     train_env = make_vec_env(carregar_dados_do_ambiente, n_envs=num_cpu, vec_env_cls=SubprocVecEnv)
     
@@ -113,7 +113,7 @@ if __name__ == '__main__':
     )
     
     # Define quantos passos de treinamento adicionais serão executados
-    additional_timesteps = 100_000
+    additional_timesteps = 1_000_000
     
     print(f"--- Iniciando/Continuando o treinamento por mais {additional_timesteps} passos ---")
     model.learn(
