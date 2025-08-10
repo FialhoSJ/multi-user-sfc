@@ -49,9 +49,11 @@ def carregar_dados_do_ambiente():
                 valid_nodes.append(node)
     valid_nodes.append("M")
     
-    pesos = {"cpu": 4, "cache": 4, "lat": 2, "band": 2}
+    pesos = {"cpu": 2, "cache": 2, "lat":  1, "band": 1}
     
-    return SFC_AllocationEnv(list_graph=list_graph, list_sfc=list_sfc, valid_nodes=valid_nodes, pesos_fatores=pesos)
+    env = SFC_AllocationEnv(list_graph=list_graph, list_sfc=list_sfc, valid_nodes=valid_nodes, pesos_fatores=pesos)
+    env.reset()
+    return env
 
 
 # ==============================================================================
@@ -111,7 +113,7 @@ if __name__ == '__main__':
     )
     
     # Define quantos passos de treinamento adicionais serão executados
-    additional_timesteps = 300_000
+    additional_timesteps = 100_000
     
     print(f"--- Iniciando/Continuando o treinamento por mais {additional_timesteps} passos ---")
     model.learn(

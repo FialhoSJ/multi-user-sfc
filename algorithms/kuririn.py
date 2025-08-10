@@ -158,8 +158,12 @@ class Kuririn:
 
         done = False
         while not done:
-            action, _ = self.model.predict(state, deterministic=True)
-            state, _, done, _, _ = self.env.step(action)
+            action_masks = self.env.action_masks()
+            obs = self.env._get_obs()
+            action, _ = self.model.predict(obs, action_masks=action_masks, deterministic=True)
+            obs, _, terminated, truncated, _ = self.env.step(action)
+            done = terminated or truncated
+
 
         # if not self.env.success and IS_TRAINING:
         #     state, _ = self.env.reset()
@@ -240,10 +244,10 @@ class Kuririn:
 
     def _load_or_create_env(self,graph: nx.Graph, sfc: SFC, valid_nodes = List[Union[int, str]]):
         if not self.env:
-            self.env = SFC_AllocationEnv(valid_nodes=valid_nodes, list_graphs=[graph], list_sfcs = [sfc])
+            self.env = SFC_AllocationEnv(valid_nodes=valid_nodes, list_graph=[graph], list_sfc = [sfc])
         else:
-            self.env.set_list_sfcs([sfc])
-            self.set_list_graphs([graph])
+            self.env.list_sfc = [sfc]
+            self.env.list_graph = [graph]
 
 
 

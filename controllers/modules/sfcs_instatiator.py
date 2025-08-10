@@ -75,10 +75,11 @@ class SFCInstatiator:
             # algorithm.clear_all()
             # algorithm.install_substrate_network(substrate_network)
 
-
+            if sfc.id.split("_")[-1] == "26":
+                print("debug")
             
-            # salvar_variavel(sfc, "list_sfc")
-            # salvar_variavel(graph, "list_graph")
+            salvar_variavel(sfc, "list_sfc")
+            salvar_variavel(graph, "list_graph")
 
             
 
