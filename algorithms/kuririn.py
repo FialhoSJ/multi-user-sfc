@@ -24,36 +24,40 @@ IS_TRAINING = 0
 VERBOSE = False
 os.environ["CUDA_VISIBLE_DEVICES"] = ""  # Desabilita o uso da GPU
 
-def collect_session(text):
-    match = re.search(r'_(\d+)$', text)
-    return match.group(1) if match else None
-
 
 class Kuririn:
     def __init__(self, model_name):
+        # --- Atributos ---
         self.model_name = model_name
         self.model_path = f'rl_saved_models/{self.model_name}_allocation_model.zip'
         self.name = "kuririn"
-        self.env: SFC_AllocationEnv = None
+        
+        # O modelo é inicializado como None. Ele será carregado na primeira execução.
+        self.model = None
+        
+        # Demais atributos da sua classe
         self.graph = None
         self.sfc = None
-        self.route_info = self.node_info = {}
-        self.latency = self.latency_request = None
+        self.route_info = {}
+        self.node_info = {}
+        self.latency = None
+        self.latency_request = None
         self.single_source_minimum_latency_path = None
         self.fail_reason = None
         self.can_host_multiple_sfs = True
         self.is_backup = False
         self.valid_nodes = None
-        self.last_propose= None
+        self.last_propose = None
         self.precomputed_paths = {}
-    
-        # Cost weights
-        self.cpu_factor = 4
-        self.cache_factor = 4
+        self.env: SFC_AllocationEnv = None  # Apenas para type-hinting
+
+        # Pesos de custo
+        self.cpu_factor = 2
+        self.cache_factor = 2
         self.band_factor = 1
-        self.latency_factor = 4
+        self.latency_factor = 1
         self.boot_factor = 0
-        self.env = None
+
 
     def clear_all(self):
         self.substrate_network = None
@@ -66,7 +70,6 @@ class Kuririn:
 
     def install_substrate_network(self, graph, shareable_sfs=[]):
         self.graph = graph
-
 
     def install_SFC(self, sfc):
         self.sfc = sfc
@@ -128,97 +131,84 @@ class Kuririn:
     def algorithm(self):
         dst = self.sfc.get_substrate_node(self.sfc.get_dst_vnf())
 
-        G = self.graph
-        # services, service_requirements = self.prepare_service_requirements(self.sfc.vnfs_dict)
-
-        # route_info, latency = self.find_best_allocation_for_sfc(G, service_requirements,services, dst)
-        route_info, latency = self.find_best_allocation_for_sfc(G, dst)
+        route_info, latency = self.find_best_allocation_for_sfc(self.graph, dst)
 
         return self.evaluate_result(latency, route_info)
     
 
     def find_best_allocation_for_sfc(self, G, dst):
+        # 1. Cria um ambiente novo e limpo para esta execução específica.
+        #    Isso garante que não há "estado sujo" de execuções anteriores.
+        env = SFC_AllocationEnv(
+            valid_nodes=self.valid_nodes,
+            list_graph=[self.graph],
+            list_sfc=[self.sfc]
+        )
 
+        # 2. Lógica de carregamento adaptativo do modelo.
+        #    Se o modelo ainda não foi carregado (primeira execução),
+        #    carrega-o usando o 'env' atual para garantir a compatibilidade.
+        if self.model is None:
+            logger.info("Modelo não carregado. Carregando e adaptando para 1 ambiente...")
+            if not self.model_path or not self.model_name:
+                 self.fail_reason = "Caminho do modelo ou nome do modelo não definido."
+                 logger.error(self.fail_reason)
+                 return [], None
+            try:
+                if self.model_name == "ppo":
+                    self.model = MaskablePPO.load(self.model_path, env=env, device='cpu')
+                elif self.model_name == "dqn":
+                    # A mesma lógica se aplica ao DQN se ele foi treinado em paralelo
+                    self.model = DQN.load(self.model_path, env=env, device='cpu')
+            except Exception as e:
+                self.fail_reason = f"Falha ao carregar modelo: {e}"
+                logger.error(self.fail_reason)
+                return [], None
+        else:
+            # Se o modelo já foi carregado, ele já está adaptado. Apenas atualiza o env.
+            self.model.set_env(env)
 
-        # SFC_AllocationEnv(list_graph_per_session=[self.graph],list_sfcs_per_session=[[self.sfc]],valid_nodes=self.valid_nodes)
+        # 3. Prepara e reseta o ambiente para o início do episódio
+        obs, _ = env.reset()
+        env.is_training = False  # Garante que está em modo de inferência
+        env.allocation_results['dst'] = {'allocated_server': dst, 'path': [], 'cost': 0}
 
-        self._load_or_create_env(graph = self.graph, sfc = self.sfc, valid_nodes = self.valid_nodes)
-        self.env.reset()
-
-
-        self._load_or_create_model(self.env)
-
-        # log_callback = LogTrainingProgressCallback(log_interval=N_STEPS // 10)
-        # if IS_TRAINING:
-        #     self.model.learn(total_timesteps=N_STEPS)
-        # state, _ = self.env.reset()
-        self.env.is_training = False
-
-        self.env.allocation_results['dst'] = {'allocated_server': dst, 'path': [], 'cost': 0}
-
+        # 4. Loop de predição para tomar decisões até o fim do episódio
         done = False
         while not done:
-            action_masks = self.env.action_masks()
-            obs = self.env._get_obs()
+            action_masks = env.action_masks()
             action, _ = self.model.predict(obs, action_masks=action_masks, deterministic=True)
-            obs, _, terminated, truncated, _ = self.env.step(action)
+            obs, _, terminated, truncated, _ = env.step(action)
             done = terminated or truncated
 
-
-        # if not self.env.success and IS_TRAINING:
-        #     state, _ = self.env.reset()
-        #     self.model.learn(total_timesteps=N_STEPS*8)
-        #     # self.model.learn(total_timesteps=N_STEPS*8)
-        #     state, _ = self.env.reset()
-        #     self.env.is_training = False
-        #     self.env.allocation_results['dst'] = {'allocated_server': dst, 'path': [], 'cost': 0}
-        #     done = False
-        #     while not done:
-        #         action, _ = self.model.predict(state, deterministic=True)
-        #         state, _, done, _, _ = self.env.step(action)
-        
-        if not self.env.success:
+        # 5. Processa o resultado final do episódio
+        if not env.success:
             if not VERBOSE:
-                # print(f"Alocação falha sugerida SFC :{self.env.servers_used} - ultimo nó escolhido {self.env.server}")
-                print(f"Causa Falha: {self.env.fail_reason}")
-            self.fail_reason = self.env.fail_reason
-            if self.fail_reason == 'latency':
-                print(f"Alocação: [{self.env.servers_used}] || Custo latencia: {self.env.latency_used}")
-            
+                print(f"Causa Falha: {env.fail_reason}")
+                print(f"Alocação: [{env.servers_used}] || Custo latencia: {env.latency_used}")
+            self.fail_reason = env.fail_reason
             return [], None
-        else:
-            print(f"Solução sfc {self.sfc.id}: {self.env.servers_used} || Latencia: {self.env.latency_used}")
-            # for server_results in self.env.allocation_results:
-            #     print("Servidor: ",self.env.allocation_results[server_results]["allocated_server"],\
-            #           "Custo: ",self.env.allocation_results[server_results]['cost'])
-      
+
+        # Monta o route_info a partir dos resultados bem-sucedidos do ambiente
         route_info = {
             key: list(reversed(value['path']))
-            for key, value in self.env.allocation_results.items()
+            for key, value in env.allocation_results.items()
         }
 
-        # Armazene caminhos em um dicionário para evitar recalcular
-        if (self.env.current_location, 0) not in self.precomputed_paths:
-            self.precomputed_paths[(self.env.current_location, 0)] = nx.dijkstra_path(G, self.env.current_location, 0, weight='weight')
+        current_location = env.current_location
+        if (current_location, 0) not in self.precomputed_paths:
+            self.precomputed_paths[(current_location, 0)] = nx.dijkstra_path(G, current_location, 0, weight='weight')
 
-        path_to_src = self.precomputed_paths[(self.env.current_location, 0)]
-        # self.env.close()
-        total_latency = sum(len(p) - 1 for p in route_info.values() if p)
+        path_to_src = self.precomputed_paths[(current_location, 0)]
         route_info['src'] = list(reversed(path_to_src))
-        
+
+        # Calcula a latência total (excluindo os nós, contando apenas os links)
+        # Adiciona a latência do caminho final até a origem (src)
+        total_latency = env.latency_used + (len(path_to_src) - 1)
+
         return route_info, total_latency
 
-    def create_network_graph(self, network_topology):
-        G = nx.Graph()
-        for node, edges in network_topology.items():
-            for target, attr in edges.items():
-                bw_free = attr['bandwidth_capacity'] - attr['bandwidth_used']
-                G.add_edge(node, target, bandwidth=bw_free, weight=1)
-        return G
     
-
-    
-
     def evaluate_result(self, latency, route_info):
         if self.fail_reason in ['resource', 'latency','bandwidth']:
             self.route_info = False
@@ -248,44 +238,3 @@ class Kuririn:
         else:
             self.env.list_sfc = [sfc]
             self.env.list_graph = [graph]
-
-
-
-
-
-    
-
-    # def set_nodes_resources(self):
-    #     resources = {}
-    #     for server in self.graph.nodes:
-    #         if self.graph.nodes[server]['type'] == "server":
-    #             reuse = self.graph.nodes[server].get('reuse', [])
-    #         else:
-    #             reuse = []
-    #         resources[server] = {
-    #             'cpu_capacity': self.graph.nodes[server]['cpu_capacity'],
-    #             'cache_capacity': self.graph.nodes[server]['cache_capacity'],
-    #             'cpu_used': self.graph.nodes[server]['cpu_used'],
-    #             'cache_used': self.graph.nodes[server]['cache_used'],
-    #             'cpu_free': self.graph.nodes[server]['cpu_capacity'] - self.graph.nodes[server]['cpu_used'],
-    #             'cache_free': self.graph.nodes[server]['cache_capacity'] - self.graph.nodes[server]['cache_used'],
-    #             'reuse': [(service.id, self.sfc.id.split("_")[-1]) for service in reuse]
-    #         }
-    #     return resources
-
-    # def prepare_service_requirements(self, sfs_dict):
-    #     service_requirements = {}
-    #     services = [item['name'] for item in sfs_dict]
-    #     for item in sfs_dict:
-    #         name = item['name']
-    #         service_requirements[name] = {
-    #             'cpu': item['CPU'],
-    #             'cache': item['cache'],
-    #             'out_bw': item['out_bw'],
-    #             'in_bw': item['in_bw'],
-    #             'latency': item['latency']
-    #         }
-    #     service_requirements['dst'] = {'CPU': 0, 'cache': 0, 'out_bw': 0, 'in_bw': 0, 'latency': 0}
-    #     return list(reversed(services)), service_requirements
-
-

@@ -52,7 +52,6 @@ def carregar_dados_do_ambiente():
     pesos = {"cpu": 2, "cache": 2, "lat":  1, "band": 1}
     
     env = SFC_AllocationEnv(list_graph=list_graph, list_sfc=list_sfc, valid_nodes=valid_nodes, pesos_fatores=pesos)
-    env.reset()
     return env
 
 
@@ -71,10 +70,25 @@ if __name__ == '__main__':
     os.makedirs(save_dir, exist_ok=True)
 
     # --- 2. CRIAÇÃO DOS AMBIENTES ---
-    num_cpu = 10
-    print(f"Iniciando com {num_cpu} processos paralelos.")
-    train_env = make_vec_env(carregar_dados_do_ambiente, n_envs=num_cpu, vec_env_cls=SubprocVecEnv)
-    
+
+    # Para alternar, comente o bloco que não quer usar e descomente o outro.
+
+    # --- MODO DE DEBUB (LENTO, 1 AMBIENTE) ---
+    # Ideal para testar a lógica do ambiente e garantir que tudo funciona.
+    print("Executando em MODO DE DEBUG com 1 ambiente.")
+    num_cpu = 1
+    train_env = make_vec_env(carregar_dados_do_ambiente, n_envs=num_cpu)
+
+
+    # --- MODO DE TREINAMENTO (RÁPIDO, 5 AMBIENTES) ---
+    # Ideal para o treinamento final e eficiente do modelo.
+    # print("Executando em MODO DE TREINAMENTO com 5 ambientes.")
+    # num_cpu = 5
+    # # Lembre-se de ter a importação: from stable_baselines3.common.vec_env import SubprocVecEnv
+    # train_env = make_vec_env(carregar_dados_do_ambiente, n_envs=num_cpu, vec_env_cls=SubprocVecEnv)
+
+
+    # O resto do código continua igual, o ambiente de avaliação não muda.
     eval_env = carregar_dados_do_ambiente()
     eval_env = Monitor(eval_env)
     
@@ -96,7 +110,8 @@ if __name__ == '__main__':
             "MultiInputPolicy",
             train_env,
             verbose=1,
-            tensorboard_log=tensorboard_log_dir
+            tensorboard_log=tensorboard_log_dir,
+            ent_coef=0.05
         )
 
     # --- 4. TREINAMENTO (NOVO OU CONTINUADO) ---
@@ -113,15 +128,15 @@ if __name__ == '__main__':
     )
     
     # Define quantos passos de treinamento adicionais serão executados
-    additional_timesteps = 1_000_000
+    additional_timesteps = 200_000
     
     print(f"--- Iniciando/Continuando o treinamento por mais {additional_timesteps} passos ---")
-    model.learn(
-        total_timesteps=additional_timesteps,
-        callback=eval_callback,
-        tb_log_name="MaskablePPO_SFC_Allocation_Parallel",
-        reset_num_timesteps=False  # ESSENCIAL: Não reseta o contador de passos
-    )
+    # model.learn(
+    #     total_timesteps=additional_timesteps,
+    #     callback=eval_callback,
+    #     tb_log_name="MaskablePPO_SFC_Allocation_Parallel",
+    #     reset_num_timesteps=False  # ESSENCIAL: Não reseta o contador de passos
+    # )
     print("--- Treinamento finalizado ---")
 
     # --- 5. SALVAR O MODELO ATUALIZADO ---
@@ -129,9 +144,9 @@ if __name__ == '__main__':
     print(f"\nModelo final salvo em: {final_model_path}")
 
     # --- 6. TESTE COM O MODELO FINAL ---
-    print("\n--- Iniciando teste com o modelo em 200 episódios ---")
+    # print("\n--- Iniciando teste com o modelo em 200 episódios ---")
     
-    num_episodes = 30
+    num_episodes = 300
     all_rewards = []
     successful_runs = 0
 

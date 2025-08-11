@@ -46,7 +46,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         
 
         if reward_config is None:
-            self.reward_config = {"success_bonus": 1000.0, "failure_penalty": -1000.0}
+            self.reward_config = {"success_bonus": 100.0, "failure_penalty": -100.0}
         else:
             self.reward_config = reward_config
         
@@ -82,6 +82,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         super().reset(seed=seed)
 
         idx = np.random.randint(len(self.list_graph))
+        # print("indice sorteado", idx)
         self.graph = self.list_graph[idx]
         snapshot_nodes = self.initial_resource_snapshot[idx]['nodes']
         for node_id, initial_state in snapshot_nodes.items():
@@ -97,6 +98,9 @@ class SFC_AllocationEnv(gymnasium.Env):
         # Configura a primeira SFC e reinicia as variáveis de estado do episódio
         sfc_sorteada = self.list_sfc[idx]
         self.set_current_sfc(sfc_sorteada)
+        aux = ["sfc_unique_p3_1", "sfc_unique_p2_11"]
+        if sfc_sorteada.id in aux:
+            debub = 1
         self.success = False
         self.fail_reason = None
         self.allocation_results = {}
@@ -175,8 +179,8 @@ class SFC_AllocationEnv(gymnasium.Env):
         
         # 1. Recursos do nó
         node_data = self.graph.nodes[node_id]
-        features[0] = node_data["cpu_used"] / node_data["cpu_capacity"]
-        features[1] = node_data["cache_used"] / node_data["cache_capacity"]
+        features[0] = (node_data["cpu_used"]+1) / node_data["cpu_capacity"]
+        features[1] = (node_data["cache_used"]+1) / node_data["cache_capacity"]
         
         # 2. Reusabilidade
         features[4] = float(self.is_reusable_at_node(self.current_sfc, self.graph, node_id, self.current_vnf))
@@ -269,9 +273,9 @@ class SFC_AllocationEnv(gymnasium.Env):
         # Pula a verificação de recursos se a VNF puder ser reusada no nó.
         if not self.is_reusable_at_node(self.current_sfc, self.graph, node_id, self.current_vnf):
             node_data = self.graph.nodes[node_id]
-            if (node_data["cpu_capacity"] - node_data["cpu_used"]) < cpu_req:
+            if (node_data["cpu_capacity"] - node_data["cpu_used"]-1) < cpu_req:
                 return False
-            if (node_data["cache_capacity"] - node_data["cache_used"]) < cache_req:
+            if (node_data["cache_capacity"] - node_data["cache_used"]-1) < cache_req:
                 return False
 
         # 2. Verificação de Rede (Banda e Latência)
@@ -335,8 +339,8 @@ class SFC_AllocationEnv(gymnasium.Env):
         effective_cache_req = 0 if can_reuse else cache_req
         
         # Verifica se há capacidade disponível para a alocação
-        if (node['cpu_used'] + effective_cpu_req > node['cpu_capacity']) or \
-           (node['cache_used'] + effective_cache_req > node['cache_capacity']):
+        if (node['cpu_used'] + effective_cpu_req+1 > node['cpu_capacity']) or \
+           (node['cache_used'] + effective_cache_req+1 > node['cache_capacity']):
             return False
 
         # Aloca os recursos e atualiza os metadados do serviço
@@ -390,6 +394,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         Finaliza um episódio com falha, aplicando uma penalidade alta.
         """
         self.fail_reason = reason
+        # print(f"Causa da falha: {reason}")
         self.success = False
         
         # --- USA A PENALIDADE CONFIGURADA ---
@@ -428,7 +433,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.current_sfc = sfc
         self.reverse_vnf_list = self.define_reverse_vnf_list(sfc)
         self.current_vnf = self.reverse_vnf_list[0]
-        self.latency_request = 10  # TODO: Considerar tornar dinâmico
+        self.latency_request = 20  # TODO: Considerar tornar dinâmico
         self.current_location = self.current_sfc.dst_node
         self.latency_used = 0
         self.servers_used = []
@@ -463,7 +468,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         cpu_used, cpu_cap = node["cpu_used"], node["cpu_capacity"]
         cache_used, cache_cap = node["cache_used"], node["cache_capacity"]
 
-        if cpu_used+cpu_req >= cpu_cap or cache_used+cache_req >= cache_cap:
+        if cpu_used+cpu_req+1 >= cpu_cap or cache_used+cache_req+1 >= cache_cap:
             return False
 
         if not service_name.startswith(SHAREABLE_PREFIXES):
@@ -471,8 +476,10 @@ class SFC_AllocationEnv(gymnasium.Env):
         
         session_id = sfc.id.split("_")[-1]
         service_key = (service_name, session_id)
-        
-        return service_key in graph.nodes[node_id].get('services', {})
+        result = service_key in graph.nodes[node_id].get('services', {})
+        if result:
+            debub = 1
+        return result
 
     def get_critical_link_info(self, path: List):
         """Retorna a capacidade e o uso do link mais sobrecarregado em um caminho."""
@@ -527,6 +534,6 @@ def calcular_latencia_total(path:list, graph: Graph, vnf: VNF = None) -> float:
     if len(path) > 1:
         for u, v in zip(path[:-1], path[1:]):
             edge_latency += calculate_latency_betwen_nodes(graph, u, v, vnf)
-    computational_latency = calculate_computational_latency(graph, path[0], vnf)
+    computational_latency = calculate_computational_latency(graph, path[-1], vnf)
     total_latency = edge_latency + computational_latency
     return total_latency if total_latency >= 0 else 0.0 

@@ -30,14 +30,11 @@ class SFCInstatiator:
         # O algoritmo deve criar variáveis temporárias e não usar a rede 'oficial'.
         graph =  copy.deepcopy(substrate_network.graph)
         self.add_mobile_user_to_graph(graph,substrate_network,sfc_list)
-        algorithm.install_substrate_network(graph)
+        graph_backup =  copy.deepcopy(graph)
 
         sequential_sub = True
         if sequential_sub:
-            
-
-
-            solution,is_success = self.sequential_search(algorithm,sfc_list,graph,default_solution_format, substrate_network)
+            solution,is_success = self.sequential_search(algorithm,sfc_list,graph,default_solution_format, graph_backup= graph_backup)
         else:
             # TODO  Isso pode ser necessário mudar caso o algoritmo não precise instanciar sequencialmente. Ou seja, ele pode instanciar em lotes
             # EX: solution,is_success = self.batch_search(algorithm,sfc_list,substrate_network,default_solution_format)
@@ -49,50 +46,20 @@ class SFCInstatiator:
             self.deploy_failed_message(sfc_list)
         return solution,is_success
     
-    def sequential_search(self,algorithm,sfc_list: object,graph:object,solution_format, substrate_network = None) -> None:
+    def sequential_search(self,algorithm,sfc_list: object,graph:object,solution_format, graph_backup = None) -> None:
         search_success = True
 
-        # session_id = sfc_list[0].id.split("_")[-1]
-        # if not self.current_graph:
-        #         self.current_graph = copy.deepcopy(graph)
-        #         self.session_id = session_id
-        # if self.session_id != session_id:
-            
-           
-        #     salvar_variavel(self.current_graph, "list_graph")
-        #     self.current_graph = copy.deepcopy(graph)
-        #     # if sfc_list[0].dst_node not in self.current_graph.nodes:
-        #     #     self.add_mobile_user_to_graph(self.current_graph, substrate_network, sfc_list)
-            
-        #     self.session_id = session_id
-        # else:
-        #     if sfc_list[0].dst_node not in self.current_graph.nodes:
-        #         self.add_mobile_user_to_graph(self.current_graph, substrate_network, sfc_list)
-        #         if "p4_50" in sfc_list[0].id:
-        #             salvar_variavel(self.current_graph, "list_graph")
         for sfc in sfc_list:     # TODO  Isso pode ser necessário mudar caso o algoritmo não precise instanciar sequencialmente              
-            # algorithm = copy.deepcopy(self.alg)
-            # algorithm.clear_all()
-            # algorithm.install_substrate_network(substrate_network)
 
-            if sfc.id.split("_")[-1] == "26":
-                print("debug")
+            # if sfc.id.split("_")[-1] == "13":
+            #     print("debug")
             
             salvar_variavel(sfc, "list_sfc")
-            salvar_variavel(graph, "list_graph")
-
+            salvar_variavel(graph, "list_graph") 
             
-
-
-
-
-            # session_id = sfc.id.split("_")[-1]
-            # if session_id != self.session_id:
-            #     self.session_id = session_id
-                
-                
+            algorithm.install_substrate_network(graph_backup)
             algorithm.install_SFC(sfc)
-            algorithm.install_substrate_network(copy.deepcopy(graph))
+            self.back_up_alg = copy.deepcopy(algorithm)
             s = time.time()
             alg_success = algorithm.start_algorithm()
             s2 = time.time()
@@ -179,9 +146,6 @@ class SFCInstatiator:
                 if not self.is_shareable(service_id):        # Se não for compartilhável
                     node['cpu_used'] += cpu_required
                     node['cache_used'] += cache_required
-                # else:
-                #     print("reuso no sfc_instantiator no nó", node_id)
-                #     aux = node_id
 
             else:
                 node['services'][service_key] = {'cpu': cpu_required, 'cache': cache_required, 'copys': 1}
