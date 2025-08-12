@@ -1,5 +1,5 @@
-__pycache__*
-core/__pycache__/*
+__pycache__
+*core/__pycache__/*
 vnfs/__pycache*
 utils/__pycache__/*
 topology/__pycache__/*
@@ -7,18 +7,16 @@ controllers/__pycache__/*
 algorithms/__pycache__/*
 .vscode/launch copy.json
 .vscode/launch.json
-.vs/PythonSettings.json
-.vs/slnx.sqlite
-.vs/sfc-system/v17/.suo
-results_*
+.vs/
+PythonSettings.json
+slnx.sqlite
+sfc-system/v17/.suo
 logs/*
 test.py
-results_cpu_utilization/*
-results_cache_utilization/*
 plots/figures/plot_3d_ar.pdf
 core/__init__.py
 *.pyc
-csbc_simu.rar
+sbc_simu.rar
 RESULTADOS_8_12.rar
 backup_log.txt
 results.rar
