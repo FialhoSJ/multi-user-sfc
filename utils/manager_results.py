@@ -182,9 +182,9 @@ class OutputWritter:
 
         running_sfcs, running_players, running_sessions = running_players_sessions
 
-        cpu_saved =0  #substrate_network.cpu_saved
-        cache_saved =0 #substrate_network.cache_saved
-        shared_vnfs_count =0 #substrate_network.shared_vnfs_count
+        cpu_saved =  substrate_network.total_cpu_saved
+        cache_saved =  substrate_network.total_cache_saved
+        shared_vnfs_count = substrate_network.shared_vnfs_count
         
         sfc_recovery_time = 0
         sfc_recovered = None

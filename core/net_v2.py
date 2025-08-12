@@ -22,6 +22,7 @@ class Net2:
         self.total_cache_used = 0.00
         self.total_cache_saved = 0
         self.total_cache_capacity = 0.00
+        self.shared_vnfs_count = 0
 
         self.total_cache_requested = 0.00
 
@@ -215,6 +216,7 @@ class Net2:
             else:
                 self.total_cpu_saved = round(self.total_cpu_saved + cpu_required, 2)
                 self.total_cache_saved = round(self.total_cache_saved + cache_required, 2)
+                self.shared_vnfs_count += 1
                     
         else:
             node['services'][service_key] = {'cpu': cpu_required,'cache': cache_required,'copys': 1}
@@ -277,6 +279,8 @@ class Net2:
             else:
                 self.total_cpu_saved = round(self.total_cpu_saved - cpu_to_handle,2)
                 self.total_cache_saved = round(self.total_cache_saved - cache_to_handle,2)
+                self.shared_vnfs_count -= 1  # <--- ADICIONE ESTA LINHA
+                self.shared_vnfs_count = max(0, self.shared_vnfs_count)
 
     def allocate_bandwidth(self, node1, node2, bw_required, ms_name):
         if not self.graph.has_edge(node1, node2):
