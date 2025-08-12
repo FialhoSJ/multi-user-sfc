@@ -117,12 +117,12 @@ if __name__ == '__main__':
     additional_timesteps = 120_000
     
     print(f"--- Iniciando/Continuando o treinamento por mais {additional_timesteps} passos ---")
-    model.learn(
-        total_timesteps=additional_timesteps,
-        callback=eval_callback,
-        tb_log_name="MaskablePPO_SFC_Allocation_Parallel",
-        reset_num_timesteps=False  # ESSENCIAL: Não reseta o contador de passos
-    )
+    # model.learn(
+    #     total_timesteps=additional_timesteps,
+    #     callback=eval_callback,
+    #     tb_log_name="MaskablePPO_SFC_Allocation_Parallel",
+    #     reset_num_timesteps=False  # ESSENCIAL: Não reseta o contador de passos
+    # )
     print("--- Treinamento finalizado ---")
 
     # --- 5. SALVAR O MODELO ATUALIZADO ---
@@ -132,37 +132,48 @@ if __name__ == '__main__':
     # --- 6. TESTE COM O MODELO FINAL ---
     print("\n--- Iniciando teste com o modelo em 200 episódios ---")
     
-    num_episodes = 30
+    num_episodes = 500
     all_rewards = []
     successful_runs = 0
+
+    total_latency_on_success = 0.0
 
     for i in range(num_episodes):
         obs, _ = eval_env.reset()
         done = False
         total_reward = 0
-        
+
         while not done:
-            action_masks = get_action_masks(eval_env)
+            action_masks = eval_env.env.action_masks()
             action, _ = model.predict(obs, action_masks=action_masks, deterministic=True)
             obs, reward, terminated, truncated, info = eval_env.step(action)
             total_reward += reward
-            print(eval_env.env.servers_used)
             done = terminated or truncated
 
         all_rewards.append(total_reward)
+        # CORREÇÃO: Usa get_attr para acessar o atributo do ambiente original de forma segura
         if eval_env.env.success:
             successful_runs += 1
-        
+            # MODIFICAÇÃO: Soma a latência usada se o episódio foi um sucesso
+            total_latency_on_success += eval_env.env.latency_used
+
         if (i + 1) % 10 == 0:
-            print(f"Episódio {i + 1}/{num_episodes} concluído. Recompensa: {total_reward:.2f}, Sucesso: {eval_env.env.success}")
+            success_status = eval_env.env.success
+            print(f"Episódio {i + 1}/{num_episodes} concluído. Recompensa: {total_reward:.2f}, Sucesso: {success_status}")
 
     # --- 7. CÁLCULO E EXIBIÇÃO DAS MÉTRICAS DE DESEMPENHO ---
-    print("\n--- Métricas de Desempenho (200 execuções) ---")
-    
-    success_rate = (successful_runs / num_episodes) * 100
-    mean_reward = np.mean(all_rewards)
-    std_reward = np.std(all_rewards)
-    
+    print(f"\n--- Métricas de Desempenho ({num_episodes} execuções) ---")
+
+    success_rate = (successful_runs / num_episodes) * 100 if num_episodes > 0 else 0
+    mean_reward = np.mean(all_rewards) if all_rewards else 0
+    std_reward = np.std(all_rewards) if all_rewards else 0
+    variance = np.var(all_rewards) if all_rewards else 0
+
+    # MODIFICAÇÃO: Calcula a latência média (evitando divisão por zero)
+    average_latency = total_latency_on_success / successful_runs if successful_runs > 0 else 0
+
     print(f"Taxa de Sucesso: {success_rate:.2f}% ({successful_runs}/{num_episodes})")
     print(f"Recompensa Média: {mean_reward:.2f}")
-    print(f"Desvio Padrão da Recompensa: {std_reward:.2f} (Variância: {np.var(all_rewards):.2f})")
+    print(f"Desvio Padrão da Recompensa: {std_reward:.2f} (Variância: {variance:.2f})")
+    # MODIFICAÇÃO: Exibe a latência média
+    print(f"Latência Média (apenas em sucessos): {average_latency:.2f}")
