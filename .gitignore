@@ -13,7 +13,6 @@ algorithms/__pycache__/*
 results_*
 logs/*
 test.py
-results_flows_*
 results_cpu_utilization/*
 results_cache_utilization/*
 plots/figures/plot_3d_ar.pdf
