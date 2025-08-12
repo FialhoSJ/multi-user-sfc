@@ -52,10 +52,10 @@ class Kuririn:
         self.env: SFC_AllocationEnv = None  # Apenas para type-hinting
 
         # Pesos de custo
-        self.cpu_factor = 2
-        self.cache_factor = 2
-        self.band_factor = 1
-        self.latency_factor = 1
+        self.cpu_factor = 3
+        self.cache_factor = 3
+        self.band_factor = 3
+        self.latency_factor = 3
         self.boot_factor = 0
 
 
@@ -188,6 +188,8 @@ class Kuririn:
                 print(f"Alocação: [{env.servers_used}] || Custo latencia: {env.latency_used}")
             self.fail_reason = env.fail_reason
             return [], None
+        
+        print(f"SFC: {self.sfc.id}: {env.servers_used} || latencia usada: {env.latency_used}")
 
         # Monta o route_info a partir dos resultados bem-sucedidos do ambiente
         route_info = {

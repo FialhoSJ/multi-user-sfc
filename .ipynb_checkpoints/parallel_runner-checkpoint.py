@@ -3,10 +3,13 @@ import argparse
 from multiprocessing import Pool
 from datetime import datetime as dt
 import time
+import sys  # 1. Importe o módulo sys
 
 def run_process(process):
     """Executa um comando em um subprocesso."""
-    os.system('python {}'.format(process))
+    # 2. Use sys.executable para chamar o python explicitamente
+    command_to_run = f'{sys.executable} {process}'
+    os.system(command_to_run)
     print(process)
 
 if __name__ == '__main__':

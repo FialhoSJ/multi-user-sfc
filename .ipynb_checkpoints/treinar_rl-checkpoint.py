@@ -49,8 +49,9 @@ def carregar_dados_do_ambiente():
                 valid_nodes.append(node)
     valid_nodes.append("M")
     
-    pesos = {"cpu": 2, "cache": 2, "lat":  1, "band": 1}
-    
+    pesos = {"cpu": 3, "cache": 3, "lat":  3, "band": 3}
+    # while True:
+    #     print(len(list_graph))
     env = SFC_AllocationEnv(list_graph=list_graph, list_sfc=list_sfc, valid_nodes=valid_nodes, pesos_fatores=pesos)
     env.reset()
     return env
@@ -71,7 +72,7 @@ if __name__ == '__main__':
     os.makedirs(save_dir, exist_ok=True)
 
     # --- 2. CRIAÇÃO DOS AMBIENTES ---
-    num_cpu = 10
+    num_cpu = 13
     print(f"Iniciando com {num_cpu} processos paralelos.")
     train_env = make_vec_env(carregar_dados_do_ambiente, n_envs=num_cpu, vec_env_cls=SubprocVecEnv)
     
@@ -113,7 +114,7 @@ if __name__ == '__main__':
     )
     
     # Define quantos passos de treinamento adicionais serão executados
-    additional_timesteps = 1_000_000
+    additional_timesteps = 200_000
     
     print(f"--- Iniciando/Continuando o treinamento por mais {additional_timesteps} passos ---")
     model.learn(

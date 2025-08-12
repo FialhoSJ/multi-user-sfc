@@ -426,7 +426,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.current_sfc = sfc
         self.reverse_vnf_list = self.define_reverse_vnf_list(sfc)
         self.current_vnf = self.reverse_vnf_list[0]
-        self.latency_request = 20  # TODO: Considerar tornar dinâmico
+        self.latency_request = 25  # TODO: Considerar tornar dinâmico
         self.current_location = self.current_sfc.dst_node
         self.latency_used = 0
         self.servers_used = []

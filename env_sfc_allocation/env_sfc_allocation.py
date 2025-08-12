@@ -85,22 +85,21 @@ class SFC_AllocationEnv(gymnasium.Env):
         # print("indice sorteado", idx)
         self.graph = self.list_graph[idx]
         snapshot_nodes = self.initial_resource_snapshot[idx]['nodes']
-        for node_id, initial_state in snapshot_nodes.items():
-            if node_id in self.graph.nodes:
-                self.graph.nodes[node_id]['cpu_used'] = initial_state['cpu_used']
-                self.graph.nodes[node_id]['cache_used'] = initial_state['cache_used']
+        
+        if not self.is_training:
+            for node_id, initial_state in snapshot_nodes.items():
+                if node_id in self.graph.nodes:
+                    self.graph.nodes[node_id]['cpu_used'] = initial_state['cpu_used']
+                    self.graph.nodes[node_id]['cache_used'] = initial_state['cache_used']
 
-        snapshot_edges = self.initial_resource_snapshot[idx]['edges']
-        for (u, v), initial_state in snapshot_edges.items():
-            if self.graph.has_edge(u, v):
-                self.graph.edges[u, v]['bandwidth_used'] = initial_state['bandwidth_used']
+            snapshot_edges = self.initial_resource_snapshot[idx]['edges']
+            for (u, v), initial_state in snapshot_edges.items():
+                if self.graph.has_edge(u, v):
+                    self.graph.edges[u, v]['bandwidth_used'] = initial_state['bandwidth_used']
 
         # Configura a primeira SFC e reinicia as variáveis de estado do episódio
         sfc_sorteada = self.list_sfc[idx]
         self.set_current_sfc(sfc_sorteada)
-        aux = ["sfc_unique_p3_1", "sfc_unique_p2_11"]
-        if sfc_sorteada.id in aux:
-            debub = 1
         self.success = False
         self.fail_reason = None
         self.allocation_results = {}
@@ -115,6 +114,8 @@ class SFC_AllocationEnv(gymnasium.Env):
         """
         # 1. Traduzir a ação para um nó do grafo
         chosen_server = self.current_sfc.dst_node if action == len(self.valid_nodes) - 1 else self.valid_nodes[action]
+        # print(f"""Escolhendo nó: {chosen_server} para a VNF: {self.current_vnf.id} do SFC: {self.current_sfc.id}
+        #       recursos do nó: cpu usada {self.graph.nodes[chosen_server]['cpu_used']}||cache {self.graph.nodes[chosen_server]['cache_used']}""")
         band_req = self.get_band_req(self.current_vnf)
 
         # 2. Tentar alocar recursos (CPU/cache) no nó escolhido
@@ -143,6 +144,9 @@ class SFC_AllocationEnv(gymnasium.Env):
         # 6. Atualizar estado para o próximo passo
         self.current_location = chosen_server
         if not self.is_training:
+            # print(f"""Alocação no nó {chosen_server}: Recursos Pós alocação: CPU {self.graph.nodes[chosen_server]['cpu_used']}, 
+            #       Cache {self.graph.nodes[chosen_server]['cache_used']}
+            #       Do serviço: {self.current_vnf.id}""")
             self.allocation_results[self.current_vnf.id] = {'allocated_server': chosen_server, 'path': path, 'cost': total_cost}
 
         # 7. Verificar conclusão e avançar para a próxima VNF/SFC
@@ -217,7 +221,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         # One-hot encode do último nó escolhido
         ultimo_no_escolhido = np.zeros(num_valid_nodes, dtype=np.float32)
         current_loc = self.current_location if not isinstance(self.current_location, str) else 'M'
-        idx_loc = valid_nodes.index(current_loc)
+        idx_loc = valid_nodes.index(current_loc) if current_loc != 'M' else num_valid_nodes - 1
         ultimo_no_escolhido[idx_loc] = 1.0
 
         # --- 2. Coleta de Features dos Nós Válidos ---
@@ -346,17 +350,6 @@ class SFC_AllocationEnv(gymnasium.Env):
         # Aloca os recursos e atualiza os metadados do serviço
         node['cpu_used'] += effective_cpu_req
         node['cache_used'] += effective_cache_req
-        
-        # if 'services' not in node:
-        #     node['services'] = {}
-            
-        # session_id = self.current_sfc.id.split("_")[-1]
-        # service_key = (vnf.id, session_id)
-        
-        # if service_key in node['services']:
-        #     node['services'][service_key]['copys'] += 1
-        # else:
-        #     node['services'][service_key] = {'cpu': cpu_req, 'cache': cache_req, 'copys': 1}
             
         return True
 
@@ -433,7 +426,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.current_sfc = sfc
         self.reverse_vnf_list = self.define_reverse_vnf_list(sfc)
         self.current_vnf = self.reverse_vnf_list[0]
-        self.latency_request = 20  # TODO: Considerar tornar dinâmico
+        self.latency_request = 25  # TODO: Considerar tornar dinâmico
         self.current_location = self.current_sfc.dst_node
         self.latency_used = 0
         self.servers_used = []
@@ -477,8 +470,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         session_id = sfc.id.split("_")[-1]
         service_key = (service_name, session_id)
         result = service_key in graph.nodes[node_id].get('services', {})
-        if result:
-            debub = 1
+
         return result
 
     def get_critical_link_info(self, path: List):

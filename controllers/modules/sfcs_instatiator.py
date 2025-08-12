@@ -30,11 +30,11 @@ class SFCInstatiator:
         # O algoritmo deve criar variáveis temporárias e não usar a rede 'oficial'.
         graph =  copy.deepcopy(substrate_network.graph)
         self.add_mobile_user_to_graph(graph,substrate_network,sfc_list)
-        graph_backup =  copy.deepcopy(graph)
+          
 
         sequential_sub = True
         if sequential_sub:
-            solution,is_success = self.sequential_search(algorithm,sfc_list,graph,default_solution_format, graph_backup= graph_backup)
+            solution,is_success = self.sequential_search(algorithm,sfc_list,graph,default_solution_format)
         else:
             # TODO  Isso pode ser necessário mudar caso o algoritmo não precise instanciar sequencialmente. Ou seja, ele pode instanciar em lotes
             # EX: solution,is_success = self.batch_search(algorithm,sfc_list,substrate_network,default_solution_format)
@@ -54,23 +54,23 @@ class SFCInstatiator:
             # if sfc.id.split("_")[-1] == "13":
             #     print("debug")
             
-            salvar_variavel(sfc, "list_sfc")
-            salvar_variavel(graph, "list_graph") 
             
-            algorithm.install_substrate_network(graph_backup)
+            
+            algorithm.install_substrate_network(copy.deepcopy(graph))
             algorithm.install_SFC(sfc)
-            self.back_up_alg = copy.deepcopy(algorithm)
+            # self.back_up_alg = copy.deepcopy(algorithm)
             s = time.time()
             alg_success = algorithm.start_algorithm()
             s2 = time.time()
             print(f"Algorithm {self.alg.name} Take time     :   {round((s2-s)*1000,3)} ms")
-
-            # print("Tempo alg: ",s2-s)
+            # salvar_variavel(sfc, "list_sfc")
+            # salvar_variavel(graph, "list_graph") 
+            
             
             if alg_success: # No geral o algoritmo só vai dar erro caso tenha feito alocação indevida
                 total_latency = None
                 try:
-                    self.teste = copy.deepcopy(algorithm)
+                    # self.teste = copy.deepcopy(algorithm)
                     total_latency = self.submit_solution(graph, sfc, algorithm.get_route_info())
                 except ValueError as ve:
                     logging.error(f"Falha na submissão da solução para SFC {sfc.id}: {ve}")
