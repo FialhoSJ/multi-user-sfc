@@ -17,10 +17,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Select MUAR arguments')
     parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
     parser.add_argument('--n_players', type=int, help='(int) number of players', default=4)
-    parser.add_argument('--threads', type=int, help='(int) number of cores to use', default=8)
-    parser.add_argument('--repetition', type=int, help='(int) repetitions', default=33)
+    parser.add_argument('--threads', type=int, help='(int) number of cores to use', default=10)
+    parser.add_argument('--repetition', type=int, help='(int) repetitions', default=10)
     parser.add_argument('--sfc', type=str, help='(str) on or off', default='on')
-    parser.add_argument('--alg', type=str, help='(str) algorithm name', default='kuririn_ppo') # osfem, msf, musfico, ga;...
+    parser.add_argument('--alg', type=str, help='(str) algorithm name', default='greedyb') # osfem, msf, musfico, ga;...
     # parser.add_argument('--share', type=str, help='(str) whether to share sfs or not', default='y')
     # parser.add_argument('--shareband', type=str, help='(str) whether to share sfs or not', default='y')
 #     parser.add_argument('--servers_to_crash', type=str, nargs='+', help='(list) list of reliability values',default=[3]) #0.95, 0.975, 0.99
