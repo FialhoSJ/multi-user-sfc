@@ -42,7 +42,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.list_graph = list_graph
         self.list_sfc = list_sfc
         self.pesos_fatores = pesos_fatores if pesos_fatores is not None else \
-                             {"cpu": 4.5, "cache": 4.5, "lat": 2.5, "band": 3.5}
+                             {"cpu": 5, "cache": 5, "lat": 2, "band": 3}
         
 
         if reward_config is None:
@@ -70,7 +70,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         "vnf_atual": spaces.Box(low=0, high=1, shape=(4,), dtype=np.float32),
         "latencia_ja_usada": spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
         "ultimo_no_escolhido": spaces.Box(low=0, high=1, shape=(num_nodes,), dtype=np.float32),
-        "recursos_nos_validos": spaces.Box(low=0, high=1, shape=(num_nodes, 5), dtype=np.float32),
+        "recursos_nos_validos": spaces.Box(low=0, high=1, shape=(num_nodes, 6), dtype=np.float32),
         })
 
     def reset(self, seed=None, options=None):
@@ -128,6 +128,8 @@ class SFC_AllocationEnv(gymnasium.Env):
             band_req, rounded=True
         )
         
+        # print(path)
+
         if not path or not self.allocate_bandwidth_along_path(path, band_req):
             return self._fail_step('bandwidth')
 
@@ -180,7 +182,7 @@ class SFC_AllocationEnv(gymnasium.Env):
     def _get_node_features(self, node_id: any, current_location: any, current_band_req: float) -> tuple[np.ndarray, float]:
         """Calcula o vetor de features para um único nó e retorna a capacidade de banda do caminho."""
         # Features: [cpu_used, cache_used, latency, band_used, reusable]
-        features = np.zeros(5, dtype=np.float32)
+        features = np.zeros(6, dtype=np.float32)
         
         # 1. Recursos do nó
         node_data = self.graph.nodes[node_id]
@@ -200,6 +202,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         
         # Se existe um caminho...
         features[2] = calcular_latencia_total(path, self.graph, self.current_vnf) / self.latency_request
+        features[5] = float(len(path)/13)
         
         band_cap, band_used = self.get_critical_link_info(path)
         if band_cap > 0:
@@ -292,6 +295,9 @@ class SFC_AllocationEnv(gymnasium.Env):
         # Verifica se a latência acumulada não estoura o limite do SFC
         path_latency = calcular_latencia_total(path, self.graph, self.current_vnf)
         if (self.latency_used + path_latency) > self.latency_request:
+            return False
+        
+        if len(path)>6:
             return False
 
         # Se todas as verificações passaram, o nó é válido
@@ -518,7 +524,7 @@ class SFC_AllocationEnv(gymnasium.Env):
             cap_band, used_band = self.get_critical_link_info(path)
             cap_band = cap_band or 1  # Evita divisão por zero
             bandwidth_cost = ((used_band / cap_band) + 1) ** self.pesos_fatores['band']
-            bandwidth_cost = bandwidth_cost*1.05**(tamanho_path)
+            bandwidth_cost += (tamanho_path/13)** self.pesos_fatores['band']  
  
         return sum([cpu_cost, cache_cost, latency_cost, bandwidth_cost])
             
