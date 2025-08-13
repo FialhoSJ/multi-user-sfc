@@ -42,7 +42,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.list_graph = list_graph
         self.list_sfc = list_sfc
         self.pesos_fatores = pesos_fatores if pesos_fatores is not None else \
-                             {"cpu": 1.0, "cache": 1.0, "lat": 1.0, "band": 1.0}
+                             {"cpu": 4.5, "cache": 4.5, "lat": 2.5, "band": 3.5}
         
 
         if reward_config is None:
@@ -116,7 +116,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         chosen_server = self.current_sfc.dst_node if action == len(self.valid_nodes) - 1 else self.valid_nodes[action]
         # print(f"""Escolhendo nó: {chosen_server} para a VNF: {self.current_vnf.id} do SFC: {self.current_sfc.id}
         #       recursos do nó: cpu usada {self.graph.nodes[chosen_server]['cpu_used']}||cache {self.graph.nodes[chosen_server]['cache_used']}""")
-        band_req = self.get_band_req(self.current_vnf)
+        band_req = self.get_band_req(self.current_sfc, self.current_vnf)
 
         # 2. Tentar alocar recursos (CPU/cache) no nó escolhido
         if not self.allocate_resources_on_node(chosen_server, self.current_vnf):
@@ -127,6 +127,7 @@ class SFC_AllocationEnv(gymnasium.Env):
             self.graph, self.current_location, chosen_server,
             band_req, rounded=True
         )
+        
         if not path or not self.allocate_bandwidth_along_path(path, band_req):
             return self._fail_step('bandwidth')
 
@@ -225,7 +226,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         ultimo_no_escolhido[idx_loc] = 1.0
 
         # --- 2. Coleta de Features dos Nós Válidos ---
-        current_band_req = self.get_band_req(self.current_vnf)
+        current_band_req = self.get_band_req(self.current_sfc,self.current_vnf)
         
         node_features_list = []
         total_band_cap = 0.0
@@ -253,7 +254,7 @@ class SFC_AllocationEnv(gymnasium.Env):
             sfc_recursos_requeridos[idx, 0] = vnf.get_cpu_request() / 100.0
             sfc_recursos_requeridos[idx, 1] = vnf.get_cache_request() / 100.0
             # CORREÇÃO: Usar a requisição de banda, não de cache
-            sfc_recursos_requeridos[idx, 2] = self.get_band_req(vnf) / mean_band_cap if mean_band_cap > 0 else 1.0
+            sfc_recursos_requeridos[idx, 2] = self.get_band_req(self.current_sfc, vnf) / mean_band_cap if mean_band_cap > 0 else 1.0
             
             if vnf == self.current_vnf:
                 lista_vnf_atual[idx] = 1.0
@@ -311,7 +312,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         # Obtém os requisitos da VNF atual uma única vez.
         cpu_req = self.current_vnf.get_cpu_request()
         cache_req = self.current_vnf.get_cache_request()
-        band_req = self.get_band_req(self.current_vnf)
+        band_req = self.get_band_req(self.current_sfc,self.current_vnf)
 
         # Usa List Comprehension para construir a máscara de forma declarativa.
         # Para cada nó, chama a função de validação e o resultado (True/False)
@@ -426,7 +427,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.current_sfc = sfc
         self.reverse_vnf_list = self.define_reverse_vnf_list(sfc)
         self.current_vnf = self.reverse_vnf_list[0]
-        self.latency_request = 25  # TODO: Considerar tornar dinâmico
+        self.latency_request = 31  # TODO: Considerar tornar dinâmico
         self.current_location = self.current_sfc.dst_node
         self.latency_used = 0
         self.servers_used = []
@@ -444,10 +445,11 @@ class SFC_AllocationEnv(gymnasium.Env):
         return vnf_list
 
 
-    def get_band_req(self, vnf: VNF = None) -> float:
+    def get_band_req(self,sfc:SFC ,vnf: VNF = None) -> float:
         if vnf is None:
-            raise ValueError("VNF não pode ser None.")    
-        return vnf.get_outcome_interface_bandwidth()
+            raise ValueError("VNF não pode ser None.") 
+        vnf_posterior = vnf.get_next_vnf()   
+        return sfc.get_link_bandwidth_request(vnf.id, vnf_posterior.id)
 
     def is_reusable_at_node(self,sfc: SFC, graph: Graph, node_id: Union[int, str], vnf: VNF) -> bool:
         """Verifica se uma VNF compartilhável já está alocada em um nó."""
@@ -507,7 +509,8 @@ class SFC_AllocationEnv(gymnasium.Env):
         # Custo de Rede (Latência e Banda)
         latency_cost = 0
         bandwidth_cost = 0
-        if len(path) >= 2:
+        tamanho_path = len(path)
+        if tamanho_path >= 2:
             latency_request = self.latency_request or 1
             latency_cost = ((self.latency_used / latency_request) + 1) ** self.pesos_fatores['lat']
             
@@ -515,6 +518,7 @@ class SFC_AllocationEnv(gymnasium.Env):
             cap_band, used_band = self.get_critical_link_info(path)
             cap_band = cap_band or 1  # Evita divisão por zero
             bandwidth_cost = ((used_band / cap_band) + 1) ** self.pesos_fatores['band']
+            bandwidth_cost = bandwidth_cost*1.05**(tamanho_path)
  
         return sum([cpu_cost, cache_cost, latency_cost, bandwidth_cost])
             

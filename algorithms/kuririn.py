@@ -52,10 +52,10 @@ class Kuririn:
         self.env: SFC_AllocationEnv = None  # Apenas para type-hinting
 
         # Pesos de custo
-        self.cpu_factor = 3
-        self.cache_factor = 3
-        self.band_factor = 3
-        self.latency_factor = 3
+        self.cpu_factor = 5
+        self.cache_factor = 5
+        self.band_factor = 2
+        self.latency_factor = 2
         self.boot_factor = 0
 
 
@@ -149,7 +149,7 @@ class Kuririn:
         #    Se o modelo ainda não foi carregado (primeira execução),
         #    carrega-o usando o 'env' atual para garantir a compatibilidade.
         if self.model is None:
-            logger.info("Modelo não carregado. Carregando e adaptando para 1 ambiente...")
+            # logger.info("Modelo não carregado. Carregando e adaptando para 1 ambiente...")
             if not self.model_path or not self.model_name:
                  self.fail_reason = "Caminho do modelo ou nome do modelo não definido."
                  logger.error(self.fail_reason)

@@ -82,7 +82,8 @@ class SFCInstatiator:
                     self.alg.handle_failure()
                     search_success = False
             else:
-                
+                # salvar_variavel(sfc, "list_sfc")
+                # salvar_variavel(graph, "list_graph") 
                 total_latency = None
                 search_success = False            
             

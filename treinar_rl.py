@@ -49,10 +49,10 @@ def carregar_dados_do_ambiente():
                 valid_nodes.append(node)
     valid_nodes.append("M")
     
-    pesos = {"cpu": 3, "cache": 3, "lat":  4, "band": 4}
+    # pesos = {"cpu": 5, "cache": 5, "lat":  2, "band": 3}
     # while True:
     #     print(len(list_graph))
-    env = SFC_AllocationEnv(list_graph=list_graph, list_sfc=list_sfc, valid_nodes=valid_nodes, pesos_fatores=pesos)
+    env = SFC_AllocationEnv(list_graph=list_graph, list_sfc=list_sfc, valid_nodes=valid_nodes)
     env.reset()
     return env
 
@@ -72,7 +72,7 @@ if __name__ == '__main__':
     os.makedirs(save_dir, exist_ok=True)
 
     # --- 2. CRIAÇÃO DOS AMBIENTES ---
-    num_cpu = 3
+    num_cpu = 5
     print(f"Iniciando com {num_cpu} processos paralelos.")
     train_env = make_vec_env(carregar_dados_do_ambiente, n_envs=num_cpu, vec_env_cls=SubprocVecEnv)
     
@@ -114,7 +114,7 @@ if __name__ == '__main__':
     )
     
     # Define quantos passos de treinamento adicionais serão executados
-    additional_timesteps = 120_000
+    additional_timesteps = 130_000
     
     print(f"--- Iniciando/Continuando o treinamento por mais {additional_timesteps} passos ---")
     # model.learn(
@@ -132,9 +132,10 @@ if __name__ == '__main__':
     # --- 6. TESTE COM O MODELO FINAL ---
     print("\n--- Iniciando teste com o modelo em 200 episódios ---")
     
-    num_episodes = 500
+    num_episodes = 100
     all_rewards = []
     successful_runs = 0
+    cont = 0
 
     total_latency_on_success = 0.0
 
@@ -147,6 +148,7 @@ if __name__ == '__main__':
             action_masks = eval_env.env.action_masks()
             action, _ = model.predict(obs, action_masks=action_masks, deterministic=True)
             obs, reward, terminated, truncated, info = eval_env.step(action)
+            
             total_reward += reward
             done = terminated or truncated
 
@@ -157,7 +159,7 @@ if __name__ == '__main__':
             # MODIFICAÇÃO: Soma a latência usada se o episódio foi um sucesso
             total_latency_on_success += eval_env.env.latency_used
 
-        if (i + 1) % 10 == 0:
+        if (i + 1) % 100 == 0:
             success_status = eval_env.env.success
             print(f"Episódio {i + 1}/{num_episodes} concluído. Recompensa: {total_reward:.2f}, Sucesso: {success_status}")
 
