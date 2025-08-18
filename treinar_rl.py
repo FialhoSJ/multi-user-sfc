@@ -117,12 +117,12 @@ if __name__ == '__main__':
     additional_timesteps = 130_000
     
     print(f"--- Iniciando/Continuando o treinamento por mais {additional_timesteps} passos ---")
-    # model.learn(
-    #     total_timesteps=additional_timesteps,
-    #     callback=eval_callback,
-    #     tb_log_name="MaskablePPO_SFC_Allocation_Parallel",
-    #     reset_num_timesteps=False  # ESSENCIAL: Não reseta o contador de passos
-    # )
+    model.learn(
+        total_timesteps=additional_timesteps,
+        callback=eval_callback,
+        tb_log_name="MaskablePPO_SFC_Allocation_Parallel",
+        reset_num_timesteps=False  # ESSENCIAL: Não reseta o contador de passos
+    )
     print("--- Treinamento finalizado ---")
 
     # --- 5. SALVAR O MODELO ATUALIZADO ---

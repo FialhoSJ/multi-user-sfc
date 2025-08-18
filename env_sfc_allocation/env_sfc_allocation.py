@@ -42,7 +42,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.list_graph = list_graph
         self.list_sfc = list_sfc
         self.pesos_fatores = pesos_fatores if pesos_fatores is not None else \
-                             {"cpu": 4.5, "cache": 4.5, "lat": 1.5, "band": 4}
+                             {"cpu": 5, "cache": 5, "lat": 2, "band": 3}
         
 
         if reward_config is None:
@@ -128,7 +128,7 @@ class SFC_AllocationEnv(gymnasium.Env):
             band_req, rounded=True
         )
         
-        print(path)
+        # print(path)
 
         if not path or not self.allocate_bandwidth_along_path(path, band_req):
             return self._fail_step('bandwidth')
@@ -295,6 +295,9 @@ class SFC_AllocationEnv(gymnasium.Env):
         # Verifica se a latência acumulada não estoura o limite do SFC
         path_latency = calcular_latencia_total(path, self.graph, self.current_vnf)
         if (self.latency_used + path_latency) > self.latency_request:
+            return False
+        
+        if len(path)>6:
             return False
 
         # Se todas as verificações passaram, o nó é válido
