@@ -1,9 +1,0 @@
-No.,timestamp,time_seconds,users,cpu_utilization,bandwidth_utilization,cache_utilization,mobile_cpu_utilization,mobile_cache_utilization,latency,latency_diff,wait_time,decision_time_ms,success,fail_reason,sfc_id,recovery_time,sfc_recovered,cpu_saved,cache_saved,shared_vnfs,running_sfcs,running_players,running_sessions,trascode_bw,crashing,acceptance_rate,reuse_cpu_rate,reuse_cache_rate
-0,1755083403.4099503,0,1,0.0,0.0,0.0,0.0,0.0,None,None,None,0.912,False,None,sfc_cache_p1_1,0,None,0,0,0,0,0,0,0,False,0.0,0,0
-0,1755083403.4104445,0.0,1,0.0,0.0,0.0,0.0,0.0,None,None,None,0.521,False,None,sfc_unique_p1_1,0,None,0,0,0,0,0,0,0,False,0.0,0,0
-0,1755083403.415901,0.0,2,0.0,0.0,0.0,0.0,0.0,None,None,None,0.534,False,None,sfc_cache_p2_1,0,None,0,0,0,0,0,0,0,False,0.0,0,0
-0,1755083403.416223,0.0,2,0.0,0.0,0.0,0.0,0.0,None,None,None,0.489,False,None,sfc_unique_p2_1,0,None,0,0,0,0,0,0,0,False,0.0,0,0
-0,1755083403.427791,0.0,3,0.0,0.0,0.0,0.0,0.0,None,None,None,0.559,False,None,sfc_cache_p3_1,0,None,0,0,0,0,0,0,0,False,0.0,0,0
-0,1755083403.4281185,0.0,3,0.0,0.0,0.0,0.0,0.0,None,None,None,0.497,False,None,sfc_unique_p3_1,0,None,0,0,0,0,0,0,0,False,0.0,0,0
-0,1755083403.436581,0.0,4,0.0,0.0,0.0,0.0,0.0,None,None,None,0.543,False,None,sfc_cache_p4_1,0,None,0,0,0,0,0,0,0,False,0.0,0,0
-0,1755083403.4369113,0.0,4,0.0,0.0,0.0,0.0,0.0,None,None,None,0.493,False,None,sfc_unique_p4_1,0,None,0,0,0,0,0,0,0,False,0.0,0,0
