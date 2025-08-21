@@ -8,7 +8,7 @@ from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.logger import configure
 
 from salvar_var import carregar_lista
-from env_sfc_allocation.env_sfc_allocation import SFC_AllocationEnv
+from algorithms.environment import SFC_AllocationEnv
 
 from sb3_contrib import MaskablePPO
 from sb3_contrib.common.maskable.callbacks import MaskableEvalCallback
@@ -72,7 +72,7 @@ if __name__ == '__main__':
     os.makedirs(save_dir, exist_ok=True)
 
     # --- 2. CRIAÇÃO DOS AMBIENTES ---
-    num_cpu = 5
+    num_cpu = 10
     print(f"Iniciando com {num_cpu} processos paralelos.")
     train_env = make_vec_env(carregar_dados_do_ambiente, n_envs=num_cpu, vec_env_cls=SubprocVecEnv)
     
@@ -114,15 +114,15 @@ if __name__ == '__main__':
     )
     
     # Define quantos passos de treinamento adicionais serão executados
-    additional_timesteps = 130_000
+    additional_timesteps = 150_000
     
     print(f"--- Iniciando/Continuando o treinamento por mais {additional_timesteps} passos ---")
-    model.learn(
-        total_timesteps=additional_timesteps,
-        callback=eval_callback,
-        tb_log_name="MaskablePPO_SFC_Allocation_Parallel",
-        reset_num_timesteps=False  # ESSENCIAL: Não reseta o contador de passos
-    )
+    # model.learn(
+    #     total_timesteps=additional_timesteps,
+    #     callback=eval_callback,
+    #     tb_log_name="MaskablePPO_SFC_Allocation_Parallel",
+    #     reset_num_timesteps=False  # ESSENCIAL: Não reseta o contador de passos
+    # )
     print("--- Treinamento finalizado ---")
 
     # --- 5. SALVAR O MODELO ATUALIZADO ---
@@ -132,7 +132,7 @@ if __name__ == '__main__':
     # --- 6. TESTE COM O MODELO FINAL ---
     print("\n--- Iniciando teste com o modelo em 200 episódios ---")
     
-    num_episodes = 100
+    num_episodes = 1000
     all_rewards = []
     successful_runs = 0
     cont = 0

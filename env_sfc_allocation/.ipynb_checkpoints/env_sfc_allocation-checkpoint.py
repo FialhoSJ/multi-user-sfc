@@ -5,7 +5,7 @@ import numpy as np
 from networkx import Graph
 from typing import Tuple, Union, List, Dict
 from core.sfc import SFC, VNF
-from algorithms.networkUtils import get_available_shortest_path_optimized, calculate_computational_latency, calculate_latency_betwen_nodes
+from algorithms.networkUtils import get_available_shortest_path, calculate_computational_latency, calculate_latency_betwen_nodes
 
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 
@@ -123,10 +123,9 @@ class SFC_AllocationEnv(gymnasium.Env):
             return self._fail_step('resource')
 
         # 3. Encontrar e alocar recursos no caminho (banda)
-        path = get_available_shortest_path_optimized(
+        path = get_available_shortest_path(
             self.graph, self.current_location, chosen_server,
-            band_req, rounded=True
-        )
+            band_req)
         
         # print(path)
 
@@ -193,7 +192,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         features[4] = float(self.is_reusable_at_node(self.current_sfc, self.graph, node_id, self.current_vnf))
 
         # 3. Features de Rede (Latência e Banda)
-        path = get_available_shortest_path_optimized(self.graph, current_location, node_id, current_band_req, rounded=True)
+        path = get_available_shortest_path(self.graph,  current_location, node_id,  current_band_req)
         
         if not path:
             features[2] = 1.0  # Latência "infinita" normalizada
@@ -288,7 +287,7 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         # 2. Verificação de Rede (Banda e Latência)
         # Procura por um caminho que suporte a banda necessária
-        path = get_available_shortest_path_optimized(self.graph, self.current_location, node_id, band_req, rounded=True)
+        path = get_available_shortest_path(self.graph,  self.current_location, node_id , band_req)
         if not path:
             return False
 

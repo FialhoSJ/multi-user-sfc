@@ -49,7 +49,8 @@ class Kuririn:
         self.valid_nodes = None
         self.last_propose = None
         self.precomputed_paths = {}
-        self.env: SFC_AllocationEnv = None  # Apenas para type-hinting
+        self.model = None
+        self.env = None  # Apenas para type-hinting
 
         # Pesos de custo
         self.cpu_factor = 5
@@ -74,7 +75,13 @@ class Kuririn:
     def install_SFC(self, sfc):
         self.sfc = sfc
         self.latency_request = sfc.get_latency_request()
-        self.dst_vnf = self.sfc.get_dst_vnf()
+        # self.dst_vnf = self.sfc.get_dst_vnf()
+        # if self.env is None:
+        #     self.env = SFC_AllocationEnv(
+        #         valid_nodes=self.valid_nodes,
+        #         list_graph=[self.graph],
+        #         list_sfc=[self.sfc]
+        #     )
         return sfc
 
     def get_latency(self):
@@ -110,7 +117,10 @@ class Kuririn:
         self.cpu_factor, self.cache_factor, self.band_factor = costs_parameters
 
     def start_algorithm(self):
-        self.valid_nodes = [node for node in self.graph.nodes() if self.graph.nodes[node]['type'] != 'router' and node != 0]
+        if not self.valid_nodes:
+            self.valid_nodes = [node for node in self.graph.nodes() if self.graph.nodes[node]['type'] != 'router' and node != 0]
+        self._initialize_environment_and_model()
+
         self.algorithm()
         if self.check_solution():
             try:
@@ -131,84 +141,69 @@ class Kuririn:
     def algorithm(self):
         dst = self.sfc.get_substrate_node(self.sfc.get_dst_vnf())
 
-        route_info, latency = self.find_best_allocation_for_sfc(self.graph, dst)
+        route_info, latency = self.find_best_allocation_for_sfc(dst)
 
         return self.evaluate_result(latency, route_info)
     
 
-    def find_best_allocation_for_sfc(self, G, dst):
-        # 1. Cria um ambiente novo e limpo para esta execução específica.
-        #    Isso garante que não há "estado sujo" de execuções anteriores.
-        env = SFC_AllocationEnv(
-            valid_nodes=self.valid_nodes,
-            list_graph=[self.graph],
-            list_sfc=[self.sfc]
-        )
-
-        # 2. Lógica de carregamento adaptativo do modelo.
-        #    Se o modelo ainda não foi carregado (primeira execução),
-        #    carrega-o usando o 'env' atual para garantir a compatibilidade.
-        if self.model is None:
-            # logger.info("Modelo não carregado. Carregando e adaptando para 1 ambiente...")
-            if not self.model_path or not self.model_name:
-                 self.fail_reason = "Caminho do modelo ou nome do modelo não definido."
-                 logger.error(self.fail_reason)
-                 return [], None
-            try:
-                if self.model_name == "ppo":
-                    self.model = MaskablePPO.load(self.model_path, env=env, device='cpu')
-                elif self.model_name == "dqn":
-                    # A mesma lógica se aplica ao DQN se ele foi treinado em paralelo
-                    self.model = DQN.load(self.model_path, env=env, device='cpu')
-            except Exception as e:
-                self.fail_reason = f"Falha ao carregar modelo: {e}"
-                logger.error(self.fail_reason)
-                return [], None
+    def find_best_allocation_for_sfc(self,dst):
+        # 1. Não recria o ambiente, apenas reseta o necessário se já estiver inicializado
+        if self.env is None:
+            self.env = SFC_AllocationEnv(
+                valid_nodes=self.valid_nodes,
+                list_graph=[self.graph],
+                list_sfc=[self.sfc]
+            )
         else:
-            # Se o modelo já foi carregado, ele já está adaptado. Apenas atualiza o env.
-            self.model.set_env(env)
+            # Apenas reseta o ambiente sem criar uma nova instância
+            
+            self.reset_environment([self.graph], [self.sfc])
 
-        # 3. Prepara e reseta o ambiente para o início do episódio
-        obs, _ = env.reset()
-        env.is_training = False  # Garante que está em modo de inferência
-        env.allocation_results['dst'] = {'allocated_server': dst, 'path': [], 'cost': 0}
+        # 2. Lógica de carregamento adaptativo do modelo. Só carrega o modelo se ele não estiver carregado ainda
+        if self.model is None:
+            self.load_model(self.env)
+
+        # 3. Prepara e reseta o ambiente para o início do episódio, mas não recria o ambiente
+        obs, _ = self.env.reset()
+        self.env.is_training = False  # Garante que está em modo de inferência
+        self.env.allocation_results['dst'] = {'allocated_server': dst, 'path': [], 'cost': 0}
 
         # 4. Loop de predição para tomar decisões até o fim do episódio
         done = False
         while not done:
-            action_masks = env.action_masks()
+            action_masks = self.env.action_masks()
             action, _ = self.model.predict(obs, action_masks=action_masks, deterministic=True)
-            obs, _, terminated, truncated, _ = env.step(action)
+            obs, _, terminated, truncated, _ = self.env.step(action)
             done = terminated or truncated
 
         # 5. Processa o resultado final do episódio
-        if not env.success:
+        if not self.env.success:
             if not VERBOSE:
-                print(f"Causa Falha: {env.fail_reason}")
-                print(f"Alocação: [{env.servers_used}] || Custo latencia: {env.latency_used}")
-            self.fail_reason = env.fail_reason
+                print(f"Causa Falha: {self.env.fail_reason}")
+                print(f"Alocação: [{self.env.servers_used}] || Custo latência: {self.env.latency_used}")
+            self.fail_reason = self.env.fail_reason
             return [], None
-        
-        print(f"SFC: {self.sfc.id}: {env.servers_used} || latencia usada: {env.latency_used}")
+
+        print(f"SFC: {self.sfc.id}: {self.env.servers_used} || latência usada: {self.env.latency_used}")
 
         # Monta o route_info a partir dos resultados bem-sucedidos do ambiente
         route_info = {
             key: list(reversed(value['path']))
-            for key, value in env.allocation_results.items()
+            for key, value in self.env.allocation_results.items()
         }
 
-        current_location = env.current_location
+        current_location = self.env.current_location
         if (current_location, 0) not in self.precomputed_paths:
-            self.precomputed_paths[(current_location, 0)] = nx.dijkstra_path(G, current_location, 0, weight='weight')
+            self.precomputed_paths[(current_location, 0)] = nx.dijkstra_path(self.graph, current_location, 0, weight='weight')
 
         path_to_src = self.precomputed_paths[(current_location, 0)]
         route_info['src'] = list(reversed(path_to_src))
 
         # Calcula a latência total (excluindo os nós, contando apenas os links)
-        # Adiciona a latência do caminho final até a origem (src)
-        total_latency = env.latency_used + (len(path_to_src) - 1)
+        total_latency = self.env.latency_used + (len(path_to_src) - 1)
 
         return route_info, total_latency
+
 
     
     def evaluate_result(self, latency, route_info):
@@ -231,12 +226,27 @@ class Kuririn:
             else:
                 self.model = DQN("MlpPolicy", env, verbose=0, learning_rate=0.00003, batch_size=64, buffer_size=100_000_000, gamma=0.99, train_freq=4, gradient_steps=1, target_update_interval=256, device='cpu')
 
-    def _save_model(self):
-        self.model.save(self.model_path)
+    def load_model(self, env):
+        # Carregar modelo uma vez, se não carregado
+        if self.model is None:
+            if self.model_name == "ppo":
+                self.model = MaskablePPO.load(self.model_path, env=env)
+            elif self.model_name == "dqn":
+                self.model = DQN.load(self.model_path, env=env)
+        self.model.set_env(env)
+        
+    def reset_environment(self, list_graph, list_sfc):
+        # Resetando variáveis importantes do ambiente
+        self.env.is_training = False
+        self.env._set_list_graph_sfcs(list_graph, list_sfc)
+        # self.env.reset()
+        
+        
+        
+    def _initialize_environment_and_model(self):
+        # Inicializa o ambiente e o modelo no começo
+        if self.env is None:
+            self.env = SFC_AllocationEnv(valid_nodes=self.valid_nodes, list_graph=[self.graph], list_sfc=[self.sfc])
 
-    def _load_or_create_env(self,graph: nx.Graph, sfc: SFC, valid_nodes = List[Union[int, str]]):
-        if not self.env:
-            self.env = SFC_AllocationEnv(valid_nodes=valid_nodes, list_graph=[graph], list_sfc = [sfc])
-        else:
-            self.env.list_sfc = [sfc]
-            self.env.list_graph = [graph]
+        if self.model is None:
+            self.load_model(self.env)

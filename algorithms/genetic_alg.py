@@ -384,10 +384,10 @@ class Genetic(Algorithm):
         # Registrar o método de paralelização
     
         # Parâmetros do algoritmo genético
-        population_size = 60
+        population_size = 30
         crossover_probability = 0.7
         mutation_probability = 0.2
-        number_of_generations = 120
+        number_of_generations = 50
 
         # Inicialização da população
         pop = toolbox.population(n=population_size)

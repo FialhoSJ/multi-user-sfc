@@ -5,7 +5,7 @@ import numpy as np
 from networkx import Graph
 from typing import Tuple, Union, List, Dict
 from core.sfc import SFC, VNF
-from algorithms.networkUtils import get_available_shortest_path_optimized, calculate_computational_latency, calculate_latency_betwen_nodes
+from algorithms.networkUtils import get_available_shortest_path, calculate_computational_latency, calculate_latency_betwen_nodes
 
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 
@@ -28,7 +28,8 @@ class SFC_AllocationEnv(gymnasium.Env):
                  list_graph: List[Graph],
                  list_sfc: List[SFC],
                  pesos_fatores: Dict[str, float] = None,
-                 reward_config: Dict[str, float] = None):
+                 reward_config: Dict[str, float] = None,
+                is_training = True):
         """
         Inicializa o ambiente de alocação de SFC.
         """
@@ -44,13 +45,17 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.pesos_fatores = pesos_fatores if pesos_fatores is not None else \
                              {"cpu": 5, "cache": 5, "lat": 2, "band": 3}
         
+        self.is_training = is_training
+        if self.is_training:
+            self.initial_resource_snapshot=self._initialize_snapshots(self.list_graph)
+        
 
         if reward_config is None:
             self.reward_config = {"success_bonus": 100.0, "failure_penalty": -100.0}
         else:
             self.reward_config = reward_config
         
-        self.initial_resource_snapshot = self._initialize_snapshots(list_graph)
+        
 
         # --- Estado do Episódio ---
         self.graph: Graph = None
@@ -59,7 +64,9 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.current_location: Union[int, str] = None
         self.latency_used = 0
         self.latency_request = None
-        self.is_training = True
+        
+        
+        self.cache_path = {}
 
         # --- Espaços de Ação e Observação ---
         self.action_space = spaces.Discrete(len(self.valid_nodes))
@@ -80,13 +87,17 @@ class SFC_AllocationEnv(gymnasium.Env):
         restaura o estado inicial dos recursos e prepara a primeira SFC para alocação.
         """
         super().reset(seed=seed)
-
-        idx = np.random.randint(len(self.list_graph))
-        # print("indice sorteado", idx)
-        self.graph = self.list_graph[idx]
-        snapshot_nodes = self.initial_resource_snapshot[idx]['nodes']
         
+            
+        self.cache_path = {}
+        idx = 0
         if not self.is_training:
+            idx = np.random.randint(len(self.list_graph))
+            # print("indice sorteado", idx)
+            self.graph = self.list_graph[idx]
+            snapshot_nodes = self.initial_resource_snapshot[idx]['nodes']
+        
+        
             for node_id, initial_state in snapshot_nodes.items():
                 if node_id in self.graph.nodes:
                     self.graph.nodes[node_id]['cpu_used'] = initial_state['cpu_used']
@@ -117,16 +128,20 @@ class SFC_AllocationEnv(gymnasium.Env):
         # print(f"""Escolhendo nó: {chosen_server} para a VNF: {self.current_vnf.id} do SFC: {self.current_sfc.id}
         #       recursos do nó: cpu usada {self.graph.nodes[chosen_server]['cpu_used']}||cache {self.graph.nodes[chosen_server]['cache_used']}""")
         band_req = self.get_band_req(self.current_sfc, self.current_vnf)
-
+        
+        current_location = self.current_location
         # 2. Tentar alocar recursos (CPU/cache) no nó escolhido
         if not self.allocate_resources_on_node(chosen_server, self.current_vnf):
             return self._fail_step('resource')
 
         # 3. Encontrar e alocar recursos no caminho (banda)
-        path = get_available_shortest_path_optimized(
+        if not (current_location, chosen_server) in self.cache_path:
+            self.cache_path[(current_location, chosen_server)] = get_available_shortest_path(
             self.graph, self.current_location, chosen_server,
-            band_req, rounded=True
-        )
+            band_req) if not self.cache_path[chosen_server] else self.cache_path[chosen_server]
+            
+        path = self.cache_path[(current_location, chosen_server)]
+        
         
         # print(path)
 
@@ -154,6 +169,7 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         # 7. Verificar conclusão e avançar para a próxima VNF/SFC
         done = False
+        self.cache_path = {}
         if self.current_vnf == self.reverse_vnf_list[-1]:
             done = True
             self.success = True
@@ -193,7 +209,12 @@ class SFC_AllocationEnv(gymnasium.Env):
         features[4] = float(self.is_reusable_at_node(self.current_sfc, self.graph, node_id, self.current_vnf))
 
         # 3. Features de Rede (Latência e Banda)
-        path = get_available_shortest_path_optimized(self.graph, current_location, node_id, current_band_req, rounded=True)
+        # path = get_available_shortest_path(self.graph,  current_location, node_id,  current_band_req)
+        
+        if not (current_location, node_id) in self.cache_path:
+            self.cache_path[(current_location, node_id)] = get_available_shortest_path(self.graph,  current_location, node_id,  current_band_req)
+            
+        path=self.cache_path[(current_location, node_id)]
         
         if not path:
             features[2] = 1.0  # Latência "infinita" normalizada
@@ -288,7 +309,9 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         # 2. Verificação de Rede (Banda e Latência)
         # Procura por um caminho que suporte a banda necessária
-        path = get_available_shortest_path_optimized(self.graph, self.current_location, node_id, band_req, rounded=True)
+        if not  (self.current_location, node_id) in self.cache_path:
+            self.cache_path[(self.current_location, node_id)] = get_available_shortest_path(self.graph,  self.current_location, node_id , band_req)
+        path = self.cache_path[(self.current_location, node_id)]
         if not path:
             return False
 
@@ -425,6 +448,7 @@ class SFC_AllocationEnv(gymnasium.Env):
     # =================================================================================
     # 3. Funções Utilitárias e de Suporte
     # =================================================================================
+    
 
     def set_current_sfc(self, sfc: SFC):
         """Define a SFC atual para alocação e inicializa seus parâmetros."""
@@ -498,8 +522,8 @@ class SFC_AllocationEnv(gymnasium.Env):
                 crit_cap, crit_used = cap, used
         return crit_cap, crit_used
     
-
-
+    
+   
     def calculate_total_cost(self, server_id, path):
         """Calcula o custo total da alocação de um serviço."""
         node = self.graph.nodes[server_id]
