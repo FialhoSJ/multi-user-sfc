@@ -1,6 +1,7 @@
 import random
 import math
 from core.net_v2 import Net2
+
 from topology.base.topology_base import TopologyBase
 
 LIGHT_SPEED = 3e8
@@ -21,7 +22,8 @@ class LuxembourgV2(TopologyBase):
         self.cache_capacity = CACHE_CAPACITY
         self.number_of_nodes = 35
         self.nodes = list(range(1, 35))
-        self.edge_computing_servers = [25, 8, 14, 28, 2, 5, 9, 23, 18, 6, 33, 34]
+        self.edge_computing_servers = {"high_level": [25, 8, 14, 28], "normal_level": [ 2, 5, 9, 23,],
+                                       "low_level": [18, 6, 33, 34]}#[25, 8, 14, 28, 2, 5, 9, 23, 18, 6, 33, 34]
 
         self.positions = {0: (5000, 6000), 1: (2884, 6739), 2: (8081, 4302), 3: (8881, 4995), 4: (8956, 2900),
                     5: (9693, 4040), 6: (4351, 6749), 7: (5341, 7590), 8: (6053, 8420), 9: (6230, 5831),
@@ -43,8 +45,14 @@ class LuxembourgV2(TopologyBase):
         # Adiciona os nós
         net.add_node(0, node_type='router', cpu_capacity=0.0)
         for node in self.nodes:
-            if node in self.edge_computing_servers:
+            if node in self.edge_computing_servers["normal_level"]:
                 net.add_node(node, node_type='server', cpu_capacity=self.cpu_capacity,cache_capacity=self.cache_capacity,position=self.positions[node],ips=random.uniform(0.1, 0.2))
+                net.nodes_reliability[node] = random.uniform(0.95,0.99)
+            elif node in self.edge_computing_servers["low_level"]:
+                net.add_node(node, node_type='server', cpu_capacity=self.cpu_capacity*0.75,cache_capacity=self.cache_capacity*0.75,position=self.positions[node],ips=random.uniform(0.1, 0.2))
+                net.nodes_reliability[node] = random.uniform(0.95,0.99)
+            elif node in self.edge_computing_servers["high_level"]:
+                net.add_node(node, node_type='server', cpu_capacity=self.cpu_capacity*1.25,cache_capacity=self.cache_capacity*1.25,position=self.positions[node],ips=random.uniform(0.1, 0.2))
                 net.nodes_reliability[node] = random.uniform(0.95,0.99)
             else:
                 net.add_node(node, node_type='router',w_channel_capacity=self.w_bandwidth_capacity,position=self.positions[node])
