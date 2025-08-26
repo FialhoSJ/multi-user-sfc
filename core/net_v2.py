@@ -57,6 +57,10 @@ class Net2:
                                 services={},
                                 sfcs_list=[])
         elif node_type == 'mobile_device': # Grafo separado
+            if random.random() < 0.20:
+                cpu_capacity *= 0.25
+                cache_capacity *= 0.25
+                ips *= 0.25
             self.md_graph.add_node(node_id,
                                 type=node_type,
                                 cpu_capacity=cpu_capacity,

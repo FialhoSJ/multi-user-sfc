@@ -6,7 +6,7 @@ import random
 import traceback
 from utils.k_shortest_paths import k_shortest_paths
 from algorithms.networkUtils import calculate_computational_latency,calculate_latency_betwen_nodes
-from salvar_var import salvar_variavel
+from utils.salvar_var import salvar_variavel
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 
 class SFCInstatiator:

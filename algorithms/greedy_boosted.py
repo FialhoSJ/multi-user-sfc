@@ -182,6 +182,9 @@ class GreedyOptAlgorithm(Algorithm):
         servers = list(self.graph.nodes())
         
         # Inicializa o dicionário de recursos dos servidores
+        for server in servers:
+            aux = self.graph.nodes[server]
+            _ = aux['cpu_capacity']
         server_resources = {
             server: {
                 'cpu_capacity': self.graph.nodes[server]['cpu_capacity'],
