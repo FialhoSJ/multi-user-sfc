@@ -129,7 +129,7 @@ class LuxembourgV2(TopologyBase):
 
         net.total_cpu_capacity = len(self.edge_computing_servers) * CPU_CAPACITY
         net.total_cache_capacity = len(self.edge_computing_servers) * CACHE_CAPACITY
-        net.total_bandwidth_capacity = len(self.topology) * BANDWIDTH_CAPACITY
+        net.total_bandwidth_capacity = (len(self.topology)-len(self.edge_computing_servers)) * BANDWIDTH_CAPACITY
         net.pre_get_single_source_minimum_latency_path()
 
         return net

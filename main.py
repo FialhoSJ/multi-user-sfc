@@ -38,7 +38,7 @@ def main():
     parser.add_argument(
         '--eco_effi_ratio',
         type=float,
-        default=1.0,
+        default=0.8,
         help='Define a proporção para slots econômicos (ex: 0.7 significa 70%% eco e 30%% eficiência).'
     )
     parser.add_argument('--share',  type=str, help='(str) whether to share sfs or not', default='y')
