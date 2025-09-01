@@ -9,6 +9,8 @@ from algorithms.networkUtils import get_available_shortest_path, calculate_compu
 
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 
+PUNICAO_POR_NAO_REUSO = 5
+
 
 class SFC_AllocationEnv(gymnasium.Env):
     """
@@ -62,7 +64,6 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.current_sfc: SFC = None
         self.current_vnf: VNF = None
         self.current_location: Union[int, str] = None
-        self.latency_used = 0
         self.latency_request = None
         
         
@@ -125,11 +126,12 @@ class SFC_AllocationEnv(gymnasium.Env):
         """
         # 1. Traduzir a ação para um nó do grafo
         chosen_server = self.current_sfc.dst_node if action == len(self.valid_nodes) - 1 else self.valid_nodes[action]
-        # print(f"""Escolhendo nó: {chosen_server} para a VNF: {self.current_vnf.id} do SFC: {self.current_sfc.id}
-        #       recursos do nó: cpu usada {self.graph.nodes[chosen_server]['cpu_used']}||cache {self.graph.nodes[chosen_server]['cache_used']}""")
-        band_req = self.get_band_req(self.current_sfc, self.current_vnf)
-        
+        vnf = self.current_vnf
+        band_req = self.service_requirements[vnf.id]['out_bw']
+
         current_location = self.current_location
+        total_cost = get_available_shortest_path(self.graph, current_location, chosen_server, band_req)
+        
         # 2. Tentar alocar recursos (CPU/cache) no nó escolhido
         if not self.allocate_resources_on_node(chosen_server, self.current_vnf):
             return self._fail_step('resource')
@@ -140,7 +142,6 @@ class SFC_AllocationEnv(gymnasium.Env):
             self.graph, self.current_location, chosen_server,
             band_req) if not self.cache_path[chosen_server] else self.cache_path[chosen_server]
             
-        path = self.cache_path[(current_location, chosen_server)]
         
         
         # print(path)
@@ -148,15 +149,10 @@ class SFC_AllocationEnv(gymnasium.Env):
         if not path or not self.allocate_bandwidth_along_path(path, band_req):
             return self._fail_step('bandwidth')
 
-        # 4. Calcular latência e verificar restrição
-        latency_total = calcular_latencia_total(path, self.graph, self.current_vnf)
-        self.latency_used += latency_total
-        if self.latency_used > self.latency_request:
-            return self._fail_step('latency')
 
         # 5. Calcular custo e recompensa
         self.servers_used.append(chosen_server)
-        total_cost = self.calculate_total_cost(chosen_server, path)
+        
         reward = -total_cost
 
         # 6. Atualizar estado para o próximo passo
@@ -241,7 +237,6 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         # --- 1. Preparação dos Vetores de Estado ---
         # Normaliza a latência já consumida
-        latencia_ja_usada = np.array([self.latency_used / self.latency_request], dtype=np.float32)
 
         # One-hot encode do último nó escolhido
         ultimo_no_escolhido = np.zeros(num_valid_nodes, dtype=np.float32)
@@ -287,7 +282,6 @@ class SFC_AllocationEnv(gymnasium.Env):
         return {
             "sfc_recursos_requeridos": sfc_recursos_requeridos,
             "vnf_atual": lista_vnf_atual,
-            "latencia_ja_usada": latencia_ja_usada,
             "ultimo_no_escolhido": ultimo_no_escolhido,
             "recursos_nos_validos": recursos_nodes,
         }
@@ -315,10 +309,6 @@ class SFC_AllocationEnv(gymnasium.Env):
         if not path:
             return False
 
-        # Verifica se a latência acumulada não estoura o limite do SFC
-        path_latency = calcular_latencia_total(path, self.graph, self.current_vnf)
-        if (self.latency_used + path_latency) > self.latency_request:
-            return False
         
         if len(path)>6:
             return False
@@ -459,8 +449,26 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.current_vnf = self.reverse_vnf_list[0]
         self.latency_request = 31  # TODO: Considerar tornar dinâmico
         self.current_location = self.current_sfc.dst_node
-        self.latency_used = 0
         self.servers_used = []
+
+        service_requirements = {} 
+        services = []  # Lista para guardar os nomes
+        sfs_dict = sfc.vnfs_dict
+        
+        for item in sfs_dict:
+            nome = item['name']
+            services.append(nome)  # Adiciona o nome à lista de nomes
+            service_requirements[nome] = {
+                'cpu': item['CPU'],
+                'cache': item['cache'],
+                'out_bw': item['out_bw'],
+                'in_bw': item['in_bw']}
+
+        if True:
+            services.append('dst')
+            service_requirements['dst'] = {'cpu': 0, 'cache': 0, 'out_bw': 0, 'in_bw': 0}  
+        
+        self.service_requirements = service_requirements
 
     def define_reverse_vnf_list(self, sfc: SFC) -> List[VNF]:
         """Retorna a lista de VNFs da SFC em ordem reversa (do destino para a origem)."""
@@ -505,61 +513,68 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         return result
 
-    def get_critical_link_info(self, path: List):
-        """Retorna a capacidade e o uso do link mais sobrecarregado em um caminho."""
-        if not path or len(path) < 2:
-            return 0, 0
+    def calculate_bw_lat_cost(self, vnf: VNF, server_id, path: List, bw_required: float):
+        # Latência computacional
+        latency_cost = calculate_computational_latency(self.graph, server_id, vnf)
 
-        min_available = float('inf')
-        crit_cap, crit_used = 0, 0
+        if not path or len(path) < 2:
+            return 0, latency_cost
+
+        bw_cost = 0
         for u, v in zip(path[:-1], path[1:]):
-            edge = self.graph.edges[u, v]
-            cap = edge.get('bandwidth_capacity', 0)
-            used = edge.get('bandwidth_used', 0)
-            available = cap - used
-            if available < min_available:
-                min_available = available
-                crit_cap, crit_used = cap, used
-        return crit_cap, crit_used
+            # Acesso à aresta da rede
+            edge = self.graph.edges.get((u, v), {})
+            bd_capacity = edge.get('bandwidth_capacity', None)
+            bd_used = edge.get('bandwidth_used', 0)
+
+            # Calcula latência do enlace
+            latency_cost += calculate_latency_betwen_nodes(self.graph, u, v, vnf)
+
+            # Se a capacidade de banda for insuficiente, retorna custo infinito
+            if bd_capacity is None or bd_capacity == 0 or bw_required + bd_used > bd_capacity:
+                return float("inf"), latency_cost
+
+            # Cálculo do custo de banda
+            link_cost = (bw_required + bd_used) / bd_capacity
+            bw_cost += link_cost
+
+        return bw_cost, latency_cost
+
     
     
    
-    def calculate_total_cost(self, server_id, path):
+    def calculate_total_cost(self,sfc ,vnf: VNF, server_id, bw_required,path):
         """Calcula o custo total da alocação de um serviço."""
-        node = self.graph.nodes[server_id]
 
-        reusable = self.is_reusable_at_node(self.current_sfc, self.graph, server_id, self.current_vnf)
-        # Custo de CPU e Cache (zero se houver reuso)
+        node = self.graph.nodes[server_id]
+        reusable = self.is_reusable_at_node(sfc, self.graph, server_id,vnf)
         cpu_capacity = node["cpu_capacity"] or 1
-        cpu_cost = (node["cpu_used"] / cpu_capacity + 1) ** self.pesos_fatores['cpu'] if not reusable else 0
-        
         cache_capacity = node["cache_capacity"] or 1
-        cache_cost = (node["cache_used"] / cache_capacity + 1) ** self.pesos_fatores['cache'] if not reusable else 0
+        vnf_id = vnf.id
+        cpu_request = self.service_requirements[vnf_id]['cpu']
+        cache_request = self.service_requirements[vnf_id]['cache']
+
         
-        # Custo de Rede (Latência e Banda)
-        latency_cost = 0
-        bandwidth_cost = 0
-        tamanho_path = len(path)
-        if tamanho_path >= 2:
-            latency_request = self.latency_request or 1
-            latency_cost = ((self.latency_used / latency_request) + 1) ** self.pesos_fatores['lat']
-            
-            # Custo de banda baseado no link crítico do caminho (LINHAS DESCOMENTADAS)
-            cap_band, used_band = self.get_critical_link_info(path)
-            cap_band = cap_band or 1  # Evita divisão por zero
-            bandwidth_cost = ((used_band / cap_band) + 1) ** self.pesos_fatores['band']
-            bandwidth_cost += (tamanho_path/13)** self.pesos_fatores['band']  
+        cpu_cost = ((node["cpu_used"] + cpu_request) / cpu_capacity) 
+        cache_cost = ((node["cache_used"] + cache_request) / cache_capacity) 
+
+        if not reusable:
+            cpu_cost+= PUNICAO_POR_NAO_REUSO
+            cache_cost+= PUNICAO_POR_NAO_REUSO
+        
+        bw_cost, lat_cost = self.calculate_bw_lat_cost(vnf, server_id, path, bw_required)
  
-        return sum([cpu_cost, cache_cost, latency_cost, bandwidth_cost])
+        return cpu_cost * self.pesos_fatores['cpu'] + cache_cost * self.pesos_fatores['cache'] + \
+        bw_cost * self.pesos_fatores['band'] + lat_cost * self.pesos_fatores['lat']
             
-def calcular_latencia_total(path:list, graph: Graph, vnf: VNF = None) -> float:
-    """
-    Calcula a latência total de um caminho considerando os links e a latência computacional.
-    """
-    edge_latency = 0
-    if len(path) > 1:
-        for u, v in zip(path[:-1], path[1:]):
-            edge_latency += calculate_latency_betwen_nodes(graph, u, v, vnf)
-    computational_latency = calculate_computational_latency(graph, path[-1], vnf)
-    total_latency = edge_latency + computational_latency
-    return total_latency if total_latency >= 0 else 0.0 
+# def calcular_latencia_total(path:list, graph: Graph, vnf: VNF = None) -> float:
+#     """
+#     Calcula a latência total de um caminho considerando os links e a latência computacional.
+#     """
+#     edge_latency = 0
+#     if len(path) > 1:
+#         for u, v in zip(path[:-1], path[1:]):
+#             edge_latency += calculate_latency_betwen_nodes(graph, u, v, vnf)
+#     computational_latency = calculate_computational_latency(graph, path[-1], vnf)
+#     total_latency = edge_latency + computational_latency
+#     return total_latency if total_latency >= 0 else 0.0 

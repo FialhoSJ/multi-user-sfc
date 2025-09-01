@@ -24,9 +24,8 @@ class LuxembourgV2(TopologyBase):
         self.nodes = list(range(1, 35))
         
         self.edge_computing_servers = [25, 8, 14, 28, 2, 5, 9, 23, 18, 6, 33, 34]
-        self.router_servers = [server for server in self.nodes if server not in self.edge_computing_servers and server != 0]
         self.labels_nodes = {"high_level": [25, 8, 14, 28], "normal_level": [ 2, 5, 9, 23],
-                             "low_level": [18, 6, 33, 34]}  # [25, 8, 14, 28, 2, 5, 9, 23, 18, 6, 33, 34]
+                             "low_level": [18, 6, 33, 34]} 
 
         self.positions = {0: (5000, 6000), 1: (2884, 6739), 2: (8081, 4302), 3: (8881, 4995), 4: (8956, 2900),
                           5: (9693, 4040), 6: (4351, 6749), 7: (5341, 7590), 8: (6053, 8420), 9: (6230, 5831),
@@ -42,90 +41,101 @@ class LuxembourgV2(TopologyBase):
                          (25, 28), (28, 14), (14, 8), (8, 6), (6, 33), (33, 34)]
         
         # Adiciona os nós de eficiência conectados entre si
+
+        
+        
         for node in self.edge_computing_servers:
-            self.topology.append((node, f"{node}_effi"))
+            self.topology.append((node, node+0.1))
+
+        aux = []
+        for chave, valor in self.positions.items():
+            if chave in self.edge_computing_servers:
+                aux.append((chave,valor))
+        for tupla in aux:
+            chave, valor = tupla
+            self.positions[chave+0.1] = valor
+
+        cont = len(self.edge_computing_servers)
+        for i in range(cont):
+            self.edge_computing_servers.append(self.edge_computing_servers[i]+0.1)
+
+        for chave, valor in self.labels_nodes.items():
+            aux=valor[:]
+            for node in aux:
+                valor.append(node+0.1)
+
+        for node in self.edge_computing_servers:
+            if node not in self.nodes:
+                self.nodes.append(node)
+        debug = 1
+
 
     def generate_substrate_network(self):
         net = Net2()
 
-        eco_ratio_cpu = self.eco_effi_ratio * self.cpu_capacity
-        eco_ratio_cache = self.eco_effi_ratio * self.cache_capacity
-        effi_ratio_cpu = self.cpu_capacity - eco_ratio_cpu
-        effi_ratio_cache = self.cache_capacity - eco_ratio_cache
+        quantidade_cpu_eco = self.eco_effi_ratio * self.cpu_capacity
+        quantidade_cache_eco = self.eco_effi_ratio * self.cache_capacity
+        quantidade_cpu_effi = self.cpu_capacity - quantidade_cpu_eco
+        quantidade_cache_effi = self.cache_capacity - quantidade_cache_eco
+
+        boost_effi_factor = 1.2
 
         # Adiciona os nós
         net.add_node(0, node_type='router', cpu_capacity=0.0)
 
-        for node in self.edge_computing_servers:
-            # Para o nó de eficiência
-            if node in self.labels_nodes["normal_level"]:
-                boost_slot_effi = 1.2
+        for node in self.nodes:
 
-                net.add_node(node, node_type='server', cpu_capacity=eco_ratio_cpu,
-                             cache_capacity=eco_ratio_cache, position=self.positions[node], 
-                             ips=random.uniform(0.1, 0.2))
-                
-                net.add_node(f"{node}_effi", node_type='server', cpu_capacity=effi_ratio_cpu,
-                             cache_capacity=effi_ratio_cache, position=self.positions[node], 
-                             ips=random.uniform(0.1, 0.2) * boost_slot_effi)
-                
-                self.positions[f"{node}_effi"] = self.positions[node]
+            if node in self.edge_computing_servers:
+                # Para o nó de eficiência
+                if node in self.labels_nodes['normal_level']:
+                    level_factor = 1
+                elif node in self.labels_nodes['low_level']:
+                    level_factor = 0.75
+                else:
+                    level_factor = 1.25
 
-                net.add_edge(node, f"{node}_effi", bandwidth_capacity=float('inf'), latency=0)
+                
+               
+                if node%1==0:
+                    quanti_cpu = quantidade_cpu_eco * level_factor
+                    quanti_cache = quantidade_cache_eco * level_factor
+                    boost_effi = boost_effi_factor * level_factor
+                
+                else:
+                    quanti_cpu = quantidade_cpu_effi * level_factor
+                    quanti_cache = quantidade_cache_effi * level_factor
+                    boost_effi = 1 * level_factor
+                net.add_node(node, node_type='server', cpu_capacity=quanti_cpu,
+                            cache_capacity=quanti_cache, position=self.positions[node], 
+                            ips=random.uniform(0.1, 0.2) * boost_effi)
+                
+                
+                
+
                 net.nodes_reliability[node] = random.uniform(0.95, 0.99)
 
-            elif node in self.labels_nodes["low_level"]:
-                aux_cpu_eco = 0.75 * eco_ratio_cpu
-                aux_cache_eco = 0.75 * eco_ratio_cache
-                aux_cpu_effi = 0.75 * effi_ratio_cpu
-                aux_cache_effi = 0.75 * effi_ratio_cache
+              
 
-                net.add_node(node, node_type='server', cpu_capacity=aux_cpu_eco, 
-                             cache_capacity=aux_cache_eco, position=self.positions[node], 
-                             ips=random.uniform(0.1, 0.2) * 0.75)
-                
-                net.add_node(f"{node}_effi", node_type='server', cpu_capacity=aux_cpu_effi, 
-                             cache_capacity=aux_cache_effi, position=self.positions[node], 
-                             ips=random.uniform(0.1, 0.2) * 0.75 * 1.2)
+               
 
-                net.add_edge(node, f"{node}_effi", bandwidth_capacity=float('inf'), latency=0)
-                net.nodes_reliability[node] = random.uniform(0.95, 0.99)
+            else:
+                net.add_node(node, node_type='router',w_channel_capacity=self.w_bandwidth_capacity,position=self.positions[node])
 
-                self.positions[f"{node}_effi"] = self.positions[node]
-
-
-            elif node in self.labels_nodes["high_level"]:
-                aux_cpu_eco = 1.25 * eco_ratio_cpu
-                aux_cache_eco = 1.25 * eco_ratio_cache
-                aux_cpu_effi = 1.25 * effi_ratio_cpu
-                aux_cache_effi = 1.25 * effi_ratio_cache
-
-                net.add_node(node, node_type='server', cpu_capacity=aux_cpu_eco, 
-                             cache_capacity=aux_cache_eco, position=self.positions[node], 
-                             ips=random.uniform(0.1, 0.2) * 1.25)
-                
-                net.add_node(f"{node}_effi", node_type='server', cpu_capacity=aux_cpu_effi, 
-                             cache_capacity=aux_cache_effi, position=self.positions[node], 
-                             ips=random.uniform(0.1, 0.2) * 1.25 * 1.2)
-
-                net.add_edge(node, f"{node}_effi", bandwidth_capacity=float('inf'), latency=0)
-                net.nodes_reliability[node] = random.uniform(0.95, 0.99)
-
-                self.positions[f"{node}_effi"] = self.positions[node]
-
-        for router in self.router_servers:
-            net.add_node(router, node_type='router',w_channel_capacity=self.w_bandwidth_capacity,position=self.positions[router])
+        
 
 
         # Adiciona as arestas com latência baseada na distância euclidiana
         for u, v in self.topology:
-            latency_ms = random.uniform(1, 2)
-            pos_u = self.positions[u]
-            pos_v = self.positions[v]
-            dist = math.dist(pos_u, pos_v)  # metros
-            latency_ms = (dist / LIGHT_SPEED) * 1000  # converte para ms
-            latency_ms += round(random.uniform(0, 0.5), 3)  # simula pequena variação de latência
-            net.add_edge(u, v, bandwidth_capacity=self.bandwidth_capacity, latency=latency_ms)
+            if u==(v+0.1) or v==(u+0.1):
+                net.add_edge(u, v, bandwidth_capacity=float("inf"), latency=0)
+            else:
+                latency_ms = random.uniform(1, 2)
+                pos_u = self.positions[u]
+                pos_v = self.positions[v]
+                dist = math.dist(pos_u, pos_v)  # metros
+                latency_ms = (dist / LIGHT_SPEED) * 1000  # converte para ms
+                latency_ms += round(random.uniform(0, 0.5), 3)  # simula pequena variação de latência
+                net.add_edge(u, v, bandwidth_capacity=self.bandwidth_capacity, latency=latency_ms)
 
         net.total_cpu_capacity = len(self.edge_computing_servers) * CPU_CAPACITY
         net.total_cache_capacity = len(self.edge_computing_servers) * CACHE_CAPACITY
