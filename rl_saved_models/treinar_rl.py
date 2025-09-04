@@ -1,9 +1,16 @@
+#=====Mecanismo para serolver importação relativa==================
+import sys
 import os
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.append(parent_dir)
+#============================
+
 import gymnasium as gym
 import numpy as np
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.vec_env import SubprocVecEnv
+from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
 # NOVO: Importação para reconfigurar o logger
 from stable_baselines3.common.logger import configure
 
@@ -72,9 +79,9 @@ if __name__ == '__main__':
     os.makedirs(save_dir, exist_ok=True)
 
     # --- 2. CRIAÇÃO DOS AMBIENTES ---
-    num_cpu = 10
+    num_cpu = 1
     print(f"Iniciando com {num_cpu} processos paralelos.")
-    train_env = make_vec_env(carregar_dados_do_ambiente, n_envs=num_cpu, vec_env_cls=SubprocVecEnv)
+    train_env = make_vec_env(carregar_dados_do_ambiente, n_envs=num_cpu, vec_env_cls=DummyVecEnv) # <<-- USE DUMMYVECENV
     
     eval_env = carregar_dados_do_ambiente()
     eval_env = Monitor(eval_env)
@@ -114,15 +121,15 @@ if __name__ == '__main__':
     )
     
     # Define quantos passos de treinamento adicionais serão executados
-    additional_timesteps = 150_000
+    additional_timesteps = 100_000
     
     print(f"--- Iniciando/Continuando o treinamento por mais {additional_timesteps} passos ---")
-    # model.learn(
-    #     total_timesteps=additional_timesteps,
-    #     callback=eval_callback,
-    #     tb_log_name="MaskablePPO_SFC_Allocation_Parallel",
-    #     reset_num_timesteps=False  # ESSENCIAL: Não reseta o contador de passos
-    # )
+    model.learn(
+        total_timesteps=additional_timesteps,
+        callback=eval_callback,
+        tb_log_name="MaskablePPO_SFC_Allocation_Parallel",
+        reset_num_timesteps=False  # ESSENCIAL: Não reseta o contador de passos
+    )
     print("--- Treinamento finalizado ---")
 
     # --- 5. SALVAR O MODELO ATUALIZADO ---

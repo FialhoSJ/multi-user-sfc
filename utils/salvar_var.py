@@ -60,7 +60,7 @@ def carregar_lista(nome_lista, pasta='variaveis_salvas'):
             try:
                 return pickle.load(f)
             except (pickle.UnpicklingError, EOFError):
-                # print(f"Aviso: Arquivo '{caminho_arquivo}' encontrado vazio ou corrompido. Retornando lista vazia.")
+                print(f"Aviso: Arquivo '{caminho_arquivo}' encontrado vazio ou corrompido. Retornando lista vazia.")
                 return []
     else:
         return []

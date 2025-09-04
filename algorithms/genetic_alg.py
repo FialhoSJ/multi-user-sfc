@@ -28,6 +28,7 @@ import numpy
 from multiprocessing import Pool
 from algorithms.networkUtils import get_link_bandwidth_free,pre_get_single_source_minimum_latency_path, get_link_latency,get_shortest_path, get_available_shortest_path
 from algorithms.networkUtils import calculate_computational_latency,calculate_latency_betwen_nodes
+from core.sfc import SFC
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 
 
@@ -111,7 +112,7 @@ class Genetic(Algorithm):
         self.single_source_minimum_latency_path = pre_get_single_source_minimum_latency_path(self.graph)
         return self.graph
     
-    def install_SFC(self, sfc):
+    def install_SFC(self, sfc: SFC):
         self.sfc = sfc
         self.route_info = {}
         self.node_info = {}
@@ -384,10 +385,10 @@ class Genetic(Algorithm):
         # Registrar o método de paralelização
     
         # Parâmetros do algoritmo genético
-        population_size = 30
+        population_size = 15
         crossover_probability = 0.7
         mutation_probability = 0.2
-        number_of_generations = 50
+        number_of_generations = 25
 
         # Inicialização da população
         pop = toolbox.population(n=population_size)
