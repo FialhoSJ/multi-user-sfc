@@ -2,6 +2,7 @@ import networkx as nx
 import math
 import copy 
 import random
+import numpy as np
 
 def calculate_5g_latency(
     data,
@@ -116,6 +117,52 @@ def get_available_shortest_path(graph, source, target, bandwidth_required, round
             return nx.dijkstra_path(subgraph, source, target, weight='latency')
     except nx.NetworkXNoPath:
         # Ocorre se não houver caminho com peso finito entre source e target
+        return []
+    except nx.NodeNotFound:
+        return []
+    
+
+import networkx as nx
+import numpy as np # Importe o numpy para usar o infinito
+
+def get_available_shortest_path_fast(graph, source, target, bandwidth_required, rounded=False, latencia_saltos=False):
+    """
+    Obtém o caminho mais curto entre source e target de forma eficiente,
+    usando uma função de peso que "poda" links sem banda durante a busca do Dijkstra.
+    """
+
+    def weight_func(u, v, d):
+        """
+        Função de peso customizada para o Dijkstra.
+        'd' é o dicionário de atributos da aresta (edge).
+        """
+        edge_data = graph.edges[u, v]
+        available_bw = edge_data.get('bandwidth_capacity', 0) - edge_data.get('bandwidth_used', 0)
+
+        # Se a banda for insuficiente, o custo deste link é "infinito",
+        # fazendo com que o Dijkstra o evite.
+        if available_bw < bandwidth_required:
+            return np.inf
+
+        # Se a banda for suficiente, retorna o peso de latência desejado.
+        if rounded:
+            # Você precisaria definir a função latency_rounded em algum lugar
+            # return latency_rounded(u, v, d) 
+            # Assumindo 'latency' por enquanto
+            return edge_data.get('latency', 1)
+        elif latencia_saltos:
+            return 1 # Peso padrão de 1 por salto
+        else:
+            return edge_data.get('latency', 1)
+
+    try:
+        # Executa o Dijkstra no grafo original, mas com a lógica de poda
+        # embutida na função de peso.
+        path = nx.dijkstra_path(graph, source, target, weight=weight_func)
+        return path
+    except nx.NetworkXNoPath:
+        # Esta exceção agora é levantada se todos os caminhos possíveis
+        # tiverem um link com peso infinito (sem banda).
         return []
     except nx.NodeNotFound:
         return []

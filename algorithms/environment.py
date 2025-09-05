@@ -4,8 +4,9 @@ import numpy as np
 from networkx import Graph
 from typing import Union, List, Dict
 from core.sfc import SFC, VNF
-from algorithms.networkUtils import get_available_shortest_path, calculate_computational_latency, calculate_latency_betwen_nodes
+from algorithms.networkUtils import get_available_shortest_path, calculate_computational_latency, calculate_latency_betwen_nodes, get_available_shortest_path_fast
 
+import math
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 PUNICAO_POR_NAO_REUSO = 5
 
@@ -43,7 +44,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.list_graph = list_graph
         self.list_sfc = list_sfc
         self.pesos_fatores = pesos_fatores if pesos_fatores is not None else \
-                             {"cpu": 3, "cache": 3, "lat": 1, "band": 5}
+                             {"cpu": 2, "cache": 2, "lat": 0.1, "band": 2}
         
         self.is_training = is_training
         if self.is_training:
@@ -125,7 +126,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         vnf = self.current_vnf
         band_req = self.service_requirements[vnf.id]['out_bw']
         current_location = self.current_location
-        path = get_available_shortest_path(self.graph, current_location, chosen_server, band_req)
+        path = get_available_shortest_path_fast(self.graph, current_location, chosen_server, band_req)
         total_cost = self.calculate_total_cost(self.current_sfc, vnf, chosen_server, band_req, path )
         
         # 2. Tentar alocar recursos (CPU/cache) no nó escolhido
@@ -138,6 +139,14 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.servers_used.append(chosen_server)
         
         reward = -total_cost
+
+         # ======================= ADICIONE ESTA VERIFICAÇÃO =======================
+        if math.isnan(reward) or math.isinf(reward):
+            print(f"--- DEBUG: Recompensa inválida detectada! Valor: {reward} ---")
+            print(f"Custo total calculado: {total_cost}")
+            assert not (math.isnan(reward) or math.isinf(reward))
+        # =======================================================================
+
 
         # 6. Atualizar estado para o próximo passo
         self.current_location = chosen_server
@@ -208,7 +217,7 @@ class SFC_AllocationEnv(gymnasium.Env):
                 # 2. Reusabilidade do nó
 
 
-                path = get_available_shortest_path(self.graph, current_location, node_id, bw_required)
+                path = get_available_shortest_path_fast(self.graph, current_location, node_id, bw_required)
                 
                 # 4. Verifica a reusabilidade da VNF no nó
                 if not path:  # Caso não haja caminho
@@ -221,47 +230,73 @@ class SFC_AllocationEnv(gymnasium.Env):
                     features[i, 4] = bd_cost
                     features[i, 5] = latency_cost
             
+
+            if np.any(np.isnan(features)) or np.any(np.isinf(features)):
+                print("--- DEBUG: NaN ou Inf detectado no array 'features'! ---")
+                print(features)
+                # O assert vai quebrar o programa aqui, mostrando a causa
+                assert not (np.any(np.isnan(features)) or np.any(np.isinf(features)))
+            # =======================================================================
+
             return features
         else:
+
+            if np.any(np.isnan(features)) or np.any(np.isinf(features)):
+                print("--- DEBUG: NaN ou Inf detectado no array 'features'! ---")
+                print(features)
+                # O assert vai quebrar o programa aqui, mostrando a causa
+                assert not (np.any(np.isnan(features)) or np.any(np.isinf(features)))
+            # =======================================================================
+
             return features
 
 
     def _get_obs(self) -> Dict[str, np.ndarray]:
-        """Monta a observação do ambiente de forma estruturada e legível."""
-
+        """
+        Monta a observação do ambiente de forma estruturada e eficiente usando NumPy.
+        """
         valid_nodes = self.valid_nodes
         num_valid_nodes = len(valid_nodes)
 
+        # --- 1. Determinação do Último Nó Escolhido ---
         ultimo_no_escolhido = np.zeros(num_valid_nodes, dtype=np.float32)
         current_loc = self.current_location if not isinstance(self.current_location, str) else 'M'
+        
+        # O destino é tratado como o último índice
         idx_loc = valid_nodes.index(current_loc) if current_loc != 'M' else num_valid_nodes - 1
         ultimo_no_escolhido[idx_loc] = 1.0
 
-        # --- 2. Coleta de Features dos Nós Válidos ---
-        # current_band_req = self.get_band_req(self.current_sfc,self.current_vnf)
-        
-        node_features_list = []
-        features = self.features
-        # Usa a função auxiliar para obter features de cada nó
-        for i, _ in enumerate(valid_nodes):
+        # --- 2. Coleta de Features dos Nós Válidos (Versão Otimizada) ---
+        # self.features é um array NumPy com as colunas:
+        # [0:cpu, 1:cache, 2:reusable, 3:path(não usado aqui), 4:band, 5:latency, 6:is_invalid]
+
+        # Define as colunas que queremos selecionar do array self.features
+        # para formar nossa observação.
+        indices_das_features = [0, 1, 2, 4, 5]
+
+        # Usa o fatiamento avançado do NumPy para selecionar todas as linhas
+        # e apenas as colunas desejadas de uma só vez.
+        # Isso elimina a necessidade de um loop em Python, sendo muito mais rápido.
+        recursos_nodes = self.features[:, indices_das_features].astype(np.float32)
+
+        # Normaliza a coluna de latência (que agora é a coluna de índice 4 no novo array)
+        # A operação é feita em toda a coluna de uma vez.
+        recursos_nodes[:, 4] /= 100.0
 
 
-            cpu_f = features[i,0]
-            cache_f = features[i,1]
-            reusable_f = features[i,2]
-            band_f = features[i,4]
-            latency_f = features[i,5]/100
-            node_f = [cpu_f, cache_f, reusable_f, band_f, latency_f]
-
-            node_features_list.append(node_f)
-        
-        recursos_nodes = np.array(node_features_list, dtype=np.float32)
-
-        return {
-
+        obs = {
             "ultimo_no_escolhido": ultimo_no_escolhido,
             "recursos_nos_validos": recursos_nodes,
         }
+
+
+        for key, value in obs.items():
+            if np.any(np.isnan(value)) or np.any(np.isinf(value)):
+                print(f"--- DEBUG: NaN ou Inf detectado na observação final (chave: {key})! ---")
+                print(value)
+                assert not (np.any(np.isnan(value)) or np.any(np.isinf(value)))
+
+        return obs
 
 
 
@@ -287,7 +322,7 @@ class SFC_AllocationEnv(gymnasium.Env):
             1 if self.features[i, 6] == 0 else 0
             for i, _ in enumerate(self.valid_nodes)
         ]
-        if 1 not in mask:
+        if np.nan in mask:
             epa = 1
         return np.array(mask, dtype=np.int8)
 
@@ -467,7 +502,7 @@ class SFC_AllocationEnv(gymnasium.Env):
 
             # Se a capacidade de banda for insuficiente, retorna custo infinito
             if bd_capacity is None or bd_capacity == 0 or bw_required + bd_used > bd_capacity:
-                return float("inf"), latency_cost
+                return float(999), latency_cost
 
             # Cálculo do custo de banda
             link_cost = (bw_required + bd_used) / bd_capacity

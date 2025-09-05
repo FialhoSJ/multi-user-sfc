@@ -71,18 +71,43 @@ class Kuririn:
 
     def install_substrate_network(self, graph, shareable_sfs=[]):
         self.graph = graph
+        self.valid_nodes = [node for node in self.graph.nodes() if self.graph.nodes[node]['type'] != 'router']
 
-    def install_SFC(self, sfc):
+        if self.precomputed_paths is None:
+            self.precomputed_paths = dict(nx.all_pairs_dijkstra_path(self.graph, weight='weight')) 
+
+
+    def install_SFC(self, sfc: SFC):
         self.sfc = sfc
+        self.route_info = {}
+        self.node_info = {}
+        self.latency = None
+        is_backup = True if sfc.id.split("_")[2]=='backup' else False
+
         self.latency_request = sfc.get_latency_request()
-        # self.dst_vnf = self.sfc.get_dst_vnf()
-        # if self.env is None:
-        #     self.env = SFC_AllocationEnv(
-        #         valid_nodes=self.valid_nodes,
-        #         list_graph=[self.graph],
-        #         list_sfc=[self.sfc]
-        #     )
-        return sfc
+        self.min_latency  = 0 
+
+        service_requirements = {} 
+        services = []  # Lista para guardar os nomes
+        sfs_dict = sfc.vnfs_dict
+        
+        for item in sfs_dict:
+            nome = item['name']
+            services.append(nome)  # Adiciona o nome à lista de nomes
+            service_requirements[nome] = {
+                'CPU': item['CPU'],
+                'cache': item['cache'],
+                'out_bw': item['out_bw'],
+                'in_bw': item['in_bw']}
+
+        if not is_backup:
+            services.append('dst')
+            service_requirements['dst'] = {'CPU': 0, 'cache': 0, 'out_bw': 0, 'in_bw': 0}  
+        
+        self.service_requirements = service_requirements
+        self.services = services
+
+        return self.sfc
 
     def get_latency(self):
         return self.latency
@@ -192,12 +217,10 @@ class Kuririn:
             for key, value in self.env.allocation_results.items()
         }
 
-        current_location = self.env.current_location
-        if (current_location, 0) not in self.precomputed_paths:
-            self.precomputed_paths[(current_location, 0)] = nx.dijkstra_path(self.graph, current_location, 0, weight='weight')
-
-        path_to_src = self.precomputed_paths[(current_location, 0)]
-        route_info['src'] = list(reversed(path_to_src))
+        src_node = next(reversed(route_info.values()))[0]
+        
+        path_to_src = list(reversed(nx.dijkstra_path(self.graph, src_node, 0, weight='weight')))
+        route_info['src'] = path_to_src
 
         # Calcula a latência total (excluindo os nós, contando apenas os links)
         total_latency = self.env.latency_used + (len(path_to_src) - 1)
