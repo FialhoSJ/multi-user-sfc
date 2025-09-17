@@ -63,9 +63,18 @@ class SFCInstatiator:
             alg_success = algorithm.start_algorithm()
             s2 = time.time()
             print(f"Algorithm {self.alg.name} Take time     :   {round((s2-s)*1000,3)} ms")
-            salvar_variavel(sfc, "list_sfc")
-            salvar_variavel(graph, "list_graph") 
-            
+            if int(sfc.id.split('_')[-1]) <=12.5:
+                salvar_variavel(sfc, "list_sfc1")
+                salvar_variavel(graph, "list_graph1")
+            elif int(sfc.id.split('_')[-1]) <=25:
+                salvar_variavel(sfc, "list_sfc2")
+                salvar_variavel(graph, "list_graph2")    
+            elif int(sfc.id.split('_')[-1]) <=37.5:
+                salvar_variavel(sfc, "list_sfc3")
+                salvar_variavel(graph, "list_graph3")  
+            else:
+                salvar_variavel(sfc, "list_sfc4")
+                salvar_variavel(graph, "list_graph4")  
             
             if alg_success: # No geral o algoritmo só vai dar erro caso tenha feito alocação indevida
                 total_latency = None

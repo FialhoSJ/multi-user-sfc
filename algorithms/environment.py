@@ -8,7 +8,7 @@ from algorithms.networkUtils import get_available_shortest_path, calculate_compu
 
 import math
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
-PUNICAO_POR_NAO_REUSO = 5
+PUNICAO_POR_NAO_REUSO = 10
 
 
 class SFC_AllocationEnv(gymnasium.Env):
@@ -44,7 +44,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.list_graph = list_graph
         self.list_sfc = list_sfc
         self.pesos_fatores = pesos_fatores if pesos_fatores is not None else \
-                             {"cpu": 2, "cache": 2, "lat": 0.1, "band": 2}
+                             {"cpu": 3, "cache": 3, "lat": 0.1, "band": 2.75}
         
         self.is_training = is_training
         if self.is_training:

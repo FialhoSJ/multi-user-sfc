@@ -29,8 +29,11 @@ def carregar_dados_do_ambiente():
     Carrega os dados e inicializa o ambiente SFC_AllocationEnv.
     """
     try:
-        list_graph = carregar_lista("list_graph")
-        list_sfc = carregar_lista("list_sfc")
+        list_graph = []
+        list_sfc = []
+        for i in range(1,5):
+            list_graph = list_graph+carregar_lista(f"list_graph{i}")
+            list_sfc = list_sfc+ carregar_lista(f"list_sfc{i}")
     except FileNotFoundError as e:
         print(f"Erro ao carregar dados: {e}")
         print("Certifique-se que os arquivos de dados existem.")
