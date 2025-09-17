@@ -44,7 +44,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.list_graph = list_graph
         self.list_sfc = list_sfc
         self.pesos_fatores = pesos_fatores if pesos_fatores is not None else \
-                             {"cpu": 3, "cache": 3, "lat": 0.1, "band": 2.75}
+                             {"cpu": 3, "cache": 3, "lat": 0.1, "band": 2.625}
         
         self.is_training = is_training
         if self.is_training:
