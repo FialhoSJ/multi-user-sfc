@@ -571,6 +571,12 @@ class Net2:
     def get_cpu_utilization_rate(self):
         return self.total_cpu_used*1.0/self.total_cpu_capacity
     
+    def get_cpu_used(self):
+        return self.total_cpu_used
+    
+    def get_cache_used(self):
+        return self.total_cache_used
+    
     def get_cache_utilization_rate(self):
         return self.total_cache_used*1.0/self.total_cache_capacity
 
@@ -624,6 +630,9 @@ class Net2:
             media = np.mean(success_arr)
             media_porc = media*100
             return media_porc
+        
+    def get_number_actives_sfcs(self):
+        return len(self.sfc_dict)
 
     def print_out_acceptance_information(self,success_arr):
         if len(success_arr) != 0: 

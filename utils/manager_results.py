@@ -22,6 +22,8 @@ def create_directory_if_not_exists(path):
 def create_output_dir(args,topology):
     ec_servers = topology.get_topology_info()['ec_servers']
     edges = topology.get_topology_info()['edges']
+
+    alg_name = args.alg.replace("_","")
     
     availability = args.ava
     
@@ -63,7 +65,7 @@ def create_output_dir(args,topology):
     
     dir = f'results/results_flows'
     res_dir = f'results/results_resilient'
-    directory_path = os.path.join(dir, f'{args.alg}_s_{args.n_sessions}_p_{args.n_players}_a_{availability}_c_{number_of_fails}')
+    directory_path = os.path.join(dir, f'{alg_name}_s_{args.n_sessions}_p_{args.n_players}_a_{availability}_c_{number_of_fails}')
     res_directory_path = os.path.join(res_dir, f'{args.alg}_s_{args.n_sessions}_p_{args.n_players}_a_{availability}_c_{number_of_fails}')
     create_directory_if_not_exists(directory_path)
     create_directory_if_not_exists(res_directory_path)
@@ -100,8 +102,8 @@ def create_output_dir(args,topology):
         "trascode_bw",
         "crashing",
         "acceptance_rate",
-        "reuse_cpu_rate",
-        "reuse_cache_rate",
+        "cpu_per_flow",
+        "cache_per_flow",
     ]
 
     res_fields = ["crash_trial","sfc_id","vnf_id","recover_success","backup_success","backup_efficient","latency_diff","latency_deg","resource_deg","time_to_recover"]
@@ -158,7 +160,7 @@ class OutputWritter:
                 str(time_to_recover) + "\n"
             file.write(line)
 
-    def output_flows(self,substrate_network: Net2,wait_time,running_players_sessions,counter,remaining_time,current_time, sfc_id, 
+    def output_flows(self,substrate_network: Net2,wait_time,number_sfcs,running_players_sessions,counter,remaining_time,current_time, sfc_id, 
                      latency, run_duration, is_success,fail_reason,bw_transcode,acceptance_rate, latency_diff=None,crashing=False,alg_name='ga'):
         cpu_utilization = round(substrate_network.get_cpu_utilization_rate(), 4)
         cache_utilization = round(substrate_network.get_cache_utilization_rate(), 4)
@@ -181,6 +183,14 @@ class OutputWritter:
         # active_links_bw = round(substrate_network.get_active_links_bw_rate(), 4)
 
         running_sfcs, running_players, running_sessions = running_players_sessions
+        running_sfcs = number_sfcs
+
+        cpu_used = substrate_network.get_cpu_used()
+        cache_used = substrate_network.get_cache_used()
+
+        cpu_per_flow = cpu_used/running_sfcs
+
+        cache_per_flow = cache_used/running_sfcs
 
         cpu_saved =  substrate_network.total_cpu_saved
         cache_saved =  substrate_network.total_cache_saved
@@ -244,8 +254,8 @@ class OutputWritter:
             f"{bw_transcode},"
             f"{crashing},"
             f"{acceptance_rate},"
-            f"{reuse_cpu_rate},"
-            f"{reuse_cache_rate}\n"
+            f"{cpu_per_flow},"
+            f"{cache_per_flow}\n"
         )
 
         with open(self.flows_file, "a") as file:

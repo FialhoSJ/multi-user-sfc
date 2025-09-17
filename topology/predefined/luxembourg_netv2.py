@@ -105,13 +105,16 @@ class LuxembourgV2(TopologyBase):
                     quanti_cpu = quantidade_cpu_effi * level_factor
                     quanti_cache = quantidade_cache_effi * level_factor
                     boost_effi = 1 * level_factor
+
+                
                 net.add_node(node, node_type='server', cpu_capacity=quanti_cpu,
                             cache_capacity=quanti_cache, position=self.positions[node], 
                             ips=random.uniform(0.1, 0.2) * boost_effi)
                 
                 
                 
-
+                net.total_cpu_capacity += quanti_cpu
+                net.total_cache_capacity += quanti_cache
                 net.nodes_reliability[node] = random.uniform(0.95, 0.99)
 
               
@@ -137,8 +140,8 @@ class LuxembourgV2(TopologyBase):
                 latency_ms += round(random.uniform(0, 0.5), 3)  # simula pequena variação de latência
                 net.add_edge(u, v, bandwidth_capacity=self.bandwidth_capacity, latency=latency_ms)
 
-        net.total_cpu_capacity = len(self.edge_computing_servers) * CPU_CAPACITY
-        net.total_cache_capacity = len(self.edge_computing_servers) * CACHE_CAPACITY
+        # net.total_cpu_capacity = len(self.edge_computing_servers) * CPU_CAPACITY
+        # net.total_cache_capacity = len(self.edge_computing_servers) * CACHE_CAPACITY
         net.total_bandwidth_capacity = (len(self.topology)-len(self.edge_computing_servers)) * BANDWIDTH_CAPACITY
         net.pre_get_single_source_minimum_latency_path()
 

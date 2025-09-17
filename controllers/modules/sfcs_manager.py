@@ -64,26 +64,6 @@ class SFCManager:
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     # def undeploy_sfc(self, sfc_id: str,substrate_network,take_out_backup=True) -> None:
     #     if not self.is_Backup(sfc_id): # Se não for uma sfc de backup
     #         substrate_network.undeploy_sfc(sfc_id)    
@@ -366,26 +346,6 @@ class SFCManager:
                     backups_mount.append(new_sfc_list)
                     #sfcs_id_backup_made.append(sfc_id)
         return backups_mount
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
     def set_sfc_reuse(self,sfc,route_info,shareable_sfs):

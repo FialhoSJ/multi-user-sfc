@@ -30,7 +30,7 @@ class Kuririn:
         # --- Atributos ---
         self.model_name = model_name
         self.model_path = f'rl_saved_models/{self.model_name}_allocation_model.zip'
-        self.name = "kuririn"
+        self.name = f"kuririn{model_name}"
         
         # O modelo é inicializado como None. Ele será carregado na primeira execução.
         self.model = None
@@ -252,9 +252,9 @@ class Kuririn:
     def load_model(self, env):
         # Carregar modelo uma vez, se não carregado
         if self.model is None:
-            if self.model_name == "ppo":
+            if self.model_name == "PPO":
                 self.model = MaskablePPO.load(self.model_path, env=env)
-            elif self.model_name == "dqn":
+            elif self.model_name == "DQN":
                 self.model = DQN.load(self.model_path, env=env)
         self.model.set_env(env)
         

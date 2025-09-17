@@ -49,10 +49,10 @@ class AlgorithmInstantiator:
         elif type ==  'vegeta':
             alg = Vegeta()
         elif 'kuririn' in type:
-            if "ppo" in type:
-                alg = Kuririn('ppo')
-            if "dqn" in type:
-                alg = Kuririn('dqn')    
+            if "PPO" in type:
+                alg = Kuririn('PPO')
+            if "DQN" in type:
+                alg = Kuririn('DQN')    
         else:
             raise ValueError('algorithm not found')
         return alg

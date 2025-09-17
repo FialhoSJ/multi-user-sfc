@@ -35,7 +35,6 @@ def carregar_dados_do_ambiente():
             list_graph = list_graph+carregar_lista(f"list_graph{i}")
             list_sfc = list_sfc+ carregar_lista(f"list_sfc{i}")
             
-        print(list_graph)
     except FileNotFoundError as e:
         print(f"Erro ao carregar dados: {e}")
         print("Certifique-se que os arquivos de dados existem.")
@@ -92,7 +91,7 @@ if __name__ == '__main__':
     eval_env = Monitor(eval_env)
     
     # --- 3. CARREGAR MODELO EXISTENTE OU CRIAR UM NOVO ---
-    model_name = "ppo_allocation_model.zip"
+    model_name = "PPO_allocation_model.zip"
     final_model_path = os.path.join(save_dir, model_name)
 
     if os.path.exists(final_model_path):
