@@ -197,7 +197,7 @@ class Kuririn:
         done = False
         while not done:
             action_masks = self.env.action_masks()
-            action, _ = self.model.predict(obs, action_masks=action_masks, deterministic=True)
+            action, _ = self.model.predict(obs, action_masks=action_masks, deterministic=False)
             obs, _, terminated, truncated, _ = self.env.step(action)
             done = terminated or truncated
 

@@ -290,3 +290,65 @@ def get_link_bandwidth_capacity(graph, node1, node2):
         raise ValueError(f"Aresta entre {node1} e {node2} não existe.")
     return graph.edges[node1, node2]['bandwidth_capacity']
 
+
+def calcular_energia_computacional_mobile(
+    d_fk_in_mbits: float,
+    x_fk_u: int,
+    delta_v_comp : float = 2.5*10**-9,
+    omega_cycles_per_mbit: float = 10**6
+) -> float:
+   
+    # x_fk_u: variavel binaria que controla a presença ou não da SF especifica
+    # omega_cycles: ciclos por megabits, 10^6 no tcc
+    # d_fk_in_mbits: quantidade de mbits de input da sf analisada
+
+    total_ciclos_cpu = omega_cycles_per_mbit * d_fk_in_mbits  
+
+
+    energia_base = total_ciclos_cpu * delta_v_comp  # [cite: 170]
+
+    E_fk_v_comp = x_fk_u * energia_base
+
+    return E_fk_v_comp
+
+
+def calcular_energia_movel_total(
+    lista_sfs: list,
+    omega_cycles_per_mbit: float = 10**6
+) -> float:
+
+    total_energia_movel = 0.0
+
+    # Extrai os parâmetros fixos do dispositivo
+    delta_u_comp = 2.5e-9
+    delta_u_comm = 2.6
+    P_u = parametros_dispositivo['P_u']
+
+    # O somatório principal (SUM_fk_in_Fc) é implementado como um loop
+    for sf in lista_sfs:
+        d_in = sf['d_in_mbits']
+        x_u = sf['x_u']
+        x_a = sf['x_a']
+        R_ua = sf.get('R_ua', 1.0)  # Pega R_ua, ou 1.0 para evitar divisão por zero
+
+        # --- Componente 1: Energia Computacional Local (E_fk,u^comp) ---
+        # Reutiliza a função da Eq. 6
+        # Nota: passamos delta_u_comp (eficiência do móvel)
+        comp_1_energia_local = calcular_energia_computacional_mobile(
+            d_fk_in_mbits=d_in,
+            delta_v_comp=delta_u_comp,
+            x_fk_u=x_u,
+            omega_cycles_per_mbit=omega_cycles_per_mbit
+        )
+
+
+        comp_2_energia_transmissao = 0.0
+        if x_a == 1 and R_ua > 0:
+            tempo_transmissao = d_in / R_ua  # (d_fk,in / R_u,a)
+            # delta_u^comm * (tempo) * P_u
+            comp_2_energia_transmissao = delta_u_comm * tempo_transmissao * P_u
+
+        # Soma os dois componentes para esta SF específica
+        total_energia_movel += comp_1_energia_local + comp_2_energia_transmissao
+
+    return total_energia_movel

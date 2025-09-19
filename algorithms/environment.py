@@ -8,7 +8,7 @@ from algorithms.networkUtils import get_available_shortest_path, calculate_compu
 
 import math
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
-PUNICAO_POR_NAO_REUSO = 10
+PUNICAO_POR_NAO_REUSO = 20
 
 
 class SFC_AllocationEnv(gymnasium.Env):
@@ -44,7 +44,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.list_graph = list_graph
         self.list_sfc = list_sfc
         self.pesos_fatores = pesos_fatores if pesos_fatores is not None else \
-                             {"cpu": 3, "cache": 3, "lat": 0.1, "band": 2}
+                             {"cpu": 1.1, "cache": 1.1, "lat": 0.07, "band": 5}
         
         self.is_training = is_training
         if self.is_training:
@@ -281,7 +281,7 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         # Normaliza a coluna de latência (que agora é a coluna de índice 4 no novo array)
         # A operação é feita em toda a coluna de uma vez.
-        recursos_nodes[:, 4] /= 100.0
+        recursos_nodes[:, 4] /= 30
 
 
         obs = {
@@ -342,8 +342,8 @@ class SFC_AllocationEnv(gymnasium.Env):
         effective_cache_req = 0 if can_reuse else cache_req
         
         # Verifica se há capacidade disponível para a alocação
-        if (node['cpu_used'] + cpu_req > node['cpu_capacity']) or \
-           (node['cache_used'] + cache_req > node['cache_capacity']):
+        if (node['cpu_used'] + effective_cpu_req > node['cpu_capacity']) or \
+           (node['cache_used'] + effective_cache_req > node['cache_capacity']):
             return False
 
         # Aloca os recursos e atualiza os metadados do serviço
@@ -471,7 +471,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         cpu_used, cpu_cap = node["cpu_used"], node["cpu_capacity"]
         cache_used, cache_cap = node["cache_used"], node["cache_capacity"]
 
-        if cpu_used+cpu_req+1 >= cpu_cap or cache_used+cache_req+1 >= cache_cap:
+        if cpu_used+cpu_req >= cpu_cap or cache_used+cache_req >= cache_cap:
             return False
 
         if not service_name.startswith(SHAREABLE_PREFIXES):
@@ -531,9 +531,12 @@ class SFC_AllocationEnv(gymnasium.Env):
             cache_cost+= PUNICAO_POR_NAO_REUSO
         
         bw_cost, lat_cost = self.calculate_bw_lat_cost(vnf, server_id, path, bw_required)
- 
-        return cpu_cost * self.pesos_fatores['cpu'] + cache_cost * self.pesos_fatores['cache'] + \
-        bw_cost * self.pesos_fatores['band'] + lat_cost * self.pesos_fatores['lat']
+        
+        resource_cost = cpu_cost * self.pesos_fatores['cpu'] + cache_cost * self.pesos_fatores['cache']
+
+        band_cost=bw_cost * self.pesos_fatores['band']
+        return resource_cost + band_cost + lat_cost * self.pesos_fatores['lat']
+         
             
 def calculate_total_latency(graph: Graph, path: List, vnf: VNF):
     """

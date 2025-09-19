@@ -160,7 +160,7 @@ class OutputWritter:
                 str(time_to_recover) + "\n"
             file.write(line)
 
-    def output_flows(self,substrate_network: Net2,wait_time,number_sfcs,running_players_sessions,counter,remaining_time,current_time, sfc_id, 
+    def output_flows(self,substrate_network: Net2,wait_time,running_players_sessions,counter,remaining_time,current_time, sfc_id, 
                      latency, run_duration, is_success,fail_reason,bw_transcode,acceptance_rate, latency_diff=None,crashing=False,alg_name='ga'):
         cpu_utilization = round(substrate_network.get_cpu_utilization_rate(), 4)
         cache_utilization = round(substrate_network.get_cache_utilization_rate(), 4)
@@ -183,7 +183,7 @@ class OutputWritter:
         # active_links_bw = round(substrate_network.get_active_links_bw_rate(), 4)
 
         running_sfcs, running_players, running_sessions = running_players_sessions
-        running_sfcs = number_sfcs
+        running_sfcs = substrate_network.get_number_actives_sfcs()
 
         cpu_used = substrate_network.get_cpu_used()
         cache_used = substrate_network.get_cache_used()

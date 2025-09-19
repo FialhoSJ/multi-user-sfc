@@ -120,12 +120,11 @@ if __name__ == '__main__':
         log_path=log_dir,
         eval_freq=1000,
         n_eval_episodes=30,
-        deterministic=True,
-        render=False,
-    )
+        deterministic=False,
+        render=False,    )
     
     # Define quantos passos de treinamento adicionais serão executados
-    additional_timesteps = 100_000
+    additional_timesteps = 25_000
     
     print(f"--- Iniciando/Continuando o treinamento por mais {additional_timesteps} passos ---")
     model.learn(
@@ -137,13 +136,13 @@ if __name__ == '__main__':
     print("--- Treinamento finalizado ---")
 
     # --- 5. SALVAR O MODELO ATUALIZADO ---
-    model.save(os.path.join(save_dir, "ppo_allocation_model"))
+    model.save(os.path.join(save_dir, "PPO_allocation_model"))
     print(f"\nModelo final salvo em: {final_model_path}")
 
     # --- 6. TESTE COM O MODELO FINAL ---
     print("\n--- Iniciando teste com o modelo em 200 episódios ---")
     
-    num_episodes = 1000
+    num_episodes = 3000 
     all_rewards = []
     successful_runs = 0
     cont = 0
@@ -157,7 +156,7 @@ if __name__ == '__main__':
 
         while not done:
             action_masks = eval_env.env.action_masks()
-            action, _ = model.predict(obs, action_masks=action_masks, deterministic=True)
+            action, _ = model.predict(obs, action_masks=action_masks, deterministic=False)
             obs, reward, terminated, truncated, info = eval_env.step(action)
             
             total_reward += reward
