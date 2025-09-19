@@ -322,7 +322,7 @@ def calcular_energia_movel_total(
     # Extrai os parâmetros fixos do dispositivo
     delta_u_comp = 2.5e-9
     delta_u_comm = 2.6
-    P_u = parametros_dispositivo['P_u']
+    P_u = 30
 
     # O somatório principal (SUM_fk_in_Fc) é implementado como um loop
     for sf in lista_sfs:
