@@ -3,6 +3,9 @@ import math
 import copy 
 import random
 import numpy as np
+from typing import List
+from core.vnf import VNF
+from core.net_v2 import Net2
 
 def calculate_5g_latency(
     data,
@@ -291,64 +294,143 @@ def get_link_bandwidth_capacity(graph, node1, node2):
     return graph.edges[node1, node2]['bandwidth_capacity']
 
 
-def calcular_energia_computacional_mobile(
+
+
+
+
+# --- Constantes alinhadas com net_v2.py ---
+
+# Em net_v2.py, calculate_computational_latency usa (packet * 10),
+# onde packet está em bits.
+# Isso significa que o ômega (omega) é 10 ciclos/bit.
+OMEGA_CYCLES_PER_BIT_NET = 10
+
+# Em net_v2.py, calculate_5g_latency usa potencia_transmissao_dbm=20.0
+# 20 dBm = 100 mW = 0.1 Watts
+P_U_WATT_NET = 0.1 
+
+# -------------------------------------------
+
+
+def calcular_energia_para_computar_sf(
     d_fk_in_mbits: float,
     x_fk_u: int,
-    delta_v_comp : float = 2.5*10**-9,
-    omega_cycles_per_mbit: float = 10**6
+    delta_v_comp: float = 2.5*10**(-9),
+    # O omega (ciclos) agora é baseado no net_v2.py
+    omega_cycles_per_bit: float = OMEGA_CYCLES_PER_BIT_NET 
 ) -> float:
-   
-    # x_fk_u: variavel binaria que controla a presença ou não da SF especifica
-    # omega_cycles: ciclos por megabits, 10^6 no tcc
-    # d_fk_in_mbits: quantidade de mbits de input da sf analisada
-
-    total_ciclos_cpu = omega_cycles_per_mbit * d_fk_in_mbits  
-
-
-    energia_base = total_ciclos_cpu * delta_v_comp  # [cite: 170]
-
+    """
+    Calcula a energia computacional para uma SF (Eq. 6 do TCC),
+    MAS alinhado com o omega (ciclos por bit) do net_v2.py.
+    
+    O delta_v_comp (energia por ciclo) é mantido do TCC (OSCIM),
+    pois net_v2.py não define um modelo de energia.
+    """
+    if x_fk_u == 0:
+        return 0
+    
+    # Converter Mbits para bits para alinhar com o omega do net_v2.py
+    d_fk_in_bits = d_fk_in_mbits * 1_000_000
+    
+    # Alinhado com net_v2.py: (packet * 10)
+    total_ciclos_cpu = omega_cycles_per_bit * d_fk_in_bits
+    
+    # delta_v_comp (energia por ciclo) mantido do TCC OSCIM
+    energia_base = total_ciclos_cpu * delta_v_comp
+    
     E_fk_v_comp = x_fk_u * energia_base
-
     return E_fk_v_comp
 
 
 def calcular_energia_movel_total(
-    lista_sfs: list,
-    omega_cycles_per_mbit: float = 10**6
+    # A função agora precisa ser um método da classe Net2
+    # ou receber uma instância dela para chamar calculate_5g_latency
+    net_instance: Net2, 
+    lista_sfs: List[dict] # Usando dict para clareza
 ) -> float:
+    """
+    Calcula a energia total do dispositivo móvel (Eq. 7 do TCC 1),
+    MAS agora alinhado com os modelos físicos de net_v2.py.
+    
+    - Usa calculate_5g_latency() para obter o tempo de transmissão.
+    - Usa a potência de transmissão (20 dBm) de net_v2.py.
+    - Mantém os coeficientes de energia (delta_u_comp, delta_u_comm) do TCC 1,
+      pois net_v2.py não possui um modelo de energia.
+    """
 
     total_energia_movel = 0.0
 
-    # Extrai os parâmetros fixos do dispositivo
-    delta_u_comp = 2.5e-9
+    # --- Coeficientes de Energia (mantidos do TCC OSCIM) ---
+    # net_v2.py não tem modelo de energia, então mantemos estes.
+    
+    # Computation Energy Coefficient
+    delta_u_comp = 2.5*10**(-9)
+    
+    # Communication Energy Coefficient 
     delta_u_comm = 2.6
-    P_u = 30
+    
+    # --- Potência de Transmissão (Alinhada com net_v2.py) ---
+    # net_v2.py usa 20 dBm em calculate_5g_latency
+    P_u_watt = P_U_WATT_NET  # 0.1 Watts (20 dBm)
+    
+    # -----------------------------------------------------
 
-    # O somatório principal (SUM_fk_in_Fc) é implementado como um loop
-    for sf in lista_sfs:
-        d_in = sf['d_in_mbits']
-        x_u = sf['x_u']
-        x_a = sf['x_a']
-        R_ua = sf.get('R_ua', 1.0)  # Pega R_ua, ou 1.0 para evitar divisão por zero
-
+    #O somatório principal (SUM_fk_in_Fc)
+    for sf, offloaded in lista_sfs:
+        d_in = sf['d_in_mbits'] # Mbits
+        x_u, x_a = 0,1 if offloaded else 1,0
+        
+        
         # --- Componente 1: Energia Computacional Local (E_fk,u^comp) ---
-        # Reutiliza a função da Eq. 6
-        # Nota: passamos delta_u_comp (eficiência do móvel)
-        comp_1_energia_local = calcular_energia_computacional_mobile(
+        # Chama a nova função alinhada com o omega do net_v2.py
+        comp_1_energia_local = calcular_energia_para_computar_sf(
             d_fk_in_mbits=d_in,
             delta_v_comp=delta_u_comp,
-            x_fk_u=x_u,
-            omega_cycles_per_mbit=omega_cycles_per_mbit
+            x_fk_u=x_u
+            # omega_cycles_per_bit já usa o padrão alinhado
         )
 
-
+        # --- Componente 2: Energia de Transmissão (Offload) ---
         comp_2_energia_transmissao = 0.0
-        if x_a == 1 and R_ua > 0:
-            tempo_transmissao = d_in / R_ua  # (d_fk,in / R_u,a)
-            # delta_u^comm * (tempo) * P_u
-            comp_2_energia_transmissao = delta_u_comm * tempo_transmissao * P_u
+        
+        # Este componente só existe se a SF for descarregada (x_a = 1)
+        if x_a == 1:
+            distancia_d = sf['distancia_d'] # Distância em metros
+            
+            # Converter Mbits para bits, pois calculate_5g_latency espera 'data' em bits
+            d_in_bits = d_in * 1_000_000 
+            
+            if d_in_bits > 0 and distancia_d > 0:
+                
+                # 1. Chamar a função de net_v2.py para obter a latência (em ms)
+                #    Ela usa TODOS os seus próprios parâmetros internos (50MHz, 20dBm, pathloss, etc.)
+                latencia_ms = net_instance.calculate_5g_latency(
+                    graph=None, # O 'graph' não é usado dentro da função
+                    data=d_in_bits,
+                    distancia_m=distancia_d
+                )
+                
+                # 2. Converter latência (ms) para tempo de transmissão (s)
+                # (Mbits) / (Mbits/s) = segundos
+                tempo_transmissao = latencia_ms / 1000.0
+                
+                if tempo_transmissao > 0:
+                    # Usamos o delta_u_comm (do TCC) e o P_u_watt (alinhado com net_v2.py)
+                    comp_2_energia_transmissao = delta_u_comm * tempo_transmissao * P_u_watt
 
         # Soma os dois componentes para esta SF específica
         total_energia_movel += comp_1_energia_local + comp_2_energia_transmissao
 
     return total_energia_movel
+
+
+def distancia(p1, p2):
+    """
+    Calcula a distância euclidiana entre dois pontos no plano.
+    (Esta função é necessária para net_v2.py e é mantida como está).
+    
+    p1: tupla (x1, y1)
+    p2: tupla (x2, y2)
+    retorna: float
+    """
+    return math.sqrt((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2)

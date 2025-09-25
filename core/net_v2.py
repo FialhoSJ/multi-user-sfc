@@ -45,7 +45,9 @@ class Net2:
         self.verbose = False
     
     def add_node(self, node_id, node_type, cpu_capacity=0.00,cache_capacity=0.00, w_channel_capacity=0.0, position=(0,0),ips=0):
-        if node_type  == 'server':
+        if 'server' in node_type:
+            node_level = node_type.split("_")[-1]
+            node_type = node_type.split("_")[0]
             self.graph.add_node(node_id,type=node_type,
                                 cpu_capacity=cpu_capacity,
                                 cache_capacity=cache_capacity,
@@ -55,12 +57,22 @@ class Net2:
                                 position=position,
                                 reuse=[],
                                 services={},
-                                sfcs_list=[])
+                                sfcs_list=[],
+                                level_server = node_level)
         elif node_type == 'mobile_device': # Grafo separado
-            if random.random() < 0.20:
-                cpu_capacity *= 0.25
-                cache_capacity *= 0.25
-                ips *= 0.25
+
+            # Esse pequeno sorteio busca simular dispositivos moveis com diferentes nivel de capacidade e 
+            # Desempenho
+            sorteio = random.random()
+            if sorteio <= 0.33:
+                cpu_capacity *= 0.75
+                cache_capacity *= 0.75
+                ips *= 0.75
+            elif sorteio > 0.67:
+                cpu_capacity *= 1.25
+                cache_capacity *= 1.25
+                ips *= 1.25
+          
             self.md_graph.add_node(node_id,
                                 type=node_type,
                                 cpu_capacity=cpu_capacity,
@@ -71,7 +83,8 @@ class Net2:
                                 position=position,
                                 reuse=[],
                                 services={},
-                                sfcs_list=[])
+                                sfcs_list=[]
+                                )
         elif node_type == 'router':
             self.graph.add_node(node_id,type=node_type,
                                 cpu_capacity=cpu_capacity,
@@ -568,8 +581,20 @@ class Net2:
             raise ValueError(f"Aresta entre {node1} e {node2} não existe.")
         return self.graph.edges[node1, node2]['latency']
 
-    def get_cpu_utilization_rate(self):
-        return self.total_cpu_used*1.0/self.total_cpu_capacity
+    def get_server_cpu_utilization_rate(self):
+        """Retorna a taxa de utilização de CPU apenas da infraestrutura (servidores)."""
+        if self.total_cpu_capacity == 0:
+            return 0.0
+        return self.total_cpu_used / self.total_cpu_capacity
+    
+
+    def get_total_system_utilization_rate(self):
+        """Retorna a taxa de utilização de CPU do sistema inteiro (servidores + dispositivos móveis)."""
+        if self.total_cpu_capacity == 0:
+            return 0.0
+        
+        total_used = self.total_cpu_used + self.mobile_cpu_used
+        return total_used / self.total_cpu_capacity
     
     def get_cpu_used(self):
         return self.total_cpu_used
@@ -593,30 +618,29 @@ class Net2:
             print(f"{u} <-> {v} -> {data}")
 
     def print_out_nodes_information(self, failure_cpu=None, failure_cache=None):
-        if failure_cpu is None:
-            print("CPU       utilization: ", str(round((self.total_cpu_used + self.mobile_cpu_used)/self.total_cpu_capacity*100,3)) +'%')
-            if self.total_cpu_requested:
-                print("T_CPU_S/T_CPU_S      : ", str(round(self.total_cpu_saved*1.0/self.total_cpu_requested*100,3)) +'%')
-            else:
-                print("T_CPU_S/T_CPU_S      : ", "Null", end=" ")
+        # Calcula ambas as métricas de utilização de CPU
+        # server_cpu_util = self.get_server_cpu_utilization_rate() * 100
+        total_cpu_util = self.get_total_system_utilization_rate() * 100
+
+        # print(f"Server CPU utilization   : {server_cpu_util:.3f}%")
+        print(f"Total System CPU util.   : {total_cpu_util:.3f}%")
+
+        if self.total_cpu_requested > 0:
+            cpu_saving_rate = (self.total_cpu_saved / self.total_cpu_requested) * 100
+            print(f"CPU Saving Rate          : {cpu_saving_rate:.3f}%")
         else:
-            print("CPU       utilization: ", str(round((self.total_cpu_used + self.mobile_cpu_used) /self.total_cpu_capacity*100,3)) +'%')
-            if self.total_cpu_requested:
-                print("T_CPU_S/T_CPU_S      : ", str(round(self.total_cpu_saved*1.0/self.total_cpu_requested*100,3)) +'%', end=" ")
-            else:
-                print("T_CPU_S/T_CPU_S      : ", "Null", end=" ")
-        if failure_cache is None:
-            print("Cache     utilization: ", str(round((self.total_cache_used+self.mobile_cache_used)/self.total_cache_capacity*100,3)) +'%')
-            if self.total_cache_requested:
-                print("T_cache_S/T_cache_S  : ", str(round(self.total_cache_saved*1.0/self.total_cache_requested*100,3)) +'%')
-            else:
-                print("T_Cache_S/T_Cache_S      : ", "Null" , end=" ")
+            print("CPU Saving Rate          : N/A")
+
+        # A lógica para cache pode seguir o mesmo padrão
+        # (Para ser completo, você poderia criar métodos get_server_cache_utilization_rate etc.)
+        cache_util = (self.total_cache_used + self.mobile_cache_used) / self.total_cache_capacity * 100
+        print(f"Cache utilization        : {cache_util:.3f}%")
+
+        if self.total_cache_requested > 0:
+            cache_saving_rate = (self.total_cache_saved / self.total_cache_requested) * 100
+            print(f"Cache Saving Rate        : {cache_saving_rate:.3f}%")
         else:
-            print("Cache     utilization: ", str(round((self.total_cache_used+self.mobile_cache_used)/self.total_cache_capacity*100,3)) +'%')
-            if self.total_cache_requested:
-                print("T_Cache_S/T_Cache_S      : ", str(round(self.total_cache_saved*1.0/self.total_cache_requested*100,3)) +'%', end=" ")
-            else:
-                print("T_Cache_S/T_Cache_S      : ", "Null" , end=" ")
+            print("Cache Saving Rate        : N/A")
 
     def print_out_edges_information(self, failure_band=None):
         if failure_band is None:

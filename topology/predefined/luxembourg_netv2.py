@@ -88,26 +88,31 @@ class LuxembourgV2(TopologyBase):
             if node in self.edge_computing_servers:
                 # Para o nó de eficiência
                 if node in self.labels_nodes['normal_level']:
+                    type_node = "b"
                     level_factor = 1
                 elif node in self.labels_nodes['low_level']:
-                    level_factor = 0.75
+                    type_node = "a"
+                    level_factor = 0.461
                 else:
-                    level_factor = 1.25
+                    type_node = "c"
+                    level_factor = 1.846
 
                 
                
                 if node%1==0:
                     quanti_cpu = quantidade_cpu_eco * level_factor
                     quanti_cache = quantidade_cache_eco * level_factor
-                    boost_effi = boost_effi_factor * level_factor
+                    boost_effi = 1 * level_factor
                 
                 else:
                     quanti_cpu = quantidade_cpu_effi * level_factor
                     quanti_cache = quantidade_cache_effi * level_factor
                     boost_effi = 1 * level_factor
 
+                    boost_effi = boost_effi_factor * level_factor
+
                 
-                net.add_node(node, node_type='server', cpu_capacity=quanti_cpu,
+                net.add_node(node, node_type=f'server_{type_node}', cpu_capacity=quanti_cpu,
                             cache_capacity=quanti_cache, position=self.positions[node], 
                             ips=random.uniform(0.1, 0.2) * boost_effi)
                 

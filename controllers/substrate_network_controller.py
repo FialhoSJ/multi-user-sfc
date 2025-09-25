@@ -31,6 +31,7 @@ from controllers.sfc_queue import SFCQueue
 from core.net import Net
 from core.net_v2 import Net2
 from utils.manager_results import OutputWritter
+from utils.network_utils import EnergyCalculator
 
 # create logger
 logger = logging.getLogger(__name__)
@@ -65,6 +66,7 @@ class SubstrateNetworkController():
         self.sfc_instantiator: Optional[SFCInstatiator] = 0
         self.fail_manager: Optional[Crasher] = 0
         self.backup_manager: Optional[BackupManager] = 0
+        self.energy_calculator = EnergyCalculator()
 
 
         # Status da Rede
@@ -194,6 +196,8 @@ class SubstrateNetworkController():
 
         def output_flows(current_time, sfc_id, latency, run_duration, is_success,alg_name=self.alg,fail_reason=None,latency_diff=None, wait_time=None):
             bw_transcode = 0
+
+            energy_consumption = self.energy_calculator.calculate_total_network_power(self.substrate_network)
             self.output_writter.output_flows(
                 self.substrate_network,
                 wait_time,
@@ -208,6 +212,7 @@ class SubstrateNetworkController():
                 fail_reason,
                 bw_transcode,
                 self.substrate_network.get_acceptance_rate(self.success),
+                energy_consumption,
                 latency_diff,
                 len(self.fail_manager.nodes_crashed)!=0
             )

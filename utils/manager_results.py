@@ -104,6 +104,7 @@ def create_output_dir(args,topology):
         "acceptance_rate",
         "cpu_per_flow",
         "cache_per_flow",
+        "energy_consumption"
     ]
 
     res_fields = ["crash_trial","sfc_id","vnf_id","recover_success","backup_success","backup_efficient","latency_diff","latency_deg","resource_deg","time_to_recover"]
@@ -161,22 +162,22 @@ class OutputWritter:
             file.write(line)
 
     def output_flows(self,substrate_network: Net2,wait_time,running_players_sessions,counter,remaining_time,current_time, sfc_id, 
-                     latency, run_duration, is_success,fail_reason,bw_transcode,acceptance_rate, latency_diff=None,crashing=False,alg_name='ga'):
-        cpu_utilization = round(substrate_network.get_cpu_utilization_rate(), 4)
+                     latency, run_duration, is_success,fail_reason,bw_transcode,acceptance_rate, energy_consumption, latency_diff=None,crashing=False,alg_name='ga'):
+        cpu_utilization = round(substrate_network.get_total_system_utilization_rate(), 4)
         cache_utilization = round(substrate_network.get_cache_utilization_rate(), 4)
         bw_utilization = round(substrate_network.get_bandwidth_utilization_rate(), 4)
 
         total_cpu_request = round(substrate_network.get_total_cpu_request(), 4)
-        reuse_cpu_rate = (substrate_network.get_total_cpu_saved()/total_cpu_request)*100 if total_cpu_request > 0 else 0
+        # reuse_cpu_rate = (substrate_network.get_total_cpu_saved()/total_cpu_request)*100 if total_cpu_request > 0 else 0
         total_cache_request = round(substrate_network.get_total_cache_request(), 4)
-        reuse_cache_rate = (substrate_network.get_total_cache_saved()/total_cache_request)*100 if total_cache_request > 0 else 0
+        # reuse_cache_rate = (substrate_network.get_total_cache_saved()/total_cache_request)*100 if total_cache_request > 0 else 0
 
         mobile_cpu_utilization = round(substrate_network.mobile_cpu_used, 4)
         mobile_cache_utilization = round(substrate_network.mobile_cache_used, 4)
         
-        cpu_resilient = 0 #round(substrate_network.get_resilient_cpu_utilization(), 4)
-        cache_resilient = 0 # round(substrate_network.get_resilient_cache_utilization(), 4)
-        bw_resilient = 0 #round(substrate_network.get_resilient_bandwidth_utilization(), 4)
+        # cpu_resilient = 0 #round(substrate_network.get_resilient_cpu_utilization(), 4)
+        # cache_resilient = 0 # round(substrate_network.get_resilient_cache_utilization(), 4)
+        # bw_resilient = 0 #round(substrate_network.get_resilient_bandwidth_utilization(), 4)
 
         # active_servers_cpu = round(substrate_network.get_active_servers_cpu_rate(), 4)
         # active_servers_cache = round(substrate_network.get_active_servers_cache_rate(), 4)
@@ -255,7 +256,8 @@ class OutputWritter:
             f"{crashing},"
             f"{acceptance_rate},"
             f"{cpu_per_flow},"
-            f"{cache_per_flow}\n"
+            f"{cache_per_flow},"
+            f"{energy_consumption}\n"
         )
 
         with open(self.flows_file, "a") as file:
