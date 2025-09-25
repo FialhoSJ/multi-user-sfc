@@ -186,8 +186,8 @@ class OutputWritter:
         running_sfcs, running_players, running_sessions = running_players_sessions
         running_sfcs = substrate_network.get_number_actives_sfcs()
 
-        cpu_used = substrate_network.get_cpu_used()
-        cache_used = substrate_network.get_cache_used()
+        cpu_used = substrate_network.get_cpu_total_used()
+        cache_used = substrate_network.get_cache_total_used()
 
         cpu_per_flow = cpu_used/running_sfcs
 

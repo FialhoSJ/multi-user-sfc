@@ -596,8 +596,15 @@ class Net2:
         total_used = self.total_cpu_used + self.mobile_cpu_used
         return total_used / self.total_cpu_capacity
     
-    def get_cpu_used(self):
+    def get_cpu_network_used(self):
         return self.total_cpu_used
+    
+    def get_cpu_total_used(self):
+        return self.total_cpu_used + self.mobile_cpu_used
+    
+
+    def get_cache_total_used(self):
+        return self.total_cache_used + self.mobile_cache_used
     
     def get_cache_used(self):
         return self.total_cache_used
