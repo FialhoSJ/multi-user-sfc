@@ -124,7 +124,7 @@ if __name__ == '__main__':
         render=False,    )
     
     # Define quantos passos de treinamento adicionais serão executados
-    additional_timesteps = 25_000
+    additional_timesteps = 100_000
     
     print(f"--- Iniciando/Continuando o treinamento por mais {additional_timesteps} passos ---")
     model.learn(
@@ -142,7 +142,7 @@ if __name__ == '__main__':
     # --- 6. TESTE COM O MODELO FINAL ---
     print("\n--- Iniciando teste com o modelo em 200 episódios ---")
     
-    num_episodes = 3000 
+    num_episodes = 1000 
     all_rewards = []
     successful_runs = 0
     cont = 0
