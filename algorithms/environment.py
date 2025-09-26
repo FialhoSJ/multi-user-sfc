@@ -8,7 +8,8 @@ from algorithms.networkUtils import get_available_shortest_path, calculate_compu
 
 import math
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
-PUNICAO_POR_NAO_REUSO = 20
+PUNICAO_POR_NAO_REUSO = 12
+RECOMPENSA_POR_USO_DE_MOVEL = 3.65
 
 
 class SFC_AllocationEnv(gymnasium.Env):
@@ -44,7 +45,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.list_graph = list_graph
         self.list_sfc = list_sfc
         self.pesos_fatores = pesos_fatores if pesos_fatores is not None else \
-                             {"cpu": 1.1, "cache": 1.1, "lat": 0.07, "band": 5}
+                             {"cpu": 1.1, "cache": 1.1, "lat": 0.4, "band": 4}
         
         self.is_training = is_training
         if self.is_training:
@@ -71,7 +72,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.action_space = spaces.Discrete(num_nodes)
         self.observation_space = spaces.Dict({
         "ultimo_no_escolhido": spaces.Box(low=0, high=1, shape=(num_nodes,), dtype=np.float32),
-        "recursos_nos_validos": spaces.Box(low=0, high=1, shape=(num_nodes, 5), dtype=np.float32),
+        "recursos_nos_validos": spaces.Box(low=0, high=1, shape=(num_nodes, 6), dtype=np.float32),
         })
 
     def reset(self, seed=None, options=None):
@@ -122,7 +123,10 @@ class SFC_AllocationEnv(gymnasium.Env):
         A ação corresponde à escolha de um nó para alocar a VNF atual.
         """
         # 1. Traduzir a ação para um nó do grafo
-        chosen_server = self.current_sfc.dst_node if action == len(self.valid_nodes) - 1 else self.valid_nodes[action]
+        if action == len(self.valid_nodes) - 1:
+            chosen_server = self.current_sfc.dst_node
+        else: chosen_server = self.valid_nodes[action]
+
         vnf = self.current_vnf
         band_req = self.service_requirements[vnf.id]['out_bw']
         current_location = self.current_location
@@ -186,12 +190,13 @@ class SFC_AllocationEnv(gymnasium.Env):
         
         # Features: [cpu_used, cache_used, reusable, path, band_cost, latency_cost]
         num_valid_nodes = len(self.valid_nodes)
-        features = np.zeros((num_valid_nodes, 7))  # Agora usamos np.zeros para inicializar o array com 0
+        features = np.zeros((num_valid_nodes, 8))  # Agora usamos np.zeros para inicializar o array com 0
         if vnf:
             for i, node_id in enumerate(self.valid_nodes):
                 # Caso especial: o último nó "válido" é sempre o destino do SFC
                 if i == num_valid_nodes - 1:
                     node_id = self.current_sfc.dst_node
+                    features[i, 7] = 1
                 
                 # 1. Recursos do nó (cpu e cache utilizados em relação à capacidade)
                 node_data = self.graph.nodes[node_id]
@@ -272,7 +277,7 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         # Define as colunas que queremos selecionar do array self.features
         # para formar nossa observação.
-        indices_das_features = [0, 1, 2, 4, 5]
+        indices_das_features = [0, 1, 2, 4, 5, 7]
 
         # Usa o fatiamento avançado do NumPy para selecionar todas as linhas
         # e apenas as colunas desejadas de uma só vez.
@@ -529,13 +534,17 @@ class SFC_AllocationEnv(gymnasium.Env):
         if not reusable:
             cpu_cost+= PUNICAO_POR_NAO_REUSO
             cache_cost+= PUNICAO_POR_NAO_REUSO
+
+        mobile_device_cost = 0
+        if server_id == self.current_sfc.dst_node:
+            mobile_device_cost -= RECOMPENSA_POR_USO_DE_MOVEL
         
         bw_cost, lat_cost = self.calculate_bw_lat_cost(vnf, server_id, path, bw_required)
         
         resource_cost = cpu_cost * self.pesos_fatores['cpu'] + cache_cost * self.pesos_fatores['cache']
 
         band_cost=bw_cost * self.pesos_fatores['band']
-        return resource_cost + band_cost + lat_cost * self.pesos_fatores['lat']
+        return resource_cost + band_cost + lat_cost * self.pesos_fatores['lat'] + mobile_device_cost
          
             
 def calculate_total_latency(graph: Graph, path: List, vnf: VNF):
