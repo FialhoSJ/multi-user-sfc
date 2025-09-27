@@ -124,7 +124,7 @@ if __name__ == '__main__':
         render=False,    )
     
     # Define quantos passos de treinamento adicionais serão executados
-    additional_timesteps = 150_000
+    additional_timesteps = 90_000
     
     print(f"--- Iniciando/Continuando o treinamento por mais {additional_timesteps} passos ---")
     model.learn(

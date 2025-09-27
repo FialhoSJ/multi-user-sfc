@@ -45,7 +45,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.list_graph = list_graph
         self.list_sfc = list_sfc
         self.pesos_fatores = pesos_fatores if pesos_fatores is not None else \
-                             {"cpu": 1.1, "cache": 1.1, "lat": 0.1, "band": 4}
+                             {"cpu": 1.1, "cache": 1.1, "lat": 0.2, "band": 4}
         
         self.is_training = is_training
         if self.is_training:
@@ -70,8 +70,9 @@ class SFC_AllocationEnv(gymnasium.Env):
         # --- Espaços de Ação e Observação ---
         num_nodes = len(valid_nodes)
         self.action_space = spaces.Discrete(num_nodes)
-        self.observation_space = spaces.Dict({
-        "primeira_sf": spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
+        self.observation_space = spaces.Dict({ 
+        #0 se cache e 1 se unique
+        "tipo_sfc": spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
         "recursos_nos_validos": spaces.Box(low=0, high=1, shape=(num_nodes, 6), dtype=np.float32),
         })
 
@@ -191,6 +192,9 @@ class SFC_AllocationEnv(gymnasium.Env):
         # Features: [cpu_used, cache_used, reusable, path, band_cost, latency_cost]
         num_valid_nodes = len(self.valid_nodes)
         features = np.zeros((num_valid_nodes, 8))  # Agora usamos np.zeros para inicializar o array com 0
+        
+        first_vnf = self.current_sfc.get_previous_vnf(self.current_sfc.get_dst_vnf()) 
+        second_vnf = first_vnf.get_previous_vnf()
         if vnf:
             for i, node_id in enumerate(self.valid_nodes):
                 # Caso especial: o último nó "válido" é sempre o destino do SFC
@@ -239,8 +243,9 @@ class SFC_AllocationEnv(gymnasium.Env):
             
 
                 
-            if self.current_sfc.get_previous_vnf(self.current_sfc.get_dst_vnf()) == self.current_vnf:
-                features[:-1, 6] = 1
+            if first_vnf == self.current_vnf or second_vnf == self.current_vnf:
+                if "cache" in self.current_sfc.id:
+                    features[:-1, 6] = 1
             
 
             
@@ -271,7 +276,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         
         # O destino é tratado como o último índice
         idx_loc = valid_nodes.index(current_loc) if current_loc != 'M' else num_valid_nodes - 1
-        primeira_sf[idx_loc] = 1.0 if self.current_sfc.get_previous_vnf(self.current_sfc.get_dst_vnf()) == self.current_vnf else 0.0
+        primeira_sf[0] = 1.0 if self.current_sfc.get_previous_vnf(self.current_sfc.get_dst_vnf()) == self.current_vnf else 0.0
 
         # --- 2. Coleta de Features dos Nós Válidos (Versão Otimizada) ---
         # self.features é um array NumPy com as colunas:
@@ -290,9 +295,12 @@ class SFC_AllocationEnv(gymnasium.Env):
         # A operação é feita em toda a coluna de uma vez.
         recursos_nodes[:, 4] /= 30
 
-
+        if not self.current_vnf or  "cache" in self.current_sfc.id:
+            tipo_sfc = np.array([0.0], dtype=np.float32)
+        else:
+            tipo_sfc = tipo_sfc = np.array([1.0], dtype=np.float32)
         obs = {
-            "primeira_sf": primeira_sf,
+            "tipo_sfc": tipo_sfc ,
             "recursos_nos_validos": recursos_nodes,
         }
 
