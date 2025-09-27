@@ -9,7 +9,7 @@ from algorithms.networkUtils import get_available_shortest_path, calculate_compu
 import math
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 PUNICAO_POR_NAO_REUSO = 12
-RECOMPENSA_POR_USO_DE_MOVEL = 3.65
+RECOMPENSA_POR_USO_DE_MOVEL = 0
 
 
 class SFC_AllocationEnv(gymnasium.Env):
@@ -45,7 +45,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.list_graph = list_graph
         self.list_sfc = list_sfc
         self.pesos_fatores = pesos_fatores if pesos_fatores is not None else \
-                             {"cpu": 1.1, "cache": 1.1, "lat": 0.4, "band": 4}
+                             {"cpu": 1.1, "cache": 1.1, "lat": 0.1, "band": 4}
         
         self.is_training = is_training
         if self.is_training:
@@ -71,7 +71,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         num_nodes = len(valid_nodes)
         self.action_space = spaces.Discrete(num_nodes)
         self.observation_space = spaces.Dict({
-        "ultimo_no_escolhido": spaces.Box(low=0, high=1, shape=(num_nodes,), dtype=np.float32),
+        "primeira_sf": spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
         "recursos_nos_validos": spaces.Box(low=0, high=1, shape=(num_nodes, 6), dtype=np.float32),
         })
 
@@ -197,6 +197,8 @@ class SFC_AllocationEnv(gymnasium.Env):
                 if i == num_valid_nodes - 1:
                     node_id = self.current_sfc.dst_node
                     features[i, 7] = 1
+                    
+                        
                 
                 # 1. Recursos do nó (cpu e cache utilizados em relação à capacidade)
                 node_data = self.graph.nodes[node_id]
@@ -236,13 +238,13 @@ class SFC_AllocationEnv(gymnasium.Env):
                     features[i, 5] = latency_cost
             
 
-            if np.any(np.isnan(features)) or np.any(np.isinf(features)):
-                print("--- DEBUG: NaN ou Inf detectado no array 'features'! ---")
-                print(features)
-                # O assert vai quebrar o programa aqui, mostrando a causa
-                assert not (np.any(np.isnan(features)) or np.any(np.isinf(features)))
-            # =======================================================================
+                
+            if self.current_sfc.get_previous_vnf(self.current_sfc.get_dst_vnf()) == self.current_vnf:
+                features[:-1, 6] = 1
+            
 
+            
+                
             return features
         else:
 
@@ -264,12 +266,12 @@ class SFC_AllocationEnv(gymnasium.Env):
         num_valid_nodes = len(valid_nodes)
 
         # --- 1. Determinação do Último Nó Escolhido ---
-        ultimo_no_escolhido = np.zeros(num_valid_nodes, dtype=np.float32)
+        primeira_sf = np.zeros(1, dtype=np.float32)
         current_loc = self.current_location if not isinstance(self.current_location, str) else 'M'
         
         # O destino é tratado como o último índice
         idx_loc = valid_nodes.index(current_loc) if current_loc != 'M' else num_valid_nodes - 1
-        ultimo_no_escolhido[idx_loc] = 1.0
+        primeira_sf[idx_loc] = 1.0 if self.current_sfc.get_previous_vnf(self.current_sfc.get_dst_vnf()) == self.current_vnf else 0.0
 
         # --- 2. Coleta de Features dos Nós Válidos (Versão Otimizada) ---
         # self.features é um array NumPy com as colunas:
@@ -290,7 +292,7 @@ class SFC_AllocationEnv(gymnasium.Env):
 
 
         obs = {
-            "ultimo_no_escolhido": ultimo_no_escolhido,
+            "primeira_sf": primeira_sf,
             "recursos_nos_validos": recursos_nodes,
         }
 
