@@ -17,15 +17,21 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Select MUAR arguments')
     parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
     parser.add_argument('--n_players', type=int, help='(int) number of players', default=4)
-    parser.add_argument('--threads', type=int, help='(int) number of cores to use', default=10)
-    parser.add_argument('--repetition', type=int, help='(int) repetitions', default=10)
+    parser.add_argument('--threads', type=int, help='(int) number of cores to use', default=3)
+    parser.add_argument('--repetition', type=int, help='(int) repetitions', default=3)
     parser.add_argument('--sfc', type=str, help='(str) on or off', default='on')
-    parser.add_argument('--alg', type=str, help='(str) algorithm name', default='greedyb') # osfem, msf, musfico, ga;...
-    # parser.add_argument('--share', type=str, help='(str) whether to share sfs or not', default='y')
-    # parser.add_argument('--shareband', type=str, help='(str) whether to share sfs or not', default='y')
+    parser.add_argument('--alg', type=str, help='(str  algorithm name', default='kuririn_PPO') # osfem, msf, musfico, ga;...
+    parser.add_argument('--share', type=str, help='(str) whether to share sfs or not', default='y')
+    parser.add_argument('--shareband', type=str, help='(str) whether to share sfs or not', default='y')
 #     parser.add_argument('--servers_to_crash', type=str, nargs='+', help='(list) list of reliability values',default=[3]) #0.95, 0.975, 0.99
     parser.add_argument('--verbose',   type=str, help='verbose log', default='n')
     parser.add_argument('--time', type=int, help='(int) the total time for the simulation in seconds', default=120)
+    parser.add_argument(
+    '--eco_effi_ratio',
+    type=float,
+    default=0.7,
+    help='Define a proporção para slots econômicos (ex: 0.7 significa 70%% eco e 30%% eficiência).'
+    )
     args = parser.parse_args()
 
     pool = Pool(processes=args.threads)
@@ -47,7 +53,8 @@ if __name__ == '__main__':
                     ' --ava ' + str(a) + \
                     ' --number_of_fails ' + str(n) + \
                     ' --n_players ' + str(args.n_players) + \
-                    ' --time ' + str(args.time)
+                    ' --time ' + str(args.time) + \
+                    ' --eco_effi_ratio ' + str(args.eco_effi_ratio) 
                 cmd.append(command)
 
     # Executar cada comando com um atraso de 3 segundos entre as submissões

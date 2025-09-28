@@ -8,7 +8,7 @@ from algorithms.networkUtils import get_available_shortest_path, calculate_compu
 
 import math
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
-PUNICAO_POR_NAO_REUSO = 12
+PUNICAO_POR_NAO_REUSO = 20
 RECOMPENSA_POR_USO_DE_MOVEL = 0
 
 
@@ -45,7 +45,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.list_graph = list_graph
         self.list_sfc = list_sfc
         self.pesos_fatores = pesos_fatores if pesos_fatores is not None else \
-                             {"cpu": 1.1, "cache": 1.1, "lat": 0.2, "band": 4}
+                             {"cpu": 1, "cache": 1, "lat": 1, "band": 3}
         
         self.is_training = is_training
         if self.is_training:
@@ -186,81 +186,98 @@ class SFC_AllocationEnv(gymnasium.Env):
     # =================================================================================
 
 
-    def _get_nodes_features(self,vnf:VNF, bw_required, current_location: any) -> tuple[np.ndarray, float]:
-        """Calcula o vetor de features para um único nó e retorna a capacidade de banda do caminho."""
-        
-        # Features: [cpu_used, cache_used, reusable, path, band_cost, latency_cost]
+
+
+
+    def _get_nodes_features(self, vnf: VNF, bw_required, current_location: any) -> np.ndarray:
+        """
+        Calcula o vetor de features para cada nó candidato.
+        Inclui lógicas especiais para:
+        1. Priorizar "nós dourados" (reuso com baixo custo).
+        2. Forçar a VNF de cache a ser alocada no destino.
+        3. Forçar a primeira VNF "unique" a ser alocada no destino se a latência for baixa.
+        """
+
+        # Features: [0:cpu_used, 1:cache_used, 2:reusable, 3:N/A, 4:band_cost, 5:latency_cost, 6:is_invalid, 7:is_dst]
         num_valid_nodes = len(self.valid_nodes)
-        features = np.zeros((num_valid_nodes, 8))  # Agora usamos np.zeros para inicializar o array com 0
-        
-        first_vnf = self.current_sfc.get_previous_vnf(self.current_sfc.get_dst_vnf()) 
-        second_vnf = first_vnf.get_previous_vnf()
-        if vnf:
-            for i, node_id in enumerate(self.valid_nodes):
-                # Caso especial: o último nó "válido" é sempre o destino do SFC
-                if i == num_valid_nodes - 1:
-                    node_id = self.current_sfc.dst_node
-                    features[i, 7] = 1
-                    
-                        
-                
-                # 1. Recursos do nó (cpu e cache utilizados em relação à capacidade)
-                node_data = self.graph.nodes[node_id]
-                features[i, 2] = float(self.is_reusable_at_node(self.current_sfc, self.graph, node_id,vnf))
+        features = np.zeros((num_valid_nodes, 8))
 
-                if vnf:
-                    cpu_req = vnf.get_cpu_request() 
-                    cache_req = vnf.get_cache_request()
-                    if features[i, 2]:
-                        cpu_req = 0
-                        cache_req = 0
-
-                else:
-                    cpu_req = 0
-                    cache_req = 0
-                features[i, 0] = (node_data["cpu_used"]+cpu_req) / node_data["cpu_capacity"]
-                features[i, 1] = (node_data["cache_used"]+cache_req) / node_data["cache_capacity"]
-
-                if node_data["cpu_used"]+cpu_req>=node_data["cpu_capacity"] or \
-                node_data["cache_used"]+cache_req>=node_data["cache_capacity"]:
-                    features[i, 6] = 1
-                
-                # 2. Reusabilidade do nó
-
-
-                path = get_available_shortest_path_fast(self.graph, current_location, node_id, bw_required)
-                
-                # 4. Verifica a reusabilidade da VNF no nó
-                if not path:  # Caso não haja caminho
-                    features[i, 4] = 1  # Custo de banda infinito
-                    features[i, 5] = 1.0  # Latência infinita
-                    features[i, 6] = 1
-                else:
-                    # Calcula o custo de banda e latência
-                    bd_cost, latency_cost = self.calculate_bw_lat_cost(vnf, node_id, path, bw_required)
-                    features[i, 4] = bd_cost
-                    features[i, 5] = latency_cost
-            
-
-                
-            if first_vnf == self.current_vnf or second_vnf == self.current_vnf:
-                if "cache" in self.current_sfc.id:
-                    features[:-1, 6] = 1
-            
-
-            
-                
+        if not vnf:
+            # Se não houver VNF para alocar, retorna features zeradas, marcando todos como inválidos
+            features[:, 6] = 1 
             return features
-        else:
 
-            if np.any(np.isnan(features)) or np.any(np.isinf(features)):
-                print("--- DEBUG: NaN ou Inf detectado no array 'features'! ---")
-                print(features)
-                # O assert vai quebrar o programa aqui, mostrando a causa
-                assert not (np.any(np.isnan(features)) or np.any(np.isinf(features)))
-            # =======================================================================
+        # --- 1. Loop principal para calcular as features de cada nó (sem alterações) ---
+        for i, node_id in enumerate(self.valid_nodes):
+            # Caso especial: o último nó "válido" é sempre o destino do SFC
+            if i == num_valid_nodes - 1:
+                node_id = self.current_sfc.dst_node
+                features[i, 7] = 1  # Marca como nó de destino
 
-            return features
+            node_data = self.graph.nodes[node_id]
+
+            # Feature de reusabilidade
+            is_reusable = self.is_reusable_at_node(self.current_sfc, self.graph, node_id, vnf)
+            features[i, 2] = float(is_reusable)
+
+            # Features de recursos (CPU e cache)
+            cpu_req = vnf.get_cpu_request()
+            cache_req = vnf.get_cache_request()
+            if is_reusable:
+                cpu_req, cache_req = 0, 0
+
+            features[i, 0] = (node_data["cpu_used"] + cpu_req) / node_data["cpu_capacity"]
+            features[i, 1] = (node_data["cache_used"] + cache_req) / node_data["cache_capacity"]
+
+            # Invalida se os recursos forem insuficientes
+            if (node_data["cpu_used"] + cpu_req) >= node_data["cpu_capacity"] or \
+               (node_data["cache_used"] + cache_req) >= node_data["cache_capacity"]:
+                features[i, 6] = 1
+
+            # Features de caminho (banda e latência)
+            path = get_available_shortest_path_fast(self.graph, current_location, node_id, bw_required)
+
+            if not path:
+                features[i, 4] = 1.0  # Custo de banda "infinito"
+                features[i, 5] = 1.0  # Latência "infinita"
+                features[i, 6] = 1    # Invalida o nó
+            else:
+                bd_cost, latency_cost = self.calculate_bw_lat_cost(vnf, node_id, path, bw_required)
+                features[i, 4] = bd_cost
+                features[i, 5] = latency_cost
+
+        # --- 2. LÓGICA: Priorizar "Nós Dourados" (sem alterações) ---
+        golden_nodes_mask = (
+            (features[:, 2] == 1) &      # É reutilizável
+            (features[:, 5] < 4) &       # Custo de latência é baixo
+            (features[:, 4] < 4)         # Custo de banda é baixo
+        )
+        if np.any(golden_nodes_mask):
+            nodes_to_invalidate_mask = ~golden_nodes_mask
+            features[nodes_to_invalidate_mask, 6] = 1
+
+        # --- 3. Lógica especial para VNF de cache (sem alterações) ---
+        first_vnf = self.current_sfc.get_previous_vnf(self.current_sfc.get_dst_vnf())
+        second_vnf = first_vnf.get_previous_vnf() if first_vnf else None
+
+        if first_vnf == self.current_vnf or (second_vnf and second_vnf == self.current_vnf):
+            if "cache" in self.current_sfc.id and not features[-1, 6]:
+                features[:-1, 6] = 1
+
+        # --- 4. LÓGICA ADICIONADA: Regra para a primeira VNF "unique" ---
+        # Verifica se a VNF atual é a primeira da cadeia
+        is_first_vnf_in_chain = first_vnf == self.current_vnf
+
+        # Aplica a regra se todas as condições forem verdadeiras
+        if (is_first_vnf_in_chain and
+            "unique" in self.current_vnf.id and
+            not features[-1, 6] and       # E o nó de destino é uma opção válida
+            features[-1, 5] < 10):         # E a latência para o destino é baixa
+
+            # Invalida todos os outros nós, forçando a escolha do destino.
+            features[:-1, 6] = 1
+
+        return features
 
 
     def _get_obs(self) -> Dict[str, np.ndarray]:

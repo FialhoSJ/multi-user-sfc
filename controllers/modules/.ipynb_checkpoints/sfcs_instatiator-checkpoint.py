@@ -6,7 +6,7 @@ import random
 import traceback
 from utils.k_shortest_paths import k_shortest_paths
 from algorithms.networkUtils import calculate_computational_latency,calculate_latency_betwen_nodes
-from salvar_var import salvar_variavel
+from utils.salvar_var import salvar_variavel
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 
 class SFCInstatiator:
@@ -63,9 +63,22 @@ class SFCInstatiator:
             alg_success = algorithm.start_algorithm()
             s2 = time.time()
             print(f"Algorithm {self.alg.name} Take time     :   {round((s2-s)*1000,3)} ms")
-            # salvar_variavel(sfc, "list_sfc")
-            # salvar_variavel(graph, "list_graph") 
-            
+#             if int(sfc.id.split('_')[-1]) <=10:
+#                 salvar_variavel(sfc, "list_sfc1")
+#                 salvar_variavel(graph, "list_graph1")
+#             elif int(sfc.id.split('_')[-1]) <=20:
+#                 salvar_variavel(sfc, "list_sfc2")
+#                 salvar_variavel(graph, "list_graph2")    
+#             elif int(sfc.id.split('_')[-1]) <=30:
+#                 salvar_variavel(sfc, "list_sfc3")
+#                 salvar_variavel(graph, "list_graph3")  
+
+#             elif int(sfc.id.split('_')[-1]) <=40:
+#                 salvar_variavel(sfc, "list_sfc4")
+#                 salvar_variavel(graph, "list_graph4")  
+#             else:
+#                 salvar_variavel(sfc, "list_sfc5")
+#                 salvar_variavel(graph, "list_graph5")  
             
             if alg_success: # No geral o algoritmo só vai dar erro caso tenha feito alocação indevida
                 total_latency = None
