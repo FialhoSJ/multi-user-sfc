@@ -267,12 +267,14 @@ class SFC_AllocationEnv(gymnasium.Env):
         # --- 4. LÓGICA ADICIONADA: Regra para a primeira VNF "unique" ---
         # Verifica se a VNF atual é a primeira da cadeia
         is_first_vnf_in_chain = first_vnf == self.current_vnf
-
+        unique_in_id =  "unique" in self.current_sfc.id
+        valid_node = not features[-1, 6]
+        aceitable_latency = bool(features[-1, 5] < 10)
         # Aplica a regra se todas as condições forem verdadeiras
         if (is_first_vnf_in_chain and
-            "unique" in self.current_vnf.id and
-            not features[-1, 6] and       # E o nó de destino é uma opção válida
-            features[-1, 5] < 10):         # E a latência para o destino é baixa
+            unique_in_id and
+            valid_node and       # E o nó de destino é uma opção válida
+            aceitable_latency):         # E a latência para o destino é baixa
 
             # Invalida todos os outros nós, forçando a escolha do destino.
             features[:-1, 6] = 1
