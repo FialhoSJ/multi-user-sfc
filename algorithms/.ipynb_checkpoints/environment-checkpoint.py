@@ -5,10 +5,11 @@ from networkx import Graph
 from typing import Union, List, Dict
 from core.sfc import SFC, VNF
 from algorithms.networkUtils import get_available_shortest_path, calculate_computational_latency, calculate_latency_betwen_nodes, get_available_shortest_path_fast
+from utils.network_utils import calcular_percentual_cpu_total
 
 import math
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
-PUNICAO_POR_NAO_REUSO = 20
+PUNICAO_POR_NAO_REUSO = 10
 RECOMPENSA_POR_USO_DE_MOVEL = 0
 
 
@@ -63,6 +64,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.current_location: Union[int, str] = None
         self.latency_request = None
         self.features = None
+        self.ratio_cpu_used = 0
         
         
         self.cache_path = {}
@@ -113,9 +115,12 @@ class SFC_AllocationEnv(gymnasium.Env):
         vnf = self.current_vnf
         bw_req = self.service_requirements[vnf.id]["out_bw"]
         current_node = self.current_location
+        
+        self.ratio_cpu_used = calcular_percentual_cpu_total(self.graph)
         self.features = self._get_nodes_features(vnf, bw_req, current_node)
 
         obs = self._get_obs()
+        
         return obs, {}
 
     def step(self, action: int):
@@ -192,10 +197,9 @@ class SFC_AllocationEnv(gymnasium.Env):
     def _get_nodes_features(self, vnf: VNF, bw_required, current_location: any) -> np.ndarray:
         """
         Calcula o vetor de features para cada nó candidato.
-        Inclui lógicas especiais para:
-        1. Priorizar "nós dourados" (reuso com baixo custo).
-        2. Forçar a VNF de cache a ser alocada no destino.
-        3. Forçar a primeira VNF "unique" a ser alocada no destino se a latência for baixa.
+        Inclui lógicas especiais com a seguinte prioridade:
+        1. Prioriza "nós dourados" (reuso com baixo custo), se existirem.
+        2. Se não houver "nó dourado", aplica regras para VNF de cache ou "unique".
         """
 
         # Features: [0:cpu_used, 1:cache_used, 2:reusable, 3:N/A, 4:band_cost, 5:latency_cost, 6:is_invalid, 7:is_dst]
@@ -209,52 +213,45 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         # --- 1. Loop principal para calcular as features de cada nó (sem alterações) ---
         for i, node_id in enumerate(self.valid_nodes):
-            # Caso especial: o último nó "válido" é sempre o destino do SFC
+            # ... (código do loop, sem alterações) ...
             if i == num_valid_nodes - 1:
                 node_id = self.current_sfc.dst_node
-                features[i, 7] = 1  # Marca como nó de destino
-
+                features[i, 7] = 1
             node_data = self.graph.nodes[node_id]
-
-            # Feature de reusabilidade
             is_reusable = self.is_reusable_at_node(self.current_sfc, self.graph, node_id, vnf)
             features[i, 2] = float(is_reusable)
-
-            # Features de recursos (CPU e cache)
             cpu_req = vnf.get_cpu_request()
             cache_req = vnf.get_cache_request()
             if is_reusable:
                 cpu_req, cache_req = 0, 0
-
             features[i, 0] = (node_data["cpu_used"] + cpu_req) / node_data["cpu_capacity"]
             features[i, 1] = (node_data["cache_used"] + cache_req) / node_data["cache_capacity"]
-
-            # Invalida se os recursos forem insuficientes
             if (node_data["cpu_used"] + cpu_req) >= node_data["cpu_capacity"] or \
                (node_data["cache_used"] + cache_req) >= node_data["cache_capacity"]:
                 features[i, 6] = 1
-
-            # Features de caminho (banda e latência)
             path = get_available_shortest_path_fast(self.graph, current_location, node_id, bw_required)
-
             if not path:
-                features[i, 4] = 1.0  # Custo de banda "infinito"
-                features[i, 5] = 1.0  # Latência "infinita"
-                features[i, 6] = 1    # Invalida o nó
+                features[i, 4] = 1.0
+                features[i, 5] = 1.0
+                features[i, 6] = 1
             else:
                 bd_cost, latency_cost = self.calculate_bw_lat_cost(vnf, node_id, path, bw_required)
                 features[i, 4] = bd_cost
                 features[i, 5] = latency_cost
 
-        # --- 2. LÓGICA: Priorizar "Nós Dourados" (sem alterações) ---
-        golden_nodes_mask = (
-            (features[:, 2] == 1) &      # É reutilizável
-            (features[:, 5] < 4) &       # Custo de latência é baixo
-            (features[:, 4] < 4)         # Custo de banda é baixo
-        )
-        if np.any(golden_nodes_mask):
-            nodes_to_invalidate_mask = ~golden_nodes_mask
-            features[nodes_to_invalidate_mask, 6] = 1
+#         # --- 2. LÓGICA: Priorizar "Nós Dourados" ---
+#         golden_nodes_mask = (
+#             (features[:, 2] == 1) &      # É reutilizável
+#             (features[:, 5] < 10) &       # Custo de latência é baixo
+#             (features[:, 4] < 4)         # Custo de banda é baixo
+#         )
+#         # MODIFICAÇÃO: Guarda o resultado da checagem em uma variável
+#         has_golden_node = np.any(golden_nodes_mask)
+
+#         if has_golden_node:
+#             # Se um nó dourado existe, ele se torna a única opção
+#             nodes_to_invalidate_mask = ~golden_nodes_mask
+#             features[nodes_to_invalidate_mask, 6] = 1
 
         # --- 3. Lógica especial para VNF de cache (sem alterações) ---
         first_vnf = self.current_sfc.get_previous_vnf(self.current_sfc.get_dst_vnf())
@@ -264,15 +261,18 @@ class SFC_AllocationEnv(gymnasium.Env):
             if "cache" in self.current_sfc.id and not features[-1, 6]:
                 features[:-1, 6] = 1
 
-        # --- 4. LÓGICA ADICIONADA: Regra para a primeira VNF "unique" ---
-        # Verifica se a VNF atual é a primeira da cadeia
-        is_first_vnf_in_chain = first_vnf == self.current_vnf
+        # --- 4. LÓGICA MODIFICADA: Regra para a primeira VNF "unique" ---
+        is_1_or_2_vnf = first_vnf == self.current_vnf or second_vnf == self.current_vnf
+        unique_in_id =  "unique" in self.current_sfc.id
+        valid_node = not features[-1, 6]
+        aceitable_latency = bool(features[-1, 5] < 2.58)
 
-        # Aplica a regra se todas as condições forem verdadeiras
-        if (is_first_vnf_in_chain and
-            "unique" in self.current_vnf.id and
-            not features[-1, 6] and       # E o nó de destino é uma opção válida
-            features[-1, 5] < 10):         # E a latência para o destino é baixa
+        # MODIFICAÇÃO: Adicionada a condição "not has_golden_node"
+        # Esta regra só é ativada se um nó dourado NÃO foi encontrado na etapa 2
+        if (self.ratio_cpu_used >50 and
+            is_1_or_2_vnf and
+            unique_in_id and
+            valid_node ):
 
             # Invalida todos os outros nós, forçando a escolha do destino.
             features[:-1, 6] = 1

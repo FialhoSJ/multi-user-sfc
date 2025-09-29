@@ -1,4 +1,5 @@
 from core.net_v2 import Net2
+import networkx as nx
 
 class EnergyCalculator:
     """
@@ -99,3 +100,41 @@ class EnergyCalculator:
                 power_for_node *= 1.2
             total_power += power_for_node
         return total_power
+    
+    
+    
+
+def calcular_percentual_cpu_total(G: nx.Graph) -> float:
+    """
+    Calcula o percentual de uso de CPU total em um grafo do NetworkX.
+
+    A função itera sobre todos os nós do grafo, soma os valores dos atributos
+    'cpu_used' and 'cpu_capacity', e retorna o percentual total de uso.
+
+    Args:
+        G (nx.Graph): O grafo do NetworkX cujos nós contêm os atributos
+                      'cpu_used' e 'cpu_capacity'.
+
+    Returns:
+        float: O percentual total de uso de CPU (de 0.0 a 100.0).
+               Retorna 0.0 se a capacidade total for 0 para evitar divisão por zero.
+    """
+    total_cpu_used = 0.0
+    total_cpu_capacity = 0.0
+
+    # Iteramos sobre os nós com seus dados (atributos)
+    for node_id, node_data in G.nodes(data=True):
+        # Usamos .get(atributo, 0) para o caso de um nó não ter o atributo.
+        # Isso torna a função mais robusta e evita erros.
+        total_cpu_used += node_data.get('cpu_used', 0)
+        total_cpu_capacity += node_data.get('cpu_capacity', 0)
+
+    # Verifica se a capacidade total é zero para evitar erro de divisão
+    if total_cpu_capacity == 0:
+        return 0.0
+
+    # Calcula o percentual
+    percentual_uso = (total_cpu_used / total_cpu_capacity) * 100
+    
+    return percentual_uso
+
