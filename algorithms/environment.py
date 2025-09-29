@@ -117,6 +117,8 @@ class SFC_AllocationEnv(gymnasium.Env):
         current_node = self.current_location
         
         self.ratio_cpu_used = calcular_percentual_cpu_total(self.graph)
+        
+        print("VALOR DE CPU USADO NO CODIGO  ", self.ratio_cpu_used)
         self.features = self._get_nodes_features(vnf, bw_req, current_node)
 
         obs = self._get_obs()
@@ -269,7 +271,7 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         # MODIFICAÇÃO: Adicionada a condição "not has_golden_node"
         # Esta regra só é ativada se um nó dourado NÃO foi encontrado na etapa 2
-        if (self.ratio_cpu_used >50 and
+        if (self.ratio_cpu_used >40 and
             is_1_or_2_vnf and
             unique_in_id and
             valid_node ):
