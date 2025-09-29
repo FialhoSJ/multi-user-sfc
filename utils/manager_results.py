@@ -189,9 +189,10 @@ class OutputWritter:
         cpu_used = substrate_network.get_cpu_total_used()
         cache_used = substrate_network.get_cache_total_used()
 
-        cpu_per_flow = cpu_used/running_sfcs
 
-        cache_per_flow = cache_used/running_sfcs
+        cpu_per_flow = cpu_used/running_sfcs if running_sfcs else 0
+
+        cache_per_flow = cache_used/running_sfcs if running_sfcs else 0
 
         cpu_saved =  substrate_network.total_cpu_saved
         cache_saved =  substrate_network.total_cache_saved

@@ -7,6 +7,9 @@ from core.sfc import SFC, VNF
 from algorithms.networkUtils import get_available_shortest_path, calculate_computational_latency, calculate_latency_betwen_nodes, get_available_shortest_path_fast
 from utils.network_utils import calcular_percentual_cpu_total
 
+# ADICIONADO:
+
+
 import math
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 PUNICAO_POR_NAO_REUSO = 10
@@ -46,7 +49,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.list_graph = list_graph
         self.list_sfc = list_sfc
         self.pesos_fatores = pesos_fatores if pesos_fatores is not None else \
-                             {"cpu": 1, "cache": 1, "lat": 1, "band": 3}
+                             {"cpu": 1, "cache": 1, "lat": 1, "band":5}
         
         self.is_training = is_training
         if self.is_training:
@@ -118,7 +121,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         
         self.ratio_cpu_used = calcular_percentual_cpu_total(self.graph)
         
-        print("VALOR DE CPU USADO NO CODIGO  ", self.ratio_cpu_used)
+        # print("VALOR DE CPU USADO NO CODIGO  ", self.ratio_cpu_used)
         self.features = self._get_nodes_features(vnf, bw_req, current_node)
 
         obs = self._get_obs()
@@ -413,6 +416,7 @@ class SFC_AllocationEnv(gymnasium.Env):
             self.list_graph = list_graph
             self.list_sfc = list_sfc
             self.reset()
+            print("RESET EM environment no _set_list_graph_sfcs")
 
 
     def _fail_step(self, reason: str):
@@ -505,15 +509,19 @@ class SFC_AllocationEnv(gymnasium.Env):
         cpu_used, cpu_cap = node["cpu_used"], node["cpu_capacity"]
         cache_used, cache_cap = node["cache_used"], node["cache_capacity"]
 
-        if cpu_used+cpu_req >= cpu_cap or cache_used+cache_req >= cache_cap:
-            return False
+        
 
         if not service_name.startswith(SHAREABLE_PREFIXES):
             return False
         
+        
+        
         session_id = sfc.id.split("_")[-1]
         service_key = (service_name, session_id)
         result = service_key in graph.nodes[node_id].get('services', {})
+
+        if result and cpu_used+cpu_req >= cpu_cap:
+            return False
 
         return result
 

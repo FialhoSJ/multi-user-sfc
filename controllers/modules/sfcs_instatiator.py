@@ -7,6 +7,9 @@ import traceback
 from utils.k_shortest_paths import k_shortest_paths
 from algorithms.networkUtils import calculate_computational_latency,calculate_latency_betwen_nodes
 from utils.salvar_var import salvar_variavel
+
+from algorithms.kuririn import Kuririn
+from algorithms.environment import SFC_AllocationEnv
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 
 class SFCInstatiator:
@@ -20,24 +23,34 @@ class SFCInstatiator:
         self.current_graph = None
         self.sfcs_that_crashed = []
         self.verbose = True
+        self.env = None
 
     def search_solution(self,sfc_list, substrate_network, is_backup=False):
         default_solution_format = {sfc.id: {'route_info': None, 'latency': None, 'run_duration': None} for sfc in sfc_list}
 
-        algorithm = copy.deepcopy(self.alg)
-        # algorithm = self.alg
+        # CORREÇÃO 1: Usamos a instância original do algoritmo, sem deepcopy.
+        # algorithm = copy.deepcopy(self.alg)
+        algorithm = self.alg
         algorithm.clear_all()
-        # O algoritmo deve criar variáveis temporárias e não usar a rede 'oficial'.
+        
         graph =  copy.deepcopy(substrate_network.graph)
         self.add_mobile_user_to_graph(graph,substrate_network,sfc_list)
-          
 
+        if isinstance(algorithm, Kuririn):
+            valid_nodes = [node for node in graph.nodes() if graph.nodes[node]['type'] != 'router']
+            
+            # CORREÇÃO 2: O ambiente é inicializado com uma lista de apenas uma SFC.
+            self.env = SFC_AllocationEnv(
+                valid_nodes=valid_nodes,
+                list_graph=[graph],
+                list_sfc=[sfc_list[0]],
+                is_training=False
+            )
+        
         sequential_sub = True
         if sequential_sub:
             solution,is_success = self.sequential_search(algorithm,sfc_list,graph,default_solution_format)
         else:
-            # TODO  Isso pode ser necessário mudar caso o algoritmo não precise instanciar sequencialmente. Ou seja, ele pode instanciar em lotes
-            # EX: solution,is_success = self.batch_search(algorithm,sfc_list,substrate_network,default_solution_format)
             pass
         
         if is_success:
@@ -46,23 +59,18 @@ class SFCInstatiator:
             self.deploy_failed_message(sfc_list)
         return solution,is_success
     
+
     def sequential_search(self,algorithm,sfc_list: object,graph:object,solution_format, graph_backup = None) -> None:
         search_success = True
 
-        for sfc in sfc_list:     # TODO  Isso pode ser necessário mudar caso o algoritmo não precise instanciar sequencialmente              
-
-            # if sfc.id.split("_")[-1] == "13":
-            #     print("debug")
+        for sfc in sfc_list:
             
-            
-            
+            # Prepara o algoritmo com uma CÓPIA da rede e a SFC atual
             algorithm.install_substrate_network(copy.deepcopy(graph))
             algorithm.install_SFC(sfc)
-            # self.back_up_alg = copy.deepcopy(algorithm)
+            
             s = time.time()
-            alg_success = algorithm.start_algorithm()
-            s2 = time.time()
-            print(f"Algorithm {self.alg.name} Take time     :   {round((s2-s)*1000,3)} ms")
+
 #             if int(sfc.id.split('_')[-1]) <=10:
 #                 salvar_variavel(sfc, "list_sfc1")
 #                 salvar_variavel(graph, "list_graph1")
@@ -78,25 +86,38 @@ class SFCInstatiator:
 #                 salvar_variavel(graph, "list_graph4")  
 #             else:
 #                 salvar_variavel(sfc, "list_sfc5")
-#                 salvar_variavel(graph, "list_graph5")  
+#                 salvar_variavel(graph, "list_graph5") 
             
-            if alg_success: # No geral o algoritmo só vai dar erro caso tenha feito alocação indevida
+            # A chamada ao algoritmo agora depende do seu tipo.
+            alg_success = False
+            if isinstance(algorithm, Kuririn):
+                # Se for o Kuririn, passamos o ambiente que criamos.
+                if self.env:
+                    alg_success = algorithm.start_algorithm(self.env)
+                else:
+                    logging.error("Tentativa de usar Kuririn sem um ambiente inicializado.")
+                    alg_success = False
+            else:
+                # Para qualquer outro algoritmo, usamos a chamada original.
+                alg_success = algorithm.start_algorithm()
+
+            s2 = time.time()
+            print(f"Algorithm {self.alg.name} Take time     :   {round((s2-s)*1000,3)} ms")
+            
+            if alg_success:
                 total_latency = None
                 try:
-                    # self.teste = copy.deepcopy(algorithm)
                     total_latency = self.submit_solution(graph, sfc, algorithm.get_route_info())
                 except ValueError as ve:
                     logging.error(f"Falha na submissão da solução para SFC {sfc.id}: {ve}")
-                    self.alg.handle_failure()
+                    algorithm.handle_failure() 
                     search_success = False
                 except Exception as e:
                     logging.error(f"Erro inesperado ao submeter solução para SFC {sfc.id}: {e}")
                     logging.error(traceback.format_exc())
-                    self.alg.handle_failure()
+                    algorithm.handle_failure()
                     search_success = False
             else:
-                # salvar_variavel(sfc, "list_sfc")
-                # salvar_variavel(graph, "list_graph") 
                 total_latency = None
                 search_success = False            
             
@@ -106,7 +127,6 @@ class SFCInstatiator:
                 'run_duration': s2 - s
                 }
             
-            # Validate latency
             if not alg_success:
                 search_success = False
 
@@ -139,35 +159,56 @@ class SFCInstatiator:
     def submit_solution(self,graph,sfc,route_info):
         def allocate_microservice(vnf, node_id, session_id):
             service_id = vnf.id
-            service_key = (service_id,session_id)
+            service_key = (service_id, session_id)
             cpu_required = vnf.get_cpu_request()
             cache_required = vnf.get_cache_request()
             node = graph.nodes[node_id]
-            latency = calculate_computational_latency(graph,node_id,vnf)
-            
+            latency = calculate_computational_latency(graph, node_id, vnf)
+
             if node['type'] not in ['server', 'mobile_device']:
                 raise ValueError(f"Serviços só podem ser alocados em servidores ou usuários, não em '{node['type']}'.")
-            # Verifica se há recursos disponíveis
-            if node['cpu_used'] + cpu_required > node['cpu_capacity']:
-                print(f"Sfcs_instatiator - Nó {node_id} || cpu_used: {node['cpu_used']} || cpu_required: {cpu_required}")
-                raise ValueError(f"CPU excedida no nó {node_id} para serviço {service_id} ||  cpu_required: {cpu_required}")
-            if node['cache_used'] + cache_required > node['cache_capacity']:
-                print(f"Sfcs_instatiator - Nó {node_id} || cache_used: {node['cache_used']} || cache_required: {cache_required}")
-                raise ValueError(f"Cache excedido no nó {node_id} para serviço {service_id}")
 
+            # --- LÓGICA CORRIGIDA ---
+
+            # 1. Primeiro, verifica se o serviço já existe no nó
             if service_key in node['services']:
-                node['services'][service_key]['copys'] += 1  # Serviço já instanciado
-                if not self.is_shareable(service_id):        # Se não for compartilhável
+                node['services'][service_key]['copys'] += 1  # Apenas incrementa o contador de cópias
+
+                # 2. Se não for compartilhável, aí sim verifica e consome novos recursos
+                if not self.is_shareable(service_id):
+                    # Verifica se há recursos para esta instância não compartilhável
+                    if node['cpu_used'] + cpu_required > node['cpu_capacity']:
+                        # Reverte o incremento de cópias antes de falhar
+                        node['services'][service_key]['copys'] -= 1
+                        raise ValueError(f"CPU excedida no nó {node_id} para instância não compartilhável do serviço {service_id}")
+                    if node['cache_used'] + cache_required > node['cache_capacity']:
+                        # Reverte o incremento de cópias antes de falhar
+                        node['services'][service_key]['copys'] -= 1
+                        raise ValueError(f"Cache excedido no nó {node_id} para instância não compartilhável do serviço {service_id}")
+
+                    # Se passou, consome os recursos
                     node['cpu_used'] += cpu_required
                     node['cache_used'] += cache_required
+                
+                # Se for compartilhável (o 'else' do 'if not self.is_shareable'), não faz nada, pois o recurso está sendo reusado.
 
+            # 3. Se o serviço for completamente novo no nó
             else:
+                # Verifica se há recursos para a primeira instância do serviço
+                if node['cpu_used'] + cpu_required > node['cpu_capacity']:
+                    raise ValueError(f"CPU excedida no nó {node_id} para alocar novo serviço {service_id}")
+                if node['cache_used'] + cache_required > node['cache_capacity']:
+                    raise ValueError(f"Cache excedido no nó {node_id} para alocar novo serviço {service_id}")
+
+                # Se passou, aloca o serviço e consome os recursos
                 node['services'][service_key] = {'cpu': cpu_required, 'cache': cache_required, 'copys': 1}
                 node['cpu_used'] += cpu_required
                 node['cache_used'] += cache_required
-                
+
+                # Adiciona à lista de reuso se for compartilhável
                 if self.is_shareable(service_id):
                     node['reuse'].append(vnf)
+                    
             return latency
         
         def allocate_bandwidth(node1, node2, vnf, ms_name):

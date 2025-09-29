@@ -26,16 +26,19 @@ os.environ["CUDA_VISIBLE_DEVICES"] = ""  # Desabilita o uso da GPU
 
 
 class Kuririn:
+    ### MODIFICADO ###
+    # O construtor agora carrega o modelo imediatamente.
     def __init__(self, model_name):
         # --- Atributos ---
-        self.model_name = model_name
+        self.model_name = model_name.upper() # Garante consistência (PPO ou DQN)
         self.model_path = f'rl_saved_models/{self.model_name}_allocation_model.zip'
         self.name = f"kuririn{model_name}"
         
-        # O modelo é inicializado como None. Ele será carregado na primeira execução.
-        self.model = None
+        # --- ADICIONADO: Carregamento do modelo na inicialização ---
+        # O modelo é carregado UMA ÚNICA VEZ e mantido na memória.
+        self.model = self._load_model()
         
-        # Demais atributos da sua classe
+        # Demais atributos da sua classe (mantidos do original)
         self.graph = None
         self.sfc = None
         self.route_info = {}
@@ -49,17 +52,32 @@ class Kuririn:
         self.valid_nodes = None
         self.last_propose = None
         self.precomputed_paths = {}
-        self.model = None
-        self.env = None  # Apenas para type-hinting
+        # self.env foi removido pois não pertence mais à classe.
 
-        # Pesos de custo
+        # Pesos de custo (mantidos do original)
         self.cpu_factor = 5
         self.cache_factor = 5
         self.band_factor = 2
         self.latency_factor = 2
         self.boot_factor = 0
 
+    ### ADICIONADO ###
+    # Método privado para carregar o modelo, chamado apenas uma vez.
+    def _load_model(self):
+        """Carrega o modelo de RL do arquivo, sem precisar de um ambiente."""
+        if not os.path.exists(self.model_path):
+            logger.error(f"Arquivo do modelo não encontrado: {self.model_path}")
+            raise FileNotFoundError(f"Arquivo do modelo não encontrado: {self.model_path}")
+        
+        logger.info(f"Carregando modelo de: {self.model_path}")
+        if self.model_name == "PPO":
+            return MaskablePPO.load(self.model_path, device='cpu')
+        elif self.model_name == "DQN":
+            return DQN.load(self.model_path, device='cpu')
+        else:
+            raise ValueError(f"Nome do modelo inválido: '{self.model_name}'. Use 'PPO' ou 'DQN'.")
 
+    # O método clear_all foi mantido como no original.
     def clear_all(self):
         self.substrate_network = None
         self.sfc = None
@@ -69,6 +87,7 @@ class Kuririn:
         self.src_substrate_node = None
         self.single_source_minimum_latency_path = None
 
+    # O método install_substrate_network foi mantido como no original.
     def install_substrate_network(self, graph, shareable_sfs=[]):
         self.graph = graph
         self.valid_nodes = [node for node in self.graph.nodes() if self.graph.nodes[node]['type'] != 'router']
@@ -76,7 +95,7 @@ class Kuririn:
         if self.precomputed_paths is None:
             self.precomputed_paths = dict(nx.all_pairs_dijkstra_path(self.graph, weight='weight')) 
 
-
+    # O método install_SFC foi mantido como no original.
     def install_SFC(self, sfc: SFC):
         self.sfc = sfc
         self.route_info = {}
@@ -88,12 +107,12 @@ class Kuririn:
         self.min_latency  = 0 
 
         service_requirements = {} 
-        services = []  # Lista para guardar os nomes
+        services = []
         sfs_dict = sfc.vnfs_dict
         
         for item in sfs_dict:
             nome = item['name']
-            services.append(nome)  # Adiciona o nome à lista de nomes
+            services.append(nome)
             service_requirements[nome] = {
                 'CPU': item['CPU'],
                 'cache': item['cache'],
@@ -109,6 +128,7 @@ class Kuririn:
 
         return self.sfc
 
+    # Todos os métodos getters e de utilidade foram mantidos como no original.
     def get_latency(self):
         return self.latency
 
@@ -141,17 +161,30 @@ class Kuririn:
     def set_costs(self, costs_parameters):
         self.cpu_factor, self.cache_factor, self.band_factor = costs_parameters
 
-    def start_algorithm(self):
-        if not self.valid_nodes:
-            self.valid_nodes = [node for node in self.graph.nodes() if self.graph.nodes[node]['type'] != 'router' and node != 0]
-        self._initialize_environment_and_model()
+    ### MODIFICADO ###
+    # O método principal agora RECEBE a instância do ambiente.
+    def start_algorithm(self, env: SFC_AllocationEnv):
+        if not self.valid_nodes or not self.sfc or not self.graph:
+            self.fail_reason = "Erro: Rede ou SFC não foram instalados antes de chamar start_algorithm."
+            logger.error(self.fail_reason)
+            self.handle_failure()
+            return False
 
-        self.algorithm()
+        # --- ADICIONADO: Configuração do ambiente com o problema atual ---
+        # Garante que o ambiente está sincronizado com o grafo e SFC que o Kuririn recebeu.
+        env.is_training = False
+        self.fail_reason = None
+        env.valid_nodes = self.valid_nodes
+        env._set_list_graph_sfcs([self.graph], [self.sfc])
+        self.model.set_env(env) # Associa o modelo ao ambiente configurado
+
+        # Chama a lógica principal do algoritmo, passando o ambiente
+        self.algorithm(env)
+
+        # A lógica de verificação e retorno foi mantida do original.
         if self.check_solution():
             try:
                 logger.info("Finished algorithm, success")
-                if IS_TRAINING:
-                    self._save_model()
                 return True  
             except Exception:
                 self.handle_failure()
@@ -159,76 +192,60 @@ class Kuririn:
         else:
             self.handle_failure()
             logger.info(f"End algorithm, failed: {self.fail_reason}")
-            if IS_TRAINING:
-                self._save_model()
             return False
 
-    def algorithm(self):
+    ### MODIFICADO ###
+    # O método algorithm agora recebe e repassa o ambiente.
+    def algorithm(self, env: SFC_AllocationEnv):
         dst = self.sfc.get_substrate_node(self.sfc.get_dst_vnf())
-
-        route_info, latency = self.find_best_allocation_for_sfc(dst)
+        
+        # Passa o ambiente para o método que executa o loop de predição.
+        route_info, latency = self.find_best_allocation_for_sfc(env, dst)
 
         return self.evaluate_result(latency, route_info)
     
+    ### MODIFICADO ###
+    # Este método foi simplificado para apenas executar o loop de predição.
+    def find_best_allocation_for_sfc(self, env: SFC_AllocationEnv, dst):
+        # A criação e reset do ambiente agora são feitos externamente.
+        # Apenas executamos o loop de decisão.
+        obs, _ = env.reset()
+        env.is_training = False
+        env.allocation_results['dst'] = {'allocated_server': dst, 'path': [], 'cost': 0}
 
-    def find_best_allocation_for_sfc(self,dst):
-        # 1. Não recria o ambiente, apenas reseta o necessário se já estiver inicializado
-        if self.env is None:
-            self.env = SFC_AllocationEnv(
-                valid_nodes=self.valid_nodes,
-                list_graph=[self.graph],
-                list_sfc=[self.sfc]
-            )
-        else:
-            # Apenas reseta o ambiente sem criar uma nova instância
-            
-            self.reset_environment([self.graph], [self.sfc])
-
-        # 2. Lógica de carregamento adaptativo do modelo. Só carrega o modelo se ele não estiver carregado ainda
-        if self.model is None:
-            self.load_model(self.env)
-
-        # 3. Prepara e reseta o ambiente para o início do episódio, mas não recria o ambiente
-        obs, _ = self.env.reset()
-        self.env.is_training = False  # Garante que está em modo de inferência
-        self.env.allocation_results['dst'] = {'allocated_server': dst, 'path': [], 'cost': 0}
-
-        # 4. Loop de predição para tomar decisões até o fim do episódio
         done = False
         while not done:
-            action_masks = self.env.action_masks()
+            action_masks = env.action_masks()
             action, _ = self.model.predict(obs, action_masks=action_masks, deterministic=False)
-            obs, _, terminated, truncated, _ = self.env.step(action)
+            obs, _, terminated, truncated, _ = env.step(action)
             done = terminated or truncated
 
-        # 5. Processa o resultado final do episódio
-        if not self.env.success:
+        if not env.success:
             if not VERBOSE:
-                print(f"Causa Falha: {self.env.fail_reason}")
-                print(f"Alocação: [{self.env.servers_used}] || Custo latência: {self.env.latency_used}")
-            self.fail_reason = self.env.fail_reason
+                print(f"Causa Falha: {env.fail_reason}")
+                print(f"Alocação: [{env.servers_used}] || Custo latência: {env.latency_used}")
+            self.fail_reason = env.fail_reason
             return [], None
 
-        print(f"SFC: {self.sfc.id}: {self.env.servers_used} || latência usada: {self.env.latency_used}")
+        print(f"SFC: {self.sfc.id}: {env.servers_used} || latência usada: {env.latency_used}")
 
-        # Monta o route_info a partir dos resultados bem-sucedidos do ambiente
+        env.allocation_results['dst'] = {'allocated_server': dst, 'path': [], 'cost': 0}
+
+
+
         route_info = {
             key: list(reversed(value['path']))
-            for key, value in self.env.allocation_results.items()
+            for key, value in env.allocation_results.items()
         }
-
-        src_node = next(reversed(route_info.values()))[0]
         
+     
+        src_node = next(reversed(route_info.values()))[0]
         path_to_src = list(reversed(nx.dijkstra_path(self.graph, src_node, 0, weight='weight')))
         route_info['src'] = path_to_src
-
-        # Calcula a latência total (excluindo os nós, contando apenas os links)
-        total_latency = self.env.latency_used + (len(path_to_src) - 1)
-
+        total_latency = env.latency_used + (len(path_to_src) - 1)
         return route_info, total_latency
 
-
-    
+    # O método evaluate_result foi mantido como no original.
     def evaluate_result(self, latency, route_info):
         if self.fail_reason in ['resource', 'latency','bandwidth']:
             self.route_info = False
@@ -238,38 +255,10 @@ class Kuririn:
         self.route_info = route_info
         return True
 
-    def _load_or_create_model(self, env):
-        if self.model_name == "ppo":
-            self.model = MaskablePPO.load(self.model_path, env=env)
-        elif self.model_name == "dqn":
-            if os.path.exists(self.model_path + ".zip"):
-                model = DQN.load(self.model_path)
-                self.model = DQN("MlpPolicy", env, verbose=0, learning_rate=0.00003, batch_size=64, buffer_size=100_000_000, gamma=0.99, train_freq=4, gradient_steps=1, target_update_interval=256, device='cpu')
-                self.model.policy.load_state_dict(model.policy.state_dict())
-            else:
-                self.model = DQN("MlpPolicy", env, verbose=0, learning_rate=0.00003, batch_size=64, buffer_size=100_000_000, gamma=0.99, train_freq=4, gradient_steps=1, target_update_interval=256, device='cpu')
-
-    def load_model(self, env):
-        # Carregar modelo uma vez, se não carregado
-        if self.model is None:
-            if self.model_name == "PPO":
-                self.model = MaskablePPO.load(self.model_path, env=env)
-            elif self.model_name == "DQN":
-                self.model = DQN.load(self.model_path, env=env)
-        self.model.set_env(env)
-        
-    def reset_environment(self, list_graph, list_sfc):
-        # Resetando variáveis importantes do ambiente
-        self.env.is_training = False
-        self.env._set_list_graph_sfcs(list_graph, list_sfc)
-        # self.env.reset()
-        
-        
-        
-    def _initialize_environment_and_model(self):
-        # Inicializa o ambiente e o modelo no começo
-        if self.env is None:
-            self.env = SFC_AllocationEnv(valid_nodes=self.valid_nodes, list_graph=[self.graph], list_sfc=[self.sfc])
-
-        if self.model is None:
-            self.load_model(self.env)
+    ### REMOVIDO ###
+    # Os métodos abaixo foram removidos pois a classe não gerencia mais
+    # a criação do ambiente ou o carregamento do modelo em tempo de execução.
+    # def _load_or_create_model(self, env):
+    # def load_model(self, env):
+    # def reset_environment(self, list_graph, list_sfc):
+    # def _initialize_environment_and_model(self):

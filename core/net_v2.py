@@ -186,7 +186,7 @@ class Net2:
             raise ValueError(f"Recursos com valores Negativos")
 
     def allocate_microservice(self, sfc, vnf, node_id):
-        # TODO melhorar essa verificação. Funciona por agora, mas caso o código mude talvez seja necessário mudar
+        # --- Bloco inicial de configuração (inalterado) ---
         sfc_id = sfc.id
         session = sfc_id.split("_")[-1]
         mobile = False
@@ -201,46 +201,64 @@ class Net2:
         cpu_required = vnf.get_cpu_request()
         cache_required = vnf.get_cache_request()
 
-        self.total_cpu_requested = round(self.total_cpu_requested+cpu_required,2) 
-        self.total_cache_requested = round(self.total_cache_requested+cache_required,2) 
-        # data_bits_per_frame * ciclos/bits * 1000 (ms) / vm's ips
+        self.total_cpu_requested = round(self.total_cpu_requested + cpu_required, 2) 
+        self.total_cache_requested = round(self.total_cache_requested + cache_required, 2) 
 
         if node['type'] not in ['server', 'mobile_device']:
             raise ValueError(f"Serviços só podem ser alocados em servidores ou usuários, não em '{node['type']}'.")
-
-        if node['cpu_used'] + cpu_required > node['cpu_capacity'] or node['cache_used'] + cache_required > node['cache_capacity']:
-            raise ValueError(f"Sem capacidade suficiente no nó {node_id}.")
         
-        def put_resource(cpu_required,cache_required,mobile):
-            node['cpu_used'] = round(node['cpu_used'] + cpu_required,2)
-            node['cache_used'] = round(node['cache_used'] + cache_required,2)
-            if mobile:
-                self.mobile_cpu_used = round(self.mobile_cpu_used + cpu_required,2)  
-                self.mobile_cache_used = round(self.mobile_cache_used + cache_required,2)
+        # --- Fim do bloco inalterado ---
+
+        # Função auxiliar interna para alocar recursos e atualizar contadores globais
+        def put_resource(cpu_req, cache_req, is_mobile):
+            node['cpu_used'] = round(node['cpu_used'] + cpu_req, 2)
+            node['cache_used'] = round(node['cache_used'] + cache_req, 2)
+            if is_mobile:
+                self.mobile_cpu_used = round(self.mobile_cpu_used + cpu_req, 2)  
+                self.mobile_cache_used = round(self.mobile_cache_used + cache_req, 2)
             else:
-                self.total_cpu_used = round(self.total_cpu_used + cpu_required,2)
-                self.total_cache_used = round(self.total_cache_used + cache_required,2)
+                self.total_cpu_used = round(self.total_cpu_used + cpu_req, 2)
+                self.total_cache_used = round(self.total_cache_used + cache_req, 2)
         
         if sfc_id not in node['sfcs_list']:
             node['sfcs_list'].append(sfc_id)
         
-        service_key = (service_id,session)
+        service_key = (service_id, session)
+
+        # --- LÓGICA DE REUSO CORRIGIDA ---
+
+        # 1. Primeiro, verifica se o serviço já existe no nó
         if service_key in node['services']:
-            node['services'][service_key]['copys'] += 1 # Serviço já instanciado, então incrementa o número de cópias
-            if not self.is_shareable(service_id): # Se não for compartilhável ou a sessão não for a mesma, aumenta os recursos usados
-                put_resource(cpu_required,cache_required,mobile)
+            node['services'][service_key]['copys'] += 1
+
+            # 2. Se NÃO for compartilhável, verifica a capacidade e consome os recursos
+            if not self.is_shareable(service_id):
+                if node['cpu_used'] + cpu_required > node['cpu_capacity'] or \
+                node['cache_used'] + cache_required > node['cache_capacity']:
+                    node['services'][service_key]['copys'] -= 1 # Reverte o incremento
+                    if sfc_id in node['sfcs_list']: node['sfcs_list'].remove(sfc_id) # Reverte
+                    raise ValueError(f"Sem capacidade suficiente no nó {node_id} para instância não compartilhável.")
+                
+                put_resource(cpu_required, cache_required, mobile)
             
+            # 3. Se FOR compartilhável, apenas atualiza as métricas de economia
             else:
                 self.total_cpu_saved = round(self.total_cpu_saved + cpu_required, 2)
                 self.total_cache_saved = round(self.total_cache_saved + cache_required, 2)
                 self.shared_vnfs_count += 1
                     
+        # 4. Se o serviço for completamente novo, verifica a capacidade e o instancia
         else:
-            node['services'][service_key] = {'cpu': cpu_required,'cache': cache_required,'copys': 1}
-            put_resource(cpu_required,cache_required,mobile)
+            if node['cpu_used'] + cpu_required > node['cpu_capacity'] or \
+            node['cache_used'] + cache_required > node['cache_capacity']:
+                if sfc_id in node['sfcs_list']: node['sfcs_list'].remove(sfc_id) # Reverte
+                raise ValueError(f"Sem capacidade suficiente no nó {node_id} para novo serviço.")
+            
+            node['services'][service_key] = {'cpu': cpu_required, 'cache': cache_required, 'copys': 1}
+            put_resource(cpu_required, cache_required, mobile)
+            
             if self.is_shareable(service_id):
                 node['reuse'].append(vnf)
-                # self.shared_sfs[node_id].append(vnf) # Deve ser retura
 
     def deallocate_microservice(self, node_id, sfc_id, vnf):
         mobile = False
@@ -596,6 +614,50 @@ class Net2:
         total_used = self.total_cpu_used + self.mobile_cpu_used
         return total_used / self.total_cpu_capacity
     
+    def get_network_cpu_utilization_percentage(self):
+        """
+        Calcula a porcentagem de utilização de CPU apenas para os nós da
+        infraestrutura de rede (servidores), ignorando os dispositivos móveis.
+
+        Returns:
+            float: A porcentagem de utilização da CPU da rede.
+        """
+        total_network_capacity = 0.0
+        # Itera sobre todos os nós no grafo principal da rede
+        for node_id, node_data in self.graph.nodes(data=True):
+            # Adiciona a capacidade de CPU apenas de nós que a possuem (ex: servidores)
+            if 'cpu_capacity' in node_data:
+                total_network_capacity += node_data['cpu_capacity']
+
+        # Evita divisão por zero se não houver capacidade na rede
+        if total_network_capacity == 0:
+            return 0.0
+
+        # Calcula a porcentagem
+        utilization = (self.total_cpu_used / total_network_capacity) * 100
+        return utilization
+
+    def get_mobile_cpu_utilization_percentage(self):
+        """
+        Calcula a porcentagem de utilização de CPU apenas para os nós móveis.
+
+        Returns:
+            float: A porcentagem de utilização da CPU dos nós móveis.
+        """
+        total_mobile_capacity = 0.0
+        # Itera sobre todos os nós no grafo de dispositivos móveis
+        for node_id, node_data in self.md_graph.nodes(data=True):
+            if 'cpu_capacity' in node_data:
+                total_mobile_capacity += node_data['cpu_capacity']
+
+        # Evita divisão por zero se não houver dispositivos móveis com capacidade
+        if total_mobile_capacity == 0:
+            return 0.0
+
+        # Calcula a porcentagem
+        utilization = (self.mobile_cpu_used / total_mobile_capacity) * 100
+        return utilization
+    
     def get_cpu_network_used(self):
         return self.total_cpu_used
     
@@ -631,6 +693,8 @@ class Net2:
 
         # print(f"Server CPU utilization   : {server_cpu_util:.3f}%")
         print(f"Total System CPU util.   : {total_cpu_util:.3f}%")
+        print(f"Network CPU util         : {self.get_network_cpu_utilization_percentage():.3f}%")
+        print(f"Mobile CPU util          : {self.get_mobile_cpu_utilization_percentage():.3f}%")
 
         if self.total_cpu_requested > 0:
             cpu_saving_rate = (self.total_cpu_saved / self.total_cpu_requested) * 100
