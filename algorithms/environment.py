@@ -416,7 +416,7 @@ class SFC_AllocationEnv(gymnasium.Env):
             self.list_graph = list_graph
             self.list_sfc = list_sfc
             self.reset()
-            print("RESET EM environment no _set_list_graph_sfcs")
+            # print("RESET EM environment no _set_list_graph_sfcs")
 
 
     def _fail_step(self, reason: str):

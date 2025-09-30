@@ -490,6 +490,72 @@ class Net2:
 
     def get_sfc_by_id(self, sfc_id):
         return self.sfc_dict[sfc_id]
+    
+    # Adicione esta função dentro da classe Net2, junto com os outros métodos.
+
+    def calculate_average_sfc_latency(self):
+        """
+        Calcula a latência média ponta a ponta de todas as SFCs ativas na rede.
+
+        A latência de uma SFC é a soma das latências computacionais de suas VNFs
+        e das latências de comunicação dos caminhos entre elas. A função retorna
+        a média dessa latência total sobre todas as SFCs implantadas.
+
+        Returns:
+            float: A latência média por SFC, ou 0 se nenhuma SFC estiver ativa.
+        """
+        if not self.sfc_dict:
+            return 0.0
+
+        total_latency_all_sfcs = 0.0
+        
+        for sfc_id, sfc in self.sfc_dict.items():
+            current_sfc_latency = 0.0
+            route_info = self.sfc_route_info[sfc_id]
+
+            # Itera sobre as VNFs na ordem correta da cadeia de serviços
+            current_vnf = sfc.get_vnf_by_id('src') 
+            while current_vnf and current_vnf.id != 'dst':
+                next_vnf = sfc.get_next_vnf(current_vnf)
+                if not next_vnf or next_vnf.id == 'dst':
+                    break
+                
+                # --- Latência Computacional da Próxima VNF ---
+                # O caminho para a VNF contém o nó onde ela foi alocada como primeiro elemento
+                allocation_path = route_info.get(next_vnf.id)
+                if not allocation_path:
+                    # Se uma VNF não tem rota, não podemos calcular a latência
+                    current_vnf = next_vnf
+                    continue
+                
+                allocated_node = allocation_path[0]
+                
+                # Reutiliza a função existente para calcular a latência de processamento
+                if self.is_mobile_node(allocated_node):
+                     ips = self.md_graph.nodes[allocated_node]['ips']
+                     packet = next_vnf.get_income_interface_bandwidth() /60 * 1e6
+                     comp_latency = packet * 10 * 1000/ips
+                else:
+                    ips = self.graph.nodes[allocated_node]['ips']
+                    packet = next_vnf.get_income_interface_bandwidth() /60 * 1e6
+                    comp_latency = packet * 10 * 1000/ips
+
+                current_sfc_latency += comp_latency
+
+                # --- Latência de Comunicação ao longo do caminho ---
+                path_to_next_vnf = route_info.get(next_vnf.id, [])
+                if len(path_to_next_vnf) > 1:
+                    for i in range(len(path_to_next_vnf) - 1):
+                        u = path_to_next_vnf[i]
+                        v = path_to_next_vnf[i+1]
+                        # Reutiliza a função existente para latência do enlace
+                        current_sfc_latency += self.calculate_latency_betwen_nodes(self.graph, u, v, next_vnf)
+                
+                current_vnf = next_vnf
+            
+            total_latency_all_sfcs += current_sfc_latency
+
+        return total_latency_all_sfcs / len(self.sfc_dict)
 
     def update(self):
         pass

@@ -7,7 +7,7 @@ import traceback
 from utils.k_shortest_paths import k_shortest_paths
 from algorithms.networkUtils import calculate_computational_latency,calculate_latency_betwen_nodes
 from utils.salvar_var import salvar_variavel
-
+from core.net_v2 import Net2
 from algorithms.kuririn import Kuririn
 from algorithms.environment import SFC_AllocationEnv
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
@@ -25,7 +25,7 @@ class SFCInstatiator:
         self.verbose = True
         self.env = None
 
-    def search_solution(self,sfc_list, substrate_network, is_backup=False):
+    def search_solution(self,sfc_list, substrate_network: Net2, is_backup=False):
         default_solution_format = {sfc.id: {'route_info': None, 'latency': None, 'run_duration': None} for sfc in sfc_list}
 
         # CORREÇÃO 1: Usamos a instância original do algoritmo, sem deepcopy.
@@ -35,6 +35,8 @@ class SFCInstatiator:
         
         graph =  copy.deepcopy(substrate_network.graph)
         self.add_mobile_user_to_graph(graph,substrate_network,sfc_list)
+
+        print("LATENCIA MEDIA DAS SFCS ALOCADAS!!!", substrate_network.calculate_average_sfc_latency())
 
         if isinstance(algorithm, Kuririn):
             valid_nodes = [node for node in graph.nodes() if graph.nodes[node]['type'] != 'router']
