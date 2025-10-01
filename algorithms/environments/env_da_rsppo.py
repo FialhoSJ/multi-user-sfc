@@ -5,7 +5,7 @@ from networkx import Graph
 from typing import Union, List, Dict
 from core.sfc import SFC, VNF
 from algorithms.networkUtils import get_available_shortest_path, calculate_computational_latency, calculate_latency_betwen_nodes, get_available_shortest_path_fast
-from utils.network_utils import calcular_percentual_cpu_total
+from utils.network_utils import calcular_percentual_cpu_total, get_sfc_latency_from_route
 
 # ADICIONADO:
 
@@ -77,8 +77,9 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.action_space = spaces.Discrete(num_nodes)
         self.observation_space = spaces.Dict({ 
         #0 se cache e 1 se unique
-        "tipo_sfc": spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
-        "recursos_nos_validos": spaces.Box(low=0, high=1, shape=(num_nodes, 6), dtype=np.float32),
+        "Se": spaces.Box(low=0, high=1, shape=(num_nodes,1), dtype=np.float32),
+        "Sm": spaces.Box(low=0, high=1, shape=(num_nodes, 1), dtype=np.float32),
+        "Sr": spaces.Box(low=0, high=1, shape=(num_nodes, 2), dtype=np.float32),
         })
 
     def reset(self, seed=None, options=None):
@@ -155,20 +156,10 @@ class SFC_AllocationEnv(gymnasium.Env):
         
         reward = -total_cost
 
-         # ======================= ADICIONE ESTA VERIFICAÇÃO =======================
-        if math.isnan(reward) or math.isinf(reward):
-            print(f"--- DEBUG: Recompensa inválida detectada! Valor: {reward} ---")
-            print(f"Custo total calculado: {total_cost}")
-            assert not (math.isnan(reward) or math.isinf(reward))
-        # =======================================================================
-
-
         # 6. Atualizar estado para o próximo passo
         self.current_location = chosen_server
         if not self.is_training:
             self.allocation_results[self.current_vnf.id] = {'allocated_server': chosen_server, 'path': path, 'cost': total_cost}
-
-        self.latency_used += calculate_total_latency(self.graph, path, vnf)
 
         # 7. Verificar conclusão e avançar para a próxima VNF/SFC
         done = False
@@ -209,11 +200,11 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         # Features: [0:cpu_used, 1:cache_used, 2:reusable, 3:N/A, 4:band_cost, 5:latency_cost, 6:is_invalid, 7:is_dst]
         num_valid_nodes = len(self.valid_nodes)
-        features = np.zeros((num_valid_nodes, 8))
+        features = np.zeros((num_valid_nodes, 5))
 
         if not vnf:
             # Se não houver VNF para alocar, retorna features zeradas, marcando todos como inválidos
-            features[:, 6] = 1 
+            features[:, 4] = 1 
             return features
 
         # --- 1. Loop principal para calcular as features de cada nó (sem alterações) ---
@@ -221,66 +212,25 @@ class SFC_AllocationEnv(gymnasium.Env):
             # ... (código do loop, sem alterações) ...
             if i == num_valid_nodes - 1:
                 node_id = self.current_sfc.dst_node
-                features[i, 7] = 1
+                
             node_data = self.graph.nodes[node_id]
             is_reusable = self.is_reusable_at_node(self.current_sfc, self.graph, node_id, vnf)
-            features[i, 2] = float(is_reusable)
-            cpu_req = vnf.get_cpu_request()
-            cache_req = vnf.get_cache_request()
-            if is_reusable:
-                cpu_req, cache_req = 0, 0
-            features[i, 0] = (node_data["cpu_used"] + cpu_req) / node_data["cpu_capacity"]
-            features[i, 1] = (node_data["cache_used"] + cache_req) / node_data["cache_capacity"]
-            if (node_data["cpu_used"] + cpu_req) >= node_data["cpu_capacity"] or \
-               (node_data["cache_used"] + cache_req) >= node_data["cache_capacity"]:
-                features[i, 6] = 1
+            features[i, 1] = float(is_reusable)
+            cpu_req = vnf.get_cpu_request() if not is_reusable else 0
+            cache_req = vnf.get_cache_request() if not is_reusable else 0
+
+            features[i, 2] = (node_data["cpu_capacity"] - node_data["cpu_used"]) / node_data["cpu_capacity"]
+            features[i, 3] = (node_data["cache_capacity"] - node_data["cache_used"]) / node_data["cache_capacity"]
+            if (node_data["cpu_used"] + cpu_req) > node_data["cpu_capacity"] or \
+               (node_data["cache_used"] + cache_req) > node_data["cache_capacity"]:
+                features[i, 4] = 1
             path = get_available_shortest_path_fast(self.graph, current_location, node_id, bw_required)
             if not path:
+                features[i, 0] = 1.0
                 features[i, 4] = 1.0
-                features[i, 5] = 1.0
-                features[i, 6] = 1
             else:
-                bd_cost, latency_cost = self.calculate_bw_lat_cost(vnf, node_id, path, bw_required)
-                features[i, 4] = bd_cost
-                features[i, 5] = latency_cost
-
-#         # --- 2. LÓGICA: Priorizar "Nós Dourados" ---
-#         golden_nodes_mask = (
-#             (features[:, 2] == 1) &      # É reutilizável
-#             (features[:, 5] < 10) &       # Custo de latência é baixo
-#             (features[:, 4] < 4)         # Custo de banda é baixo
-#         )
-#         # MODIFICAÇÃO: Guarda o resultado da checagem em uma variável
-#         has_golden_node = np.any(golden_nodes_mask)
-
-#         if has_golden_node:
-#             # Se um nó dourado existe, ele se torna a única opção
-#             nodes_to_invalidate_mask = ~golden_nodes_mask
-#             features[nodes_to_invalidate_mask, 6] = 1
-
-        # --- 3. Lógica especial para VNF de cache (sem alterações) ---
-        first_vnf = self.current_sfc.get_previous_vnf(self.current_sfc.get_dst_vnf())
-        second_vnf = first_vnf.get_previous_vnf() if first_vnf else None
-
-        if first_vnf == self.current_vnf or (second_vnf and second_vnf == self.current_vnf):
-            if "cache" in self.current_sfc.id and not features[-1, 6]:
-                features[:-1, 6] = 1
-
-        # --- 4. LÓGICA MODIFICADA: Regra para a primeira VNF "unique" ---
-        is_1_or_2_vnf = first_vnf == self.current_vnf or second_vnf == self.current_vnf
-        unique_in_id =  "unique" in self.current_sfc.id
-        valid_node = not features[-1, 6]
-        aceitable_latency = bool(features[-1, 5] < 2.58)
-
-        # MODIFICAÇÃO: Adicionada a condição "not has_golden_node"
-        # Esta regra só é ativada se um nó dourado NÃO foi encontrado na etapa 2
-        if (self.ratio_cpu_used >40 and
-            is_1_or_2_vnf and
-            unique_in_id and
-            valid_node ):
-
-            # Invalida todos os outros nós, forçando a escolha do destino.
-            features[:-1, 6] = 1
+                _, latency_cost = self.calculate_bw_lat_cost(vnf, node_id, path, bw_required)
+                features[i, 0] = latency_cost
 
         return features
 
@@ -290,15 +240,14 @@ class SFC_AllocationEnv(gymnasium.Env):
         Monta a observação do ambiente de forma estruturada e eficiente usando NumPy.
         """
         valid_nodes = self.valid_nodes
-        num_valid_nodes = len(valid_nodes)
 
         # --- 1. Determinação do Último Nó Escolhido ---
-        primeira_sf = np.zeros(1, dtype=np.float32)
+        # Se = np.zeros(num_valid_nodes, dtype=np.float32)
+        # Sm = np.zeros(1, dtype=np.float32)
+        # Sr = np.zeros(1, dtype=np.float32)
+
         current_loc = self.current_location if not isinstance(self.current_location, str) else 'M'
         
-        # O destino é tratado como o último índice
-        idx_loc = valid_nodes.index(current_loc) if current_loc != 'M' else num_valid_nodes - 1
-        primeira_sf[0] = 1.0 if self.current_sfc.get_previous_vnf(self.current_sfc.get_dst_vnf()) == self.current_vnf else 0.0
 
         # --- 2. Coleta de Features dos Nós Válidos (Versão Otimizada) ---
         # self.features é um array NumPy com as colunas:
@@ -306,32 +255,26 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         # Define as colunas que queremos selecionar do array self.features
         # para formar nossa observação.
-        indices_das_features = [0, 1, 2, 4, 5, 7]
+        idx_Se = [0]
+        idx_Sm = [1]
+        idx_Sr = [2,3]
 
         # Usa o fatiamento avançado do NumPy para selecionar todas as linhas
         # e apenas as colunas desejadas de uma só vez.
         # Isso elimina a necessidade de um loop em Python, sendo muito mais rápido.
-        recursos_nodes = self.features[:, indices_das_features].astype(np.float32)
+        Se = self.features[:, idx_Se].astype(np.float32)
+        Sm = self.features[:, idx_Sm].astype(np.float32)
+        Sr = self.features[:, idx_Sr].astype(np.float32)
 
         # Normaliza a coluna de latência (que agora é a coluna de índice 4 no novo array)
         # A operação é feita em toda a coluna de uma vez.
-        recursos_nodes[:, 4] /= 30
+        Se[:, 0] /= 100
 
-        if not self.current_vnf or  "cache" in self.current_sfc.id:
-            tipo_sfc = np.array([0.0], dtype=np.float32)
-        else:
-            tipo_sfc = tipo_sfc = np.array([1.0], dtype=np.float32)
         obs = {
-            "tipo_sfc": tipo_sfc ,
-            "recursos_nos_validos": recursos_nodes,
+            "Se": Se ,
+            "Sm": Sm,
+            "Sr": Sr
         }
-
-
-        for key, value in obs.items():
-            if np.any(np.isnan(value)) or np.any(np.isinf(value)):
-                print(f"--- DEBUG: NaN ou Inf detectado na observação final (chave: {key})! ---")
-                print(value)
-                assert not (np.any(np.isnan(value)) or np.any(np.isinf(value)))
 
         return obs
 
@@ -509,28 +452,23 @@ class SFC_AllocationEnv(gymnasium.Env):
         cpu_used, cpu_cap = node["cpu_used"], node["cpu_capacity"]
         cache_used, cache_cap = node["cache_used"], node["cache_capacity"]
 
-        
-
         if not service_name.startswith(SHAREABLE_PREFIXES):
             return False
-        
-        
         
         session_id = sfc.id.split("_")[-1]
         service_key = (service_name, session_id)
         result = service_key in graph.nodes[node_id].get('services', {})
 
-        if result and cpu_used+cpu_req >= cpu_cap:
+        if result and cpu_used+cpu_req >= cpu_cap and cache_used+cache_req >= cache_cap:
             return False
 
         return result
 
     def calculate_bw_lat_cost(self, vnf: VNF, server_id, path: List, bw_required: float):
         # Latência computacional
-        latency_cost = calculate_computational_latency(self.graph, server_id, vnf)
 
         if not path or len(path) < 2:
-            return 0, latency_cost
+            return 0, 0
 
         bw_cost = 0
         for u, v in zip(path[:-1], path[1:]):
@@ -582,14 +520,94 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         band_cost=bw_cost * self.pesos_fatores['band']
         return resource_cost + band_cost + lat_cost * self.pesos_fatores['lat'] + mobile_device_cost
+    
+
+
+    # Coloque esta função DENTRO da sua classe SFC_AllocationEnv
+
+    def _deploy_initial_solution(self):
+        """
+        Realiza uma alocação inicial completa para a self.current_sfc usando uma
+        heurística baseada na menor latência de comunicação, conforme sugerido pelo artigo.
+        O processo é feito na ordem inversa (do destino para a origem), seguindo
+        a lógica existente no ambiente.
+
+        Retorna:
+            bool: True se a alocação inicial foi bem-sucedida, False caso contrário.
+        """
+        # A lista de VNFs já está em ordem reversa (do destino para a origem)
+        vnf_list = self.reverse_vnf_list
+        
+        # O ponto de partida para a primeira VNF é o destino final da SFC
+        previous_node_location = self.current_sfc.dst_node
+        
+        # Vamos rastrear o caminho completo da solução inicial
+        # Começamos com o destino e vamos adicionando os nós no início da lista
+
+        # Itera sobre cada VNF que precisa ser alocada
+        for vnf in vnf_list:
+            best_node_for_vnf = None
+            min_latency_found = float('inf')
+            best_path_segment = None
+            
+            bw_required = self.service_requirements[vnf.id]['out_bw']
+
+            # Testa todos os nós válidos como possíveis locais para a VNF atual
+            for candidate_node in self.valid_nodes:
+                # 1. Verificar se o nó candidato tem recursos (CPU/Cache) suficientes
+                node_data = self.graph.nodes[candidate_node]
+                reusable = self.is_reusable_at_node(self.current_sfc, self.graph, candidate_node,vnf)
+                cpu_req = vnf.get_cpu_request() if not reusable else 0
+                cache_req = vnf.get_cache_request() if not reusable else 0
+                
+                if (node_data['cpu_used'] + cpu_req > node_data['cpu_capacity']) or \
+                (node_data['cache_used'] + cache_req > node_data['cache_capacity']):
+                    continue # Pula para o próximo nó candidato se não houver recursos
+
+                # 2. Encontrar o caminho e a latência de comunicação
+                # O caminho é do nó candidato ATÉ o local da VNF anterior (que na verdade é a próxima na cadeia)
+                path_segment = get_available_shortest_path_fast(self.graph, candidate_node, previous_node_location, bw_required)
+                
+                if path_segment:
+                    # Use a função que criamos para calcular apenas a latência de comunicação
+                    communication_latency = calculate_comunication_latency(self.graph, path_segment, vnf)
+                    
+                    # 3. Verificar se este candidato é a melhor opção até agora
+                    if communication_latency < min_latency_found:
+                        min_latency_found = communication_latency
+                        best_node_for_vnf = candidate_node
+                        best_path_segment = path_segment
+
+            # 4. Após testar todos os candidatos, alocar no melhor nó encontrado
+            if best_node_for_vnf is not None:
+                # Aloca os recursos de CPU e Cache no nó escolhido
+                self.allocate_resources_on_node(best_node_for_vnf, vnf)
+                
+                # Aloca a largura de banda ao longo do melhor caminho encontrado
+                self.allocate_bandwidth_along_path(best_path_segment, bw_required)
+                
+                # Atualiza a localização para a próxima iteração do loop
+                previous_node_location = best_node_for_vnf
+                
+                # Adiciona o nó escolhido no início da lista do caminho completo
+                self.allocation_results[vnf.id] = {'allocated_server': best_node_for_vnf, 'path': best_path_segment, 'cost': 0}
+
+                
+            else:
+                # Se nenhum nó válido foi encontrado para esta VNF, a alocação inicial falhou
+                return False
+        
+        return True
+    
+
+
          
             
-def calculate_total_latency(graph: Graph, path: List, vnf: VNF):
+def calculate_comunication_latency(graph: Graph, path: List, vnf: VNF):
     """
     Calcula a latência total de um caminho dado e de uma VNF.
     
-    A latência total é composta pela latência computacional no último nó 
-    (onde a VNF é alocada) e pela latência de rede entre os nós ao longo do caminho.
+    A latência de rede entre os nós ao longo do caminho.
     
     :param graph: O grafo que representa a rede, com informações sobre os links e servidores.
     :param path: Lista de nós representando o caminho de alocação do serviço.
@@ -599,17 +617,18 @@ def calculate_total_latency(graph: Graph, path: List, vnf: VNF):
     total_latency = 0
 
     # Latência de rede (entre os nós do caminho)
+    edge_latency = 0
     for i in range(len(path) - 1):
         u = path[i]
         v = path[i + 1]
 
         # Cálculo da latência de rede entre os nós u e v
-        edge_latency = calculate_latency_betwen_nodes(graph, u, v, vnf)
-        total_latency += edge_latency
+        edge_latency += calculate_latency_betwen_nodes(graph, u, v, vnf)
+    total_latency += edge_latency
 
-    # Latência computacional (apenas no último nó, onde a VNF é alocada)
-    last_server = path[-1]  # Último nó do caminho
-    comp_latency = calculate_computational_latency(graph, last_server, vnf)
-    total_latency += comp_latency
+
 
     return total_latency
+
+
+

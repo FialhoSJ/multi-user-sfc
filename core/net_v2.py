@@ -393,14 +393,14 @@ class Net2:
         graph,
         data,
         distancia_m=750,
-        potencia_transmissao_dbm=20.0,
-        largura_banda_hz=50e6,
+        potencia_transmissao_dbm=30.0,
+        largura_banda_hz=100e6,
         temperatura_kelvin=290,
         figura_ruido_db=10.0,
         eficiencia_codec=0.5,
         snr_minimo_db=0.0,
         freq_portadora_hz=3.5e9,
-        sigma_shadowing_db=6.00, #8.00
+        sigma_shadowing_db=0, #8.00
     ):
         """
         Calcula latência (ms) para uma dada distância em 5G, considerando path loss com shadowing.
@@ -545,11 +545,13 @@ class Net2:
                 # --- Latência de Comunicação ao longo do caminho ---
                 path_to_next_vnf = route_info.get(next_vnf.id, [])
                 if len(path_to_next_vnf) > 1:
+                    edge_latency = 0
                     for i in range(len(path_to_next_vnf) - 1):
                         u = path_to_next_vnf[i]
                         v = path_to_next_vnf[i+1]
                         # Reutiliza a função existente para latência do enlace
-                        current_sfc_latency += self.calculate_latency_betwen_nodes(self.graph, u, v, next_vnf)
+                        edge_latency+=self.calculate_latency_betwen_nodes(self.graph, u, v, next_vnf)
+                    current_sfc_latency += edge_latency
                 
                 current_vnf = next_vnf
             

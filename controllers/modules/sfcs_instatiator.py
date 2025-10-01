@@ -6,10 +6,11 @@ import random
 import traceback
 from utils.k_shortest_paths import k_shortest_paths
 from algorithms.networkUtils import calculate_computational_latency,calculate_latency_betwen_nodes
+from utils.network_utils import calculate_average_sfc_latency
 from utils.salvar_var import salvar_variavel
 from core.net_v2 import Net2
 from algorithms.kuririn import Kuririn
-from algorithms.environment import SFC_AllocationEnv
+from algorithms.environments.environment import SFC_AllocationEnv
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 
 class SFCInstatiator:
@@ -36,7 +37,7 @@ class SFCInstatiator:
         graph =  copy.deepcopy(substrate_network.graph)
         self.add_mobile_user_to_graph(graph,substrate_network,sfc_list)
 
-        print("LATENCIA MEDIA DAS SFCS ALOCADAS!!!", substrate_network.calculate_average_sfc_latency())
+        print("LATENCIA MEDIA DAS SFCS ALOCADAS!!!", calculate_average_sfc_latency(substrate_network))
 
         if isinstance(algorithm, Kuririn):
             valid_nodes = [node for node in graph.nodes() if graph.nodes[node]['type'] != 'router']

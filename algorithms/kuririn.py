@@ -6,7 +6,7 @@ import networkx as nx
 from stable_baselines3 import  DQN
 from sb3_contrib import MaskablePPO
 
-from algorithms.environment import SFC_AllocationEnv
+from algorithms.environments.environment import SFC_AllocationEnv
 import os
 from config import ROOT_PATH
 # Logging setup

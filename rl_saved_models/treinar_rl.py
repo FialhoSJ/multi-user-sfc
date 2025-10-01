@@ -13,7 +13,7 @@ from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.logger import configure
 
 from utils.salvar_var import carregar_lista
-from algorithms.environment import SFC_AllocationEnv
+from algorithms.environments.environment import SFC_AllocationEnv
 
 from sb3_contrib import MaskablePPO
 from sb3_contrib.common.maskable.callbacks import MaskableEvalCallback

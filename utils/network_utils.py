@@ -1,5 +1,7 @@
 from core.net_v2 import Net2
 import networkx as nx
+from core.sfc import SFC
+from algorithms.networkUtils import calculate_computational_latency,calculate_latency_betwen_nodes
 
 class EnergyCalculator:
     """
@@ -138,3 +140,75 @@ def calcular_percentual_cpu_total(G: nx.Graph) -> float:
     
     return percentual_uso
 
+def get_sfc_latency_from_route(graph: nx.Graph,sfc: SFC, route_info, md_graph: nx.Graph = None):
+    """
+    Calcula a latência total de uma solução de rota para uma SFC (função pura).
+
+    Esta função é 'read-only': ela lê os dados do grafo para calcular a latência,
+    mas NÃO aloca recursos nem modifica o estado do grafo. Ideal para avaliar
+    uma solução antes de implementá-la.
+
+    Args:
+        graph (object): O grafo da rede do substrato.
+        sfc (object): A Service Function Chain a ser avaliada.
+        route_info (dict): O dicionário contendo a rota da solução.
+
+    Returns:
+        float: A latência total calculada para a SFC.
+    """
+    total_latency = 0.0
+
+    # Assume-se que as funções `calculate_computational_latency` e
+    # `calculate_latency_betwen_nodes` estão acessíveis (ex: importadas ou
+    # são métodos da classe).
+    
+    for ms_name, path in route_info.items():
+        if ms_name in ['src', 'dst']:
+            continue
+
+        vnf = sfc.get_vnf_by_id(ms_name)
+        node_allocated = path[0]
+
+        # 1. Calcula e soma a latência computacional
+        # Esta chamada apenas calcula, sem alocar CPU/cache.
+        if node_allocated in graph:
+            comp_latency = calculate_computational_latency(graph, node_allocated, vnf=vnf)
+        else:
+             comp_latency = calculate_computational_latency(md_graph, node_allocated, vnf=vnf)
+        total_latency += comp_latency
+
+        # 2. Calcula e soma a latência de comunicação para cada enlace
+        if len(path) > 1:
+            for u, v in zip(path[:-1], path[1:]):
+                # Esta chamada apenas calcula, sem alocar banda.
+                comm_latency = calculate_latency_betwen_nodes(graph, u, v, vnf, md_graph)
+                total_latency += comm_latency
+                
+    return round(total_latency, 2)
+
+
+def calculate_average_sfc_latency(substrate_network: Net2):
+        """
+        Calcula a latência média ponta a ponta de todas as SFCs ativas na rede.
+
+        A latência de uma SFC é a soma das latências computacionais de suas VNFs
+        e das latências de comunicação dos caminhos entre elas. A função retorna
+        a média dessa latência total sobre todas as SFCs implantadas.
+
+        Returns:
+            float: A latência média por SFC, ou 0 se nenhuma SFC estiver ativa.
+        """
+        if not substrate_network.sfc_dict:
+            return 0.0
+
+        total_latency_all_sfcs = 0.0
+        
+        for sfc_id, sfc in substrate_network.sfc_dict.items():
+            graph = substrate_network.graph
+            md_graph = substrate_network.md_graph
+            route_info = substrate_network.sfc_route_info[sfc_id]
+            total_latency_all_sfcs+=get_sfc_latency_from_route(graph, sfc, route_info, md_graph)
+
+            
+
+        return total_latency_all_sfcs / len(substrate_network.sfc_dict)

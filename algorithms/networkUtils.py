@@ -51,12 +51,15 @@ def calculate_computational_latency(graph,node,vnf):
     packet = vnf.get_income_interface_bandwidth()/60 * 1e6
     return packet * 10 * 1000/ips
 
-def calculate_latency_betwen_nodes(graph,node1,node2,vnf):            
+def calculate_latency_betwen_nodes(graph,node1,node2,vnf, graph2=None):            
     data_packet = (vnf.get_outcome_interface_bandwidth()/60)*1e6 
     if is_mobile_node(node1):
         return calculate_5g_latency(data_packet,graph.nodes[node1]['position'])  
     elif is_mobile_node(node2):
-        return calculate_5g_latency(data_packet,graph.nodes[node2]['position'])  
+        if node2 in graph:
+            return calculate_5g_latency(data_packet,graph.nodes[node2]['position'])  
+        else: return calculate_5g_latency(data_packet,graph2.nodes[node2]['position'])
+
     else:
         return get_link_latency(graph,node1,node2)
     
