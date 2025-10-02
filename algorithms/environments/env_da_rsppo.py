@@ -1,22 +1,19 @@
+import copy
 import gymnasium
 from gymnasium import spaces
 import numpy as np
 from networkx import Graph
 from typing import Union, List, Dict
 from core.sfc import SFC, VNF
-from algorithms.networkUtils import get_available_shortest_path, calculate_computational_latency, calculate_latency_betwen_nodes, get_available_shortest_path_fast
-from utils.network_utils import calcular_percentual_cpu_total, get_sfc_latency_from_route
-
-# ADICIONADO:
-
-
-import math
+from algorithms.networkUtils import   calculate_latency_betwen_nodes, get_available_shortest_path_fast
+from utils.network_utils import get_sfc_latency_from_route
+from algorithms.environments.env_utils.utils import calculate_comunication_latency, create_route_info_from_allocation_results
+from algorithms.environments.env_utils.utils import calculate_total_latency
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
-PUNICAO_POR_NAO_REUSO = 10
-RECOMPENSA_POR_USO_DE_MOVEL = 0
 
 
-class SFC_AllocationEnv(gymnasium.Env):
+
+class SFC_AllocationEnv_DARSPPO(gymnasium.Env):
     """
     Ambiente do Gymnasium para o problema de alocação de Service Function Chains (SFCs).
     
@@ -34,7 +31,6 @@ class SFC_AllocationEnv(gymnasium.Env):
                  list_graph: List[Graph],
                  list_sfc: List[SFC],
                  pesos_fatores: Dict[str, float] = None,
-                 reward_config: Dict[str, float] = None,
                  is_training = True):
         """
         Inicializa o ambiente de alocação de SFC.
@@ -49,28 +45,18 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.list_graph = list_graph
         self.list_sfc = list_sfc
         self.pesos_fatores = pesos_fatores if pesos_fatores is not None else \
-                             {"cpu": 1, "cache": 1, "lat": 1, "band":5}
+                             {"eta1":1, "eta2":1}
         
         self.is_training = is_training
         if self.is_training:
             self.initial_resource_snapshot=self._initialize_snapshots(self.list_graph)
-        
-        if reward_config is None:
-            self.reward_config = {"success_bonus": 100.0, "failure_penalty": -100.0}
-        else:
-            self.reward_config = reward_config
-        
+ 
         # --- Estado do Episódio ---
         self.graph: Graph = None
         self.current_sfc: SFC = None
         self.current_vnf: VNF = None
         self.current_location: Union[int, str] = None
-        self.latency_request = None
         self.features = None
-        self.ratio_cpu_used = 0
-        
-        
-        self.cache_path = {}
 
         # --- Espaços de Ação e Observação ---
         num_nodes = len(valid_nodes)
@@ -115,14 +101,12 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.success = False
         self.fail_reason = None
         self.allocation_results = {}
-    
         vnf = self.current_vnf
         bw_req = self.service_requirements[vnf.id]["out_bw"]
         current_node = self.current_location
+        self.allocation_results['dst'] = {'allocated_server': sfc_sorteada.dst_node, 'path': [], 'cost': 0}
+        self._deploy_initial_solution()
         
-        self.ratio_cpu_used = calcular_percentual_cpu_total(self.graph)
-        
-        # print("VALOR DE CPU USADO NO CODIGO  ", self.ratio_cpu_used)
         self.features = self._get_nodes_features(vnf, bw_req, current_node)
 
         obs = self._get_obs()
@@ -143,7 +127,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         band_req = self.service_requirements[vnf.id]['out_bw']
         current_location = self.current_location
         path = get_available_shortest_path_fast(self.graph, current_location, chosen_server, band_req)
-        total_cost = self.calculate_total_cost(self.current_sfc, vnf, chosen_server, band_req, path )
+        
         
         # 2. Tentar alocar recursos (CPU/cache) no nó escolhido
         if not self.allocate_resources_on_node(chosen_server, self.current_vnf):
@@ -153,23 +137,32 @@ class SFC_AllocationEnv(gymnasium.Env):
             return self._fail_step('bandwidth')
 
         self.servers_used.append(chosen_server)
-        
-        reward = -total_cost
 
+        self.latency_used += calculate_total_latency(self.graph, path, vnf)
+
+        dst = self.current_sfc.get_substrate_node(self.current_sfc.get_dst_vnf())
+        past_route_info = create_route_info_from_allocation_results(dst, self.graph, self.allocation_results)
+        past_delay = get_sfc_latency_from_route(self.graph, self.current_sfc,past_route_info)
+        self.allocation_results[vnf.id]["allocated_server"] = chosen_server
+        self.allocation_results[vnf.id]["path"] = path
+        
+        route_info = create_route_info_from_allocation_results(dst, self.graph, self.allocation_results)
+        current_delay = get_sfc_latency_from_route(self.graph, self.current_sfc,route_info)
+            
         # 6. Atualizar estado para o próximo passo
         self.current_location = chosen_server
-        if not self.is_training:
-            self.allocation_results[self.current_vnf.id] = {'allocated_server': chosen_server, 'path': path, 'cost': total_cost}
+        
 
         # 7. Verificar conclusão e avançar para a próxima VNF/SFC
         done = False
         if self.current_vnf == self.reverse_vnf_list[-1]:
+            reward = self._calculate_reward(current_delay,past_delay, self.initial_delay, True)
             done = True
             self.success = True
-            reward += self.reward_config['success_bonus']
             self.current_vnf = None
 
         else:
+            reward = self._calculate_reward(current_delay,past_delay, self.initial_delay, False)
             idx=self.reverse_vnf_list.index(self.current_vnf)
             self.current_vnf = self.reverse_vnf_list[idx + 1]
 
@@ -198,7 +191,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         2. Se não houver "nó dourado", aplica regras para VNF de cache ou "unique".
         """
 
-        # Features: [0:cpu_used, 1:cache_used, 2:reusable, 3:N/A, 4:band_cost, 5:latency_cost, 6:is_invalid, 7:is_dst]
+        # Features: []
         num_valid_nodes = len(self.valid_nodes)
         features = np.zeros((num_valid_nodes, 5))
 
@@ -239,14 +232,12 @@ class SFC_AllocationEnv(gymnasium.Env):
         """
         Monta a observação do ambiente de forma estruturada e eficiente usando NumPy.
         """
-        valid_nodes = self.valid_nodes
 
         # --- 1. Determinação do Último Nó Escolhido ---
         # Se = np.zeros(num_valid_nodes, dtype=np.float32)
         # Sm = np.zeros(1, dtype=np.float32)
         # Sr = np.zeros(1, dtype=np.float32)
 
-        current_loc = self.current_location if not isinstance(self.current_location, str) else 'M'
         
 
         # --- 2. Coleta de Features dos Nós Válidos (Versão Otimizada) ---
@@ -299,7 +290,7 @@ class SFC_AllocationEnv(gymnasium.Env):
             self.features = self._get_nodes_features(vnf, bw_req, current_node)
         
         mask = [
-            1 if self.features[i, 6] == 0 else 0
+            1 if self.features[i, 4] == 0 else 0
             for i, _ in enumerate(self.valid_nodes)
         ]
         if np.nan in mask:
@@ -371,7 +362,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.success = False
         
         # --- USA A PENALIDADE CONFIGURADA ---
-        reward = self.reward_config['failure_penalty']
+        reward = -100
         
         done = True
         # 🚀 CORREÇÃO: Garanta que mesmo em falha, a última observação e info sejam retornados.
@@ -469,7 +460,7 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         if not path or len(path) < 2:
             return 0, 0
-
+        latency_cost = 0
         bw_cost = 0
         for u, v in zip(path[:-1], path[1:]):
             # Acesso à aresta da rede
@@ -491,35 +482,41 @@ class SFC_AllocationEnv(gymnasium.Env):
         return bw_cost, latency_cost
 
     
-    def calculate_total_cost(self,sfc ,vnf: VNF, server_id, bw_required,path):
-        """Calcula o custo total da alocação de um serviço."""
+    def _calculate_reward(self, current_delay: float,past_delay: float,initial_delay: float, is_last_step: bool) -> float:
+        """
+        Calcula a recompensa para a ação atual usando a função de duas etapas
+        descrita na Equação (20) do artigo.
 
-        node = self.graph.nodes[server_id]
-        reusable = self.is_reusable_at_node(sfc, self.graph, server_id,vnf)
-        cpu_capacity = node["cpu_capacity"] or 1
-        cache_capacity = node["cache_capacity"] or 1
-        vnf_id = vnf.id
-        cpu_request = self.service_requirements[vnf_id]['cpu']
-        cache_request = self.service_requirements[vnf_id]['cache']
+        Args:
+            current_delay (float): O atraso médio total calculado após a ação atual.
+            is_last_step (bool): Um indicador se esta foi a última ação do episódio.
 
+        Returns:
+            float: O valor da recompensa a ser retornado para o agente.
+        """
+        # Obtém os pesos eta1 e eta2 da configuração do ambiente.
+        # Estes são os fatores de ponderação da Equação (20).
+        eta1 = self.pesos_fatores['eta1']
+        eta2 = self.pesos_fatores['eta2']
+
+        # A recompensa é baseada na *redução* do atraso. Um atraso menor é melhor.
+        # Usamos (atraso_anterior - atraso_atual) para que uma redução no atraso
+        # resulte em uma recompensa positiva, incentivando o agente.
+        # Esta é a primeira parte da recompensa da Equação (20).
+        current_action_reward = past_delay - current_delay
+
+        # A recompensa base é sempre calculada.
+        reward = eta1 * current_action_reward
+
+        # Se for a última ação do episódio (t = N), adicionamos a segunda parte da recompensa.
+        if is_last_step:
+            # Esta parte compara o desempenho final deste episódio com o episódio anterior.
+            # Incentiva o agente não apenas a melhorar a cada passo, mas também a
+            # alcançar um resultado final melhor do que o da última vez.
+            last_step_reward = initial_delay - current_delay
+            reward += eta2 * last_step_reward
         
-        cpu_cost = ((node["cpu_used"] + cpu_request) / cpu_capacity) 
-        cache_cost = ((node["cache_used"] + cache_request) / cache_capacity) 
-
-        if not reusable:
-            cpu_cost+= PUNICAO_POR_NAO_REUSO
-            cache_cost+= PUNICAO_POR_NAO_REUSO
-
-        mobile_device_cost = 0
-        if server_id == self.current_sfc.dst_node:
-            mobile_device_cost -= RECOMPENSA_POR_USO_DE_MOVEL
-        
-        bw_cost, lat_cost = self.calculate_bw_lat_cost(vnf, server_id, path, bw_required)
-        
-        resource_cost = cpu_cost * self.pesos_fatores['cpu'] + cache_cost * self.pesos_fatores['cache']
-
-        band_cost=bw_cost * self.pesos_fatores['band']
-        return resource_cost + band_cost + lat_cost * self.pesos_fatores['lat'] + mobile_device_cost
+        return reward
     
 
 
@@ -539,7 +536,8 @@ class SFC_AllocationEnv(gymnasium.Env):
         vnf_list = self.reverse_vnf_list
         
         # O ponto de partida para a primeira VNF é o destino final da SFC
-        previous_node_location = self.current_sfc.dst_node
+        dst=self.current_sfc.dst_node
+        previous_node_location = dst
         
         # Vamos rastrear o caminho completo da solução inicial
         # Começamos com o destino e vamos adicionando os nós no início da lista
@@ -554,7 +552,8 @@ class SFC_AllocationEnv(gymnasium.Env):
 
             # Testa todos os nós válidos como possíveis locais para a VNF atual
             for candidate_node in self.valid_nodes:
-                # 1. Verificar se o nó candidato tem recursos (CPU/Cache) suficientes
+                if candidate_node == "M":
+                    candidate_node = self.current_sfc.dst_node
                 node_data = self.graph.nodes[candidate_node]
                 reusable = self.is_reusable_at_node(self.current_sfc, self.graph, candidate_node,vnf)
                 cpu_req = vnf.get_cpu_request() if not reusable else 0
@@ -580,55 +579,24 @@ class SFC_AllocationEnv(gymnasium.Env):
 
             # 4. Após testar todos os candidatos, alocar no melhor nó encontrado
             if best_node_for_vnf is not None:
-                # Aloca os recursos de CPU e Cache no nó escolhido
-                self.allocate_resources_on_node(best_node_for_vnf, vnf)
-                
-                # Aloca a largura de banda ao longo do melhor caminho encontrado
-                self.allocate_bandwidth_along_path(best_path_segment, bw_required)
-                
+            
                 # Atualiza a localização para a próxima iteração do loop
                 previous_node_location = best_node_for_vnf
                 
                 # Adiciona o nó escolhido no início da lista do caminho completo
                 self.allocation_results[vnf.id] = {'allocated_server': best_node_for_vnf, 'path': best_path_segment, 'cost': 0}
-
-                
+  
             else:
                 # Se nenhum nó válido foi encontrado para esta VNF, a alocação inicial falhou
                 return False
         
+        G=self.graph
+        route_info=create_route_info_from_allocation_results(dst, G, self.allocation_results)
+        self.initial_delay = get_sfc_latency_from_route(G, self.current_sfc, route_info)
         return True
     
 
 
          
             
-def calculate_comunication_latency(graph: Graph, path: List, vnf: VNF):
-    """
-    Calcula a latência total de um caminho dado e de uma VNF.
-    
-    A latência de rede entre os nós ao longo do caminho.
-    
-    :param graph: O grafo que representa a rede, com informações sobre os links e servidores.
-    :param path: Lista de nós representando o caminho de alocação do serviço.
-    :param vnf: O VNF (função de rede virtual) que está sendo alocado.
-    :return: A latência total (latência computacional + latência de rede).
-    """
-    total_latency = 0
-
-    # Latência de rede (entre os nós do caminho)
-    edge_latency = 0
-    for i in range(len(path) - 1):
-        u = path[i]
-        v = path[i + 1]
-
-        # Cálculo da latência de rede entre os nós u e v
-        edge_latency += calculate_latency_betwen_nodes(graph, u, v, vnf)
-    total_latency += edge_latency
-
-
-
-    return total_latency
-
-
 

@@ -15,6 +15,7 @@ from algorithms.bruno_alg_2 import BrunoAlgNew
 from algorithms.rodrigo_alg import Rodrigo
 from algorithms.vegeta import Vegeta
 from algorithms.kuririn import Kuririn
+from algorithms.darsppo import DARSPPO
 
 class AlgorithmInstantiator:
     def instantiate_algorithm(self, type):
@@ -53,6 +54,9 @@ class AlgorithmInstantiator:
                 alg = Kuririn('PPO')
             if "DQN" in type:
                 alg = Kuririn('DQN')    
+        elif 'darsppo' in type:
+            alg = DARSPPO()
+    
         else:
             raise ValueError('algorithm not found')
         return alg
