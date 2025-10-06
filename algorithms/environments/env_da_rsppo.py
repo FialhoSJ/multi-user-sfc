@@ -45,7 +45,7 @@ class SFC_AllocationEnv_DARSPPO(gymnasium.Env):
         self.list_graph = list_graph
         self.list_sfc = list_sfc
         self.pesos_fatores = pesos_fatores if pesos_fatores is not None else \
-                             {"eta1":1, "eta2":1}
+                             {"eta1":1, "eta2":1,"bw":1}
         
         self.is_training = is_training
         if self.is_training:
@@ -64,6 +64,7 @@ class SFC_AllocationEnv_DARSPPO(gymnasium.Env):
         self.observation_space = spaces.Dict({ 
         #0 se cache e 1 se unique
         "Se": spaces.Box(low=0, high=1, shape=(num_nodes,1), dtype=np.float32),
+        "Bw": spaces.Box(low=0, high=1, shape=(num_nodes,1), dtype=np.float32),
         "Sm": spaces.Box(low=0, high=1, shape=(num_nodes, 1), dtype=np.float32),
         "Sr": spaces.Box(low=0, high=1, shape=(num_nodes, 2), dtype=np.float32),
         })
@@ -156,13 +157,15 @@ class SFC_AllocationEnv_DARSPPO(gymnasium.Env):
         # 7. Verificar conclusão e avançar para a próxima VNF/SFC
         done = False
         if self.current_vnf == self.reverse_vnf_list[-1]:
-            reward = self._calculate_reward(current_delay,past_delay, self.initial_delay, True)
+            bw_cost = self.features[action,1]
+            reward = self._calculate_reward(current_delay,past_delay, self.initial_delay, True, bw_cost)
             done = True
             self.success = True
             self.current_vnf = None
 
         else:
-            reward = self._calculate_reward(current_delay,past_delay, self.initial_delay, False)
+            bw_cost = self.features[action,1]
+            reward = self._calculate_reward(current_delay,past_delay, self.initial_delay, False, bw_cost)
             idx=self.reverse_vnf_list.index(self.current_vnf)
             self.current_vnf = self.reverse_vnf_list[idx + 1]
 
@@ -193,11 +196,11 @@ class SFC_AllocationEnv_DARSPPO(gymnasium.Env):
 
         # Features: []
         num_valid_nodes = len(self.valid_nodes)
-        features = np.zeros((num_valid_nodes, 5))
+        features = np.zeros((num_valid_nodes, 6))
 
         if not vnf:
             # Se não houver VNF para alocar, retorna features zeradas, marcando todos como inválidos
-            features[:, 4] = 1 
+            features[:, 5] = 1 
             return features
 
         # --- 1. Loop principal para calcular as features de cada nó (sem alterações) ---
@@ -208,22 +211,24 @@ class SFC_AllocationEnv_DARSPPO(gymnasium.Env):
                 
             node_data = self.graph.nodes[node_id]
             is_reusable = self.is_reusable_at_node(self.current_sfc, self.graph, node_id, vnf)
-            features[i, 1] = float(is_reusable)
+            features[i, 2] = float(is_reusable)
             cpu_req = vnf.get_cpu_request() if not is_reusable else 0
             cache_req = vnf.get_cache_request() if not is_reusable else 0
 
-            features[i, 2] = (node_data["cpu_capacity"] - node_data["cpu_used"]) / node_data["cpu_capacity"]
-            features[i, 3] = (node_data["cache_capacity"] - node_data["cache_used"]) / node_data["cache_capacity"]
+            features[i, 3] = (node_data["cpu_capacity"] - node_data["cpu_used"]) / node_data["cpu_capacity"]
+            features[i, 4] = (node_data["cache_capacity"] - node_data["cache_used"]) / node_data["cache_capacity"]
             if (node_data["cpu_used"] + cpu_req) > node_data["cpu_capacity"] or \
                (node_data["cache_used"] + cache_req) > node_data["cache_capacity"]:
-                features[i, 4] = 1
+                features[i, 5] = 1
             path = get_available_shortest_path_fast(self.graph, current_location, node_id, bw_required)
             if not path:
                 features[i, 0] = 1.0
-                features[i, 4] = 1.0
+                features[i, 1] = 1.0
+                features[i, 5] = 1.0
             else:
-                _, latency_cost = self.calculate_bw_lat_cost(vnf, node_id, path, bw_required)
+                bw_cost, latency_cost = self.calculate_bw_lat_cost(vnf, node_id, path, bw_required)
                 features[i, 0] = latency_cost
+                features[i, 1] = bw_cost
 
         return features
 
@@ -247,13 +252,16 @@ class SFC_AllocationEnv_DARSPPO(gymnasium.Env):
         # Define as colunas que queremos selecionar do array self.features
         # para formar nossa observação.
         idx_Se = [0]
-        idx_Sm = [1]
-        idx_Sr = [2,3]
+        idx_bw = [1]
+        idx_Sm = [2]
+        idx_Sr = [3,4]
 
         # Usa o fatiamento avançado do NumPy para selecionar todas as linhas
         # e apenas as colunas desejadas de uma só vez.
         # Isso elimina a necessidade de um loop em Python, sendo muito mais rápido.
         Se = self.features[:, idx_Se].astype(np.float32)
+        Bw = self.features[:, idx_bw].astype(np.float32)
+        Bw = Bw/10
         Sm = self.features[:, idx_Sm].astype(np.float32)
         Sr = self.features[:, idx_Sr].astype(np.float32)
 
@@ -263,6 +271,7 @@ class SFC_AllocationEnv_DARSPPO(gymnasium.Env):
 
         obs = {
             "Se": Se ,
+            "Bw": Bw ,
             "Sm": Sm,
             "Sr": Sr
         }
@@ -290,7 +299,7 @@ class SFC_AllocationEnv_DARSPPO(gymnasium.Env):
             self.features = self._get_nodes_features(vnf, bw_req, current_node)
         
         mask = [
-            1 if self.features[i, 4] == 0 else 0
+            1 if self.features[i, 5] == 0 else 0
             for i, _ in enumerate(self.valid_nodes)
         ]
         if np.nan in mask:
@@ -482,7 +491,7 @@ class SFC_AllocationEnv_DARSPPO(gymnasium.Env):
         return bw_cost, latency_cost
 
     
-    def _calculate_reward(self, current_delay: float,past_delay: float,initial_delay: float, is_last_step: bool) -> float:
+    def _calculate_reward(self, current_delay: float,past_delay: float,initial_delay: float, is_last_step: bool, bw_cost = 0) -> float:
         """
         Calcula a recompensa para a ação atual usando a função de duas etapas
         descrita na Equação (20) do artigo.
@@ -498,6 +507,7 @@ class SFC_AllocationEnv_DARSPPO(gymnasium.Env):
         # Estes são os fatores de ponderação da Equação (20).
         eta1 = self.pesos_fatores['eta1']
         eta2 = self.pesos_fatores['eta2']
+        bw_factor = self.pesos_fatores['bw']
 
         # A recompensa é baseada na *redução* do atraso. Um atraso menor é melhor.
         # Usamos (atraso_anterior - atraso_atual) para que uma redução no atraso
@@ -515,6 +525,8 @@ class SFC_AllocationEnv_DARSPPO(gymnasium.Env):
             # alcançar um resultado final melhor do que o da última vez.
             last_step_reward = initial_delay - current_delay
             reward += eta2 * last_step_reward
+
+        reward -= bw_cost*bw_factor
         
         return reward
     
