@@ -12,14 +12,13 @@ from config import ROOT_PATH
 # Logging setup
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-file_handler = logging.FileHandler(os.path.join(ROOT_PATH, 'logs/Kuririn.log'))
+file_handler = logging.FileHandler(os.path.join(ROOT_PATH, 'logs/DARSPPO.log'))
 file_handler.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 
 # Constants
-N_STEPS = 256
 IS_TRAINING = 0
 VERBOSE = False
 os.environ["CUDA_VISIBLE_DEVICES"] = ""  # Desabilita o uso da GPU
