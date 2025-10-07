@@ -140,6 +140,41 @@ def calcular_percentual_cpu_total(G: nx.Graph) -> float:
     
     return percentual_uso
 
+
+def calcular_percentual_cache_total(G: nx.Graph) -> float:
+    """
+    Calcula o percentual de uso de cache total em um grafo do NetworkX.
+
+    A função itera sobre todos os nós do grafo, soma os valores dos atributos
+    'cache_used' and 'cache_capacity', e retorna o percentual total de uso.
+
+    Args:
+        G (nx.Graph): O grafo do NetworkX cujos nós contêm os atributos
+                      'cache_used' e 'cache_capacity'.
+
+    Returns:
+        float: O percentual total de uso de cache (de 0.0 a 100.0).
+               Retorna 0.0 se a capacidade total for 0 para evitar divisão por zero.
+    """
+    total_cache_used = 0.0
+    total_cache_capacity = 0.0
+
+    # Iteramos sobre os nós com seus dados (atributos)
+    for node_id, node_data in G.nodes(data=True):
+        # Usamos .get(atributo, 0) para o caso de um nó não ter o atributo.
+        # Isso torna a função mais robusta e evita erros.
+        total_cache_used += node_data.get('cache_used', 0)
+        total_cache_capacity += node_data.get('cache_capacity', 0)
+
+    # Verifica se a capacidade total é zero para evitar erro de divisão
+    if total_cache_capacity == 0:
+        return 0.0
+
+    # Calcula o percentual
+    percentual_uso = (total_cache_used / total_cache_capacity) * 100
+    
+    return percentual_uso
+
 def get_sfc_latency_from_route(graph: nx.Graph,sfc: SFC, route_info, md_graph: nx.Graph = None):
     """
     Calcula a latência total de uma solução de rota para uma SFC (função pura).

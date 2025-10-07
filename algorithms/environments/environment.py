@@ -5,15 +5,15 @@ from networkx import Graph
 from typing import Union, List, Dict
 from core.sfc import SFC, VNF
 from algorithms.networkUtils import get_available_shortest_path, calculate_computational_latency, calculate_latency_betwen_nodes, get_available_shortest_path_fast
-from utils.network_utils import calcular_percentual_cpu_total
+from utils.network_utils import calcular_percentual_cpu_total, calcular_percentual_cache_total
 
 # ADICIONADO:
 
 
 import math
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
-PUNICAO_POR_NAO_REUSO = 10
-RECOMPENSA_POR_USO_DE_MOVEL = 0
+NON_REUSABLE_PENALTY = 10
+MOBILE_DEVICE_USAGE_REWARD = 0
 
 
 class SFC_AllocationEnv(gymnasium.Env):
@@ -68,6 +68,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.latency_request = None
         self.features = None
         self.ratio_cpu_used = 0
+        self.ratio_cache_used = 0
         
         
         self.cache_path = {}
@@ -120,6 +121,8 @@ class SFC_AllocationEnv(gymnasium.Env):
         current_node = self.current_location
         
         self.ratio_cpu_used = calcular_percentual_cpu_total(self.graph)
+        self.ratio_cache_used = calcular_percentual_cache_total(self.graph)
+
         
         # print("VALOR DE CPU USADO NO CODIGO  ", self.ratio_cpu_used)
         self.features = self._get_nodes_features(vnf, bw_req, current_node)
@@ -142,7 +145,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         band_req = self.service_requirements[vnf.id]['out_bw']
         current_location = self.current_location
         path = get_available_shortest_path_fast(self.graph, current_location, chosen_server, band_req)
-        total_cost = self.calculate_total_cost(self.current_sfc, vnf, chosen_server, band_req, path )
+        total_cost = self._compute_allocation_cost(vnf, chosen_server,path , band_req )
         
         # 2. Tentar alocar recursos (CPU/cache) no nó escolhido
         if not self.allocate_resources_on_node(chosen_server, self.current_vnf):
@@ -218,7 +221,6 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         # --- 1. Loop principal para calcular as features de cada nó (sem alterações) ---
         for i, node_id in enumerate(self.valid_nodes):
-            # ... (código do loop, sem alterações) ...
             if i == num_valid_nodes - 1:
                 node_id = self.current_sfc.dst_node
                 features[i, 7] = 1
@@ -244,42 +246,29 @@ class SFC_AllocationEnv(gymnasium.Env):
                 features[i, 4] = bd_cost
                 features[i, 5] = latency_cost
 
-#         # --- 2. LÓGICA: Priorizar "Nós Dourados" ---
-#         golden_nodes_mask = (
-#             (features[:, 2] == 1) &      # É reutilizável
-#             (features[:, 5] < 10) &       # Custo de latência é baixo
-#             (features[:, 4] < 4)         # Custo de banda é baixo
-#         )
-#         # MODIFICAÇÃO: Guarda o resultado da checagem em uma variável
-#         has_golden_node = np.any(golden_nodes_mask)
-
-#         if has_golden_node:
-#             # Se um nó dourado existe, ele se torna a única opção
-#             nodes_to_invalidate_mask = ~golden_nodes_mask
-#             features[nodes_to_invalidate_mask, 6] = 1
-
-        # --- 3. Lógica especial para VNF de cache (sem alterações) ---
         first_vnf = self.current_sfc.get_previous_vnf(self.current_sfc.get_dst_vnf())
         second_vnf = first_vnf.get_previous_vnf() if first_vnf else None
 
-        if first_vnf == self.current_vnf or (second_vnf and second_vnf == self.current_vnf):
-            if "cache" in self.current_sfc.id and not features[-1, 6]:
-                features[:-1, 6] = 1
+       
 
         # --- 4. LÓGICA MODIFICADA: Regra para a primeira VNF "unique" ---
         is_1_or_2_vnf = first_vnf == self.current_vnf or second_vnf == self.current_vnf
         unique_in_id =  "unique" in self.current_sfc.id
+        cache_in_id =  "cache" in self.current_sfc.id
         valid_node = not features[-1, 6]
-        aceitable_latency = bool(features[-1, 5] < 2.58)
 
-        # MODIFICAÇÃO: Adicionada a condição "not has_golden_node"
-        # Esta regra só é ativada se um nó dourado NÃO foi encontrado na etapa 2
         if (self.ratio_cpu_used >40 and
             is_1_or_2_vnf and
             unique_in_id and
             valid_node ):
 
-            # Invalida todos os outros nós, forçando a escolha do destino.
+            features[:-1, 6] = 1
+
+        if (self.ratio_cache_used >30 and
+            is_1_or_2_vnf and
+            cache_in_id and
+            valid_node ):
+
             features[:-1, 6] = 1
 
         return features
@@ -297,12 +286,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         current_loc = self.current_location if not isinstance(self.current_location, str) else 'M'
         
         # O destino é tratado como o último índice
-        idx_loc = valid_nodes.index(current_loc) if current_loc != 'M' else num_valid_nodes - 1
         primeira_sf[0] = 1.0 if self.current_sfc.get_previous_vnf(self.current_sfc.get_dst_vnf()) == self.current_vnf else 0.0
-
-        # --- 2. Coleta de Features dos Nós Válidos (Versão Otimizada) ---
-        # self.features é um array NumPy com as colunas:
-        # [0:cpu, 1:cache, 2:reusable, 3:path(não usado aqui), 4:band, 5:latency, 6:is_invalid]
 
         # Define as colunas que queremos selecionar do array self.features
         # para formar nossa observação.
@@ -553,35 +537,80 @@ class SFC_AllocationEnv(gymnasium.Env):
         return bw_cost, latency_cost
 
     
-    def calculate_total_cost(self,sfc ,vnf: VNF, server_id, bw_required,path):
-        """Calcula o custo total da alocação de um serviço."""
+    
+    def _compute_allocation_cost(self,
+                             vnf: VNF,
+                             server_id: Union[int, str],
+                             path: List[Union[int, str]],
+                             bw_required: float) -> float:
+        """
+        Computes the total cost for allocating a VNF to a specific server.
 
-        node = self.graph.nodes[server_id]
-        reusable = self.is_reusable_at_node(sfc, self.graph, server_id,vnf)
-        cpu_capacity = node["cpu_capacity"] or 1
-        cache_capacity = node["cache_capacity"] or 1
-        vnf_id = vnf.id
-        cpu_request = self.service_requirements[vnf_id]['cpu']
-        cache_request = self.service_requirements[vnf_id]['cache']
+        The cost is a weighted sum of several factors designed to guide the agent
+        towards efficient resource utilization. A lower cost indicates a better
+        allocation decision. The final reward sent to the agent is typically the
+        negative of this cost.
 
+        The cost comprises three main components:
+        1.  **Node Resource Cost**: The projected CPU and cache usage on the server.
+            It includes a significant penalty if a shareable VNF is not reused.
+        2.  **Network Cost**: The cost associated with bandwidth consumption and
+            latency over the chosen network path.
+        3.  **Strategic Incentives**: A reward (negative cost) for utilizing the
+            end-user's device (the SFC's destination node), promoting edge computing.
+
+        Args:
+            vnf: The Virtual Network Function instance to be allocated.
+            server_id: The ID of the candidate server node for allocation.
+            path: The network path from the current location to the server_id.
+            bw_required: The bandwidth required for the connection along the path.
+
+        Returns:
+            A float representing the total calculated cost of the allocation action.
+        """
+        node_data = self.graph.nodes[server_id]
+        factor_weights = self.pesos_fatores # Can be renamed to self.factor_weights
+
+        # --- 1. Node Resource Cost (CPU & Cache) ---
+        is_reusable = self.is_reusable_at_node(self.current_sfc, self.graph, server_id, vnf)
+
+        # Use .get() for safety and provide a default to prevent division by zero
+        cpu_capacity = node_data.get("cpu_capacity", 1.0) or 1.0
+        cache_capacity = node_data.get("cache_capacity", 1.0) or 1.0
+
+        cpu_request = vnf.get_cpu_request()
+        cache_request = vnf.get_cache_request()
         
-        cpu_cost = ((node["cpu_used"] + cpu_request) / cpu_capacity) 
-        cache_cost = ((node["cache_used"] + cache_request) / cache_capacity) 
-
-        if not reusable:
-            cpu_cost+= PUNICAO_POR_NAO_REUSO
-            cache_cost+= PUNICAO_POR_NAO_REUSO
-
-        mobile_device_cost = 0
-        if server_id == self.current_sfc.dst_node:
-            mobile_device_cost -= RECOMPENSA_POR_USO_DE_MOVEL
+        # Calculate base utilization cost as a ratio of total capacity
+        cpu_cost = (node_data["cpu_used"] + cpu_request) / cpu_capacity
+        cache_cost = (node_data["cache_used"] + cache_request) / cache_capacity
         
+        # Apply a penalty for not reusing a shareable VNF instance
+        if not is_reusable:
+            # This check can be made more robust by checking against SHAREABLE_PREFIXES
+            # if vnf.id.startswith(SHAREABLE_PREFIXES):
+            cpu_cost += NON_REUSABLE_PENALTY
+            cache_cost += NON_REUSABLE_PENALTY
+
+        weighted_node_cost = (cpu_cost * factor_weights['cpu'] +
+                            cache_cost * factor_weights['cache'])
+
+        # --- 2. Network Cost (Bandwidth & Latency) ---
         bw_cost, lat_cost = self.calculate_bw_lat_cost(vnf, server_id, path, bw_required)
-        
-        resource_cost = cpu_cost * self.pesos_fatores['cpu'] + cache_cost * self.pesos_fatores['cache']
+        weighted_network_cost = (bw_cost * factor_weights['band'] +
+                                lat_cost * factor_weights['lat'])
 
-        band_cost=bw_cost * self.pesos_fatores['band']
-        return resource_cost + band_cost + lat_cost * self.pesos_fatores['lat'] + mobile_device_cost
+        # --- 3. Strategic Incentives ---
+        incentive_cost = 0.0
+        if server_id == self.current_sfc.dst_node:
+            incentive_cost = -MOBILE_DEVICE_USAGE_REWARD
+
+        # --- 4. Final Total Cost ---
+        total_cost = (weighted_node_cost +
+                    weighted_network_cost +
+                    incentive_cost)
+
+        return total_cost
          
             
 def calculate_total_latency(graph: Graph, path: List, vnf: VNF):
