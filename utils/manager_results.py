@@ -82,6 +82,8 @@ def create_output_dir(args,topology):
         "cpu_utilization",
         "bandwidth_utilization",
         "cache_utilization",
+        "network_cpu_utilization",
+        "network_cache_utilization",
         "mobile_cpu_utilization",
         "mobile_cache_utilization", 
         "latency",
@@ -163,8 +165,8 @@ class OutputWritter:
 
     def output_flows(self,substrate_network: Net2,wait_time,running_players_sessions,counter,remaining_time,current_time, sfc_id, 
                      latency, run_duration, is_success,fail_reason,bw_transcode,acceptance_rate, energy_consumption, latency_diff=None,crashing=False,alg_name='ga'):
-        cpu_utilization = round(substrate_network.get_total_system_utilization_rate(), 4)
-        cache_utilization = round(substrate_network.get_cache_utilization_rate(), 4)
+        cpu_utilization = round(substrate_network.get_total_system_utilization_cpu_rate(), 4)
+        cache_utilization = round(substrate_network.get_total_system_utilization_cache_rate(), 4)
         bw_utilization = round(substrate_network.get_bandwidth_utilization_rate(), 4)
 
         total_cpu_request = round(substrate_network.get_total_cpu_request(), 4)
@@ -172,8 +174,10 @@ class OutputWritter:
         total_cache_request = round(substrate_network.get_total_cache_request(), 4)
         # reuse_cache_rate = (substrate_network.get_total_cache_saved()/total_cache_request)*100 if total_cache_request > 0 else 0
 
-        mobile_cpu_utilization = round(substrate_network.mobile_cpu_used, 4)
-        mobile_cache_utilization = round(substrate_network.mobile_cache_used, 4)
+        network_cpu_utilization = round(substrate_network.get_network_cpu_utilization_percentage(), 4)
+        network_cache_utilization = round(substrate_network.get_network_cache_utilization_percentage(), 4)
+        mobile_cpu_utilization = round(substrate_network.get_mobile_cpu_utilization_percentage(), 4)
+        mobile_cache_utilization = round(substrate_network.get_mobile_cache_utilization_percentage(), 4)
         
         # cpu_resilient = 0 #round(substrate_network.get_resilient_cpu_utilization(), 4)
         # cache_resilient = 0 # round(substrate_network.get_resilient_cache_utilization(), 4)
@@ -236,6 +240,8 @@ class OutputWritter:
             f"{cpu_utilization},"
             f"{bw_utilization},"
             f"{cache_utilization},"
+            f"{network_cpu_utilization},"
+            f"{network_cache_utilization},"
             f"{mobile_cpu_utilization},"
             f"{mobile_cache_utilization},"
             f"{latency},"
