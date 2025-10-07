@@ -1,5 +1,0 @@
-No.,timestamp,time_seconds,users,cpu_utilization,bandwidth_utilization,cache_utilization,mobile_cpu_utilization,mobile_cache_utilization,latency,latency_diff,wait_time,decision_time_ms,success,fail_reason,sfc_id,recovery_time,sfc_recovered,cpu_saved,cache_saved,shared_vnfs,running_sfcs,running_players,running_sessions,trascode_bw,crashing,acceptance_rate,cpu_per_flow,cache_per_flow,energy_consumption
-0,1759259800.496255,0,1,0.0234,0.0098,0.0249,6.0,0.0,5.92,None,None,20080.647,True,None,sfc_cache_p1_1,0,None,0,0,1,2,0,0,0,False,100.0,15.5,16.5,2057.087138213899
-0,1759259800.4974844,0.0,1,0.0234,0.0098,0.0249,6.0,0.0,6.56,None,None,5225.539,True,None,sfc_unique_p1_1,0,None,0,0,1,2,0,0,0,False,100.0,15.5,16.5,2057.087138213899
-0,1759259868.3213468,67.8,2,0.0438,0.0249,0.0249,12.0,0.0,7.58,None,None,13874.597,True,None,sfc_cache_p2_1,0,None,4,33.0,4,4,0,0,0,False,100.0,14.5,8.25,2085.5270082030647
-0,1759259868.3226693,67.8,2,0.0438,0.0249,0.0249,12.0,0.0,6.8,None,None,4986.862,True,None,sfc_unique_p2_1,0,None,4,33.0,4,4,0,0,0,False,100.0,14.5,8.25,2085.5270082030647
