@@ -674,13 +674,21 @@ class Net2:
         return self.total_cpu_used / self.total_cpu_capacity
     
 
-    def get_total_system_utilization_rate(self):
+    def get_total_system_utilization_cpu_rate(self):
         """Retorna a taxa de utilização de CPU do sistema inteiro (servidores + dispositivos móveis)."""
         if self.total_cpu_capacity == 0:
             return 0.0
         
         total_used = self.total_cpu_used + self.mobile_cpu_used
         return total_used / self.total_cpu_capacity
+    
+    def get_total_system_utilization_cache_rate(self):
+        """Retorna a taxa de utilização de CPU do sistema inteiro (servidores + dispositivos móveis)."""
+        if self.total_cache_capacity == 0:
+            return 0.0
+        
+        total_used = self.total_cache_used + self.mobile_cache_used
+        return total_used / self.total_cache_capacity
     
     def get_network_cpu_utilization_percentage(self):
         """
@@ -700,9 +708,32 @@ class Net2:
         # Evita divisão por zero se não houver capacidade na rede
         if total_network_capacity == 0:
             return 0.0
+        
+         # Calcula a porcentagem
+        utilization = (self.total_cpu_used / total_network_capacity) * 100
+        return utilization
+    
+    def get_network_cache_utilization_percentage(self):
+        """
+        Calcula a porcentagem de utilização de CPU apenas para os nós da
+        infraestrutura de rede (servidores), ignorando os dispositivos móveis.
+
+        Returns:
+            float: A porcentagem de utilização da CPU da rede.
+        """
+        total_network_capacity = 0.0
+        # Itera sobre todos os nós no grafo principal da rede
+        for node_id, node_data in self.graph.nodes(data=True):
+            # Adiciona a capacidade de CPU apenas de nós que a possuem (ex: servidores)
+            if 'cache_capacity' in node_data:
+                total_network_capacity += node_data['cache_capacity']
+
+        # Evita divisão por zero se não houver capacidade na rede
+        if total_network_capacity == 0:
+            return 0.0
 
         # Calcula a porcentagem
-        utilization = (self.total_cpu_used / total_network_capacity) * 100
+        utilization = (self.total_cache_used / total_network_capacity) * 100
         return utilization
 
     def get_mobile_cpu_utilization_percentage(self):
@@ -724,6 +755,27 @@ class Net2:
 
         # Calcula a porcentagem
         utilization = (self.mobile_cpu_used / total_mobile_capacity) * 100
+        return utilization
+    
+    def get_mobile_cache_utilization_percentage(self):
+        """
+        Calcula a porcentagem de utilização de CPU apenas para os nós móveis.
+
+        Returns:
+            float: A porcentagem de utilização da CPU dos nós móveis.
+        """
+        total_mobile_capacity = 0.0
+        # Itera sobre todos os nós no grafo de dispositivos móveis
+        for node_id, node_data in self.md_graph.nodes(data=True):
+            if 'cache_capacity' in node_data:
+                total_mobile_capacity += node_data['cache_capacity']
+
+        # Evita divisão por zero se não houver dispositivos móveis com capacidade
+        if total_mobile_capacity == 0:
+            return 0.0
+
+        # Calcula a porcentagem
+        utilization = (self.mobile_cache_used / total_mobile_capacity) * 100
         return utilization
     
     def get_cpu_network_used(self):
@@ -757,7 +809,7 @@ class Net2:
     def print_out_nodes_information(self, failure_cpu=None, failure_cache=None):
         # Calcula ambas as métricas de utilização de CPU
         # server_cpu_util = self.get_server_cpu_utilization_rate() * 100
-        total_cpu_util = self.get_total_system_utilization_rate() * 100
+        total_cpu_util = self.get_total_system_utilization_cpu_rate() * 100
 
         # print(f"Server CPU utilization   : {server_cpu_util:.3f}%")
         print(f"Total System CPU util.   : {total_cpu_util:.3f}%")
