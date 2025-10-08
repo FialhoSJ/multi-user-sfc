@@ -1,6 +1,8 @@
 from core.net_v2 import Net2
 import networkx as nx
 from core.sfc import SFC
+from core.vnf import VNF
+from typing import List
 from algorithms.networkUtils import calculate_computational_latency,calculate_latency_betwen_nodes
 
 class EnergyCalculator:
@@ -247,3 +249,36 @@ def calculate_average_sfc_latency(substrate_network: Net2):
             
 
         return total_latency_all_sfcs / len(substrate_network.sfc_dict)
+
+
+
+def calculate_total_latency(graph: nx.Graph, path: List, vnf: VNF):
+    """
+    Calcula a latência total de um caminho dado e de uma VNF.
+    
+    A latência total é composta pela latência computacional no último nó 
+    (onde a VNF é alocada) e pela latência de rede entre os nós ao longo do caminho.
+    
+    :param graph: O grafo que representa a rede, com informações sobre os links e servidores.
+    :param path: Lista de nós representando o caminho de alocação do serviço.
+    :param vnf: O VNF (função de rede virtual) que está sendo alocado.
+    :return: A latência total (latência computacional + latência de rede).
+    """
+    total_latency = 0
+
+    # Latência de rede (entre os nós do caminho)
+    edge_latency = 0
+    for i in range(len(path) - 1):
+        u = path[i]
+        v = path[i + 1]
+
+        # Cálculo da latência de rede entre os nós u e v
+        edge_latency += calculate_latency_betwen_nodes(graph, u, v, vnf)
+    total_latency += edge_latency
+
+    # Latência computacional (apenas no último nó, onde a VNF é alocada)
+    last_server = path[-1]  # Último nó do caminho
+    comp_latency = calculate_computational_latency(graph, last_server, vnf)
+    total_latency += comp_latency
+
+    return total_latency
