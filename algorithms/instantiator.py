@@ -16,6 +16,7 @@ from algorithms.rodrigo_alg import Rodrigo
 from algorithms.vegeta import Vegeta
 from algorithms.kuririn import Kuririn
 from algorithms.darsppo import DARSPPO
+from algorithms.hephaestus import hephaestus
 
 class AlgorithmInstantiator:
     def instantiate_algorithm(self, type):
@@ -56,6 +57,8 @@ class AlgorithmInstantiator:
                 alg = Kuririn('DQN')    
         elif 'darsppo' in type:
             alg = DARSPPO()
+        elif "hephaestus" in type:
+            alg = hephaestus()
     
         else:
             raise ValueError('algorithm not found')

@@ -11,8 +11,11 @@ from utils.salvar_var import salvar_variavel
 from core.net_v2 import Net2
 from algorithms.kuririn import Kuririn
 from algorithms.darsppo import DARSPPO
+from algorithms.hephaestus import hephaestus
 from algorithms.environments.environment import SFC_AllocationEnv
 from algorithms.environments.env_da_rsppo import SFC_AllocationEnv_DARSPPO
+from algorithms.environments.hephaestus_env import SFC_AllocationEnv_hephaestus
+
 
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 
@@ -54,6 +57,15 @@ class SFCInstatiator:
         elif isinstance(algorithm, DARSPPO):
             valid_nodes = [node for node in graph.nodes() if graph.nodes[node]['type'] != 'router']
             self.env = SFC_AllocationEnv_DARSPPO(
+                valid_nodes=valid_nodes,
+                list_graph=[graph],
+                list_sfc=[sfc_list[0]],
+                is_training=False
+            )
+
+        elif isinstance(algorithm, hephaestus):
+            valid_nodes = [node for node in graph.nodes() if graph.nodes[node]['type'] != 'router']
+            self.env = SFC_AllocationEnv_hephaestus(
                 valid_nodes=valid_nodes,
                 list_graph=[graph],
                 list_sfc=[sfc_list[0]],
@@ -113,6 +125,14 @@ class SFCInstatiator:
                     alg_success = False
 
             elif isinstance(algorithm, DARSPPO):
+                 # Se for o DARSPPO, passamos o ambiente que criamos.
+                if self.env:
+                    alg_success = algorithm.start_algorithm(self.env)
+                else:
+                    logging.error("Tentativa de usar DARSPPO sem um ambiente inicializado.")
+                    alg_success = False
+            
+            elif isinstance(algorithm, hephaestus):
                  # Se for o DARSPPO, passamos o ambiente que criamos.
                 if self.env:
                     alg_success = algorithm.start_algorithm(self.env)

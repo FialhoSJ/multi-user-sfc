@@ -28,10 +28,9 @@ os.environ["CUDA_VISIBLE_DEVICES"] = ""  # Desabilita o uso da GPU
 class hephaestus:
     ### MODIFICADO ###
     # O construtor agora carrega o modelo imediatamente.
-    def __init__(self, model_name):
+    def __init__(self):
         # --- Atributos ---
-        self.model_name = model_name.upper() # Garante consistência (PPO ou DQN)
-        self.model_path = f'rl_saved_models/{self.model_name}_allocation_model.zip'
+        self.model_path = f'rl_saved_models/hephaestus_allocation_model.zip'
         self.name = f"hephaestus"
         
         # --- ADICIONADO: Carregamento do modelo na inicialização ---
@@ -70,7 +69,7 @@ class hephaestus:
             raise FileNotFoundError(f"Arquivo do modelo não encontrado: {self.model_path}")
         
         logger.info(f"Carregando modelo de: {self.model_path}")
-        if self.model_name == "PPO":
+        if True:
             return MaskablePPO.load(self.model_path, device='cpu')
         elif self.model_name == "DQN":
             return DQN.load(self.model_path, device='cpu')
