@@ -28,9 +28,9 @@ def main():
     # command line arguments
     parser = argparse.ArgumentParser(description='Select Immersive Service arguments') 
     parser.add_argument('--application', type=str, help='type of application', default='muar')
-    parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='hephaestus')
+    parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='kuririnPPO')
     parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
-    parser.add_argument('--n_players', type=int, help='(int) number of players', default=4)
+    parser.add_argument('--n_players', type=int, help='(int) number of players', default=6)
     #on: quebrar mais em funçoes
     #off: monolítico
     parser.add_argument('--sfc',   type=str, help='(str) on or off', default='on')
@@ -43,7 +43,7 @@ def main():
     )
     parser.add_argument('--share',  type=str, help='(str) whether to share sfs or not', default='y')
     parser.add_argument('--shareband',  type=str, help='(str) whether to share sfs or not', default='n')
-    parser.add_argument('--time',  type=int, help='(int) the total time for the simulation in seconds', default=120)
+    parser.add_argument('--time',  type=int, help='(int) the total time for the simulation in seconds', default=100)
     parser.add_argument('--mobility',  type=str, help='(str) mobility', default='y')
 
     parser.add_argument('--allow_delay', type=str, help='(str) whether to allow delay or not', default='n')
@@ -63,7 +63,7 @@ def main():
 
     # Criando emissor Poisson
     test = 10
-    official = 20
+    official = 18
     sfc_poisson_emitter = PoissonEmitter(official)
 
     # Criando instância da classe MuarScenario

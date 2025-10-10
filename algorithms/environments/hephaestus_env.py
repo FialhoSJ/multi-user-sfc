@@ -12,7 +12,7 @@ from utils.network_utils import calcular_percentual_cpu_total, calcular_percentu
 
 import math
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
-NON_REUSABLE_PENALTY = 10
+LATENCY_REQ = 13
 MOBILE_DEVICE_USAGE_REWARD = 0
 
 
@@ -48,9 +48,10 @@ class SFC_AllocationEnv_hephaestus(gymnasium.Env):
         self.list_graph = list_graph
         self.list_sfc = list_sfc
         self.pesos_fatores = pesos_fatores if pesos_fatores is not None else \
-        {"w_cost": 0.4,       
-        "w_latency": 0.3,    
-        "w_inequality": 0.3  
+        {"w_cost": 0.1,         # Prioridade baixa
+        "w_latency": 0.5,      # Prioridade média
+        "w_inequality": 0.1,   # Prioridade baixa
+        "w_bandwidth": 0.6     # Prioridade MÁXIMA E INEQUÍVOCA
         }
         
         self.is_training = is_training
@@ -80,7 +81,7 @@ class SFC_AllocationEnv_hephaestus(gymnasium.Env):
         # NOVA ESTRUTURA DO ESPAÇO DE OBSERVAÇÃO
         # Inspirado na Tabela 3 do artigo HephaestusForge 
         num_app_features = 3  # 1. CPU req, 2. Cache req, 3. Latency req
-        num_cluster_features = 5 # 1. CPU total, 2. Cache total, 3. CPU usado, 4. Cache usado, 5. Latência
+        num_cluster_features = 6 # 1. CPU total, 2. Cache total, 3. CPU usado, 4. Cache usado, 5. Latência, 6. Banda
 
         self.observation_space = spaces.Dict({
             # Métricas da requisição atual (análogo ao "App" do artigo)
@@ -98,6 +99,7 @@ class SFC_AllocationEnv_hephaestus(gymnasium.Env):
         """
         super().reset(seed=seed)
         self.latency_used = 0
+        self.total_bw_cost_episode = 0.0 
         idx = 0
 
         if self.is_training:
@@ -127,12 +129,7 @@ class SFC_AllocationEnv_hephaestus(gymnasium.Env):
         vnf = self.current_vnf
         bw_req = self.service_requirements[vnf.id]["out_bw"]
         current_node = self.current_location
-        
-        self.ratio_cpu_used = calcular_percentual_cpu_total(self.graph)
-        self.ratio_cache_used = calcular_percentual_cache_total(self.graph)
 
-        
-        # print("VALOR DE CPU USADO NO CODIGO  ", self.ratio_cpu_used)
         self.features = self._get_nodes_features(vnf, bw_req, current_node)
 
         obs = self._get_obs()
@@ -141,61 +138,77 @@ class SFC_AllocationEnv_hephaestus(gymnasium.Env):
 
     def step(self, action: int):
         """
-        Executa um passo no ambiente a partir de uma ação do agente.
-        A ação corresponde à escolha de um nó para alocar a VNF atual.
+        Executa um passo no ambiente com feedback imediato para todos os custos,
+        incluindo a melhora no Coeficiente de Gini.
         """
-        # 1. Traduzir a ação para um nó do grafo
+        # 1. Traduzir a ação para um nó do grafo e obter requisitos
         if action == len(self.valid_nodes) - 1:
             chosen_server = self.current_sfc.dst_node
-        else: chosen_server = self.valid_nodes[action]
+        else:
+            chosen_server = self.valid_nodes[action]
 
         vnf = self.current_vnf
         band_req = self.service_requirements[vnf.id]['out_bw']
         current_location = self.current_location
         path = get_available_shortest_path_fast(self.graph, current_location, chosen_server, band_req)
-        total_cost = self._calculate_hephaestus_reward()
+
+        # 2. Calcular os CUSTOS IMEDIATOS e o ESTADO DO GINI ANTES DA AÇÃO
+        step_costs = {}
+        gini_before = self._calculate_gini_coefficient() # <<-- NOVO: Gini ANTES
+
+        if path:
+            bw_cost_step, latency_cost_step = self.calculate_bw_lat_cost(vnf, chosen_server, path, band_req)
+            step_costs['bw_cost'] = bw_cost_step
+            step_costs['latency_cost'] = latency_cost_step
+
+            max_cpu_cap = max(d['cpu_capacity'] for _, d in self.graph.nodes(data=True) if d.get('cpu_capacity'))
+            cpu_cap_chosen = self.graph.nodes[chosen_server]['cpu_capacity']
+            step_costs['deployment_cost'] = 1 + 9 * (cpu_cap_chosen / max_cpu_cap)
+        else:
+            # Custos máximos se não houver caminho levarão à falha
+            step_costs['bw_cost'] = 10.0
+            step_costs['latency_cost'] = self.current_sfc.get_latency_request()
+            step_costs['deployment_cost'] = 10.0
         
-        # 2. Tentar alocar recursos (CPU/cache) no nó escolhido
+        # 3. Tentar alocar recursos
         if not self.allocate_resources_on_node(chosen_server, self.current_vnf):
             return self._fail_step('resource')
         
         if not path or not self.allocate_bandwidth_along_path(path, band_req):
+            # Importante: se a alocação de banda falhar, precisamos reverter a alocação de CPU/Cache
             return self._fail_step('bandwidth')
 
+        # 4. Ação bem-sucedida. CALCULAR GINI DEPOIS E A MELHORA
+        gini_after = self._calculate_gini_coefficient() # <<-- NOVO: Gini DEPOIS
+        step_costs['gini_improvement'] = gini_before - gini_after # <<-- NOVO: A "melhora" é a redução do Gini
+
+        # 5. Calcular a RECOMPENSA IMEDIATA com base nos custos E na melhora do Gini
+        reward = self._calculate_step_reward(step_costs)
         self.servers_used.append(chosen_server)
-        
-        reward = -total_cost
-
-         # ======================= ADICIONE ESTA VERIFICAÇÃO =======================
-        if math.isnan(reward) or math.isinf(reward):
-            print(f"--- DEBUG: Recompensa inválida detectada! Valor: {reward} ---")
-            print(f"Custo total calculado: {total_cost}")
-            assert not (math.isnan(reward) or math.isinf(reward))
-        # =======================================================================
-
 
         # 6. Atualizar estado para o próximo passo
         self.current_location = chosen_server
-        if not self.is_training:
-            self.allocation_results[self.current_vnf.id] = {'allocated_server': chosen_server, 'path': path, 'cost': total_cost}
+        self.latency_used += step_costs.get('latency_cost', 0)
 
-        self.latency_used += calculate_total_latency(self.graph, path, vnf)
-
-        # 7. Verificar conclusão e avançar para a próxima VNF/SFC
+        # 7. Verificar conclusão
         done = False
+        if not self.is_training:
+            self.allocation_results[self.current_vnf.id] = {'allocated_server': chosen_server, 'path': path, 'cost': 0}
         if self.current_vnf == self.reverse_vnf_list[-1]:
             done = True
             self.success = True
+            if self.latency_used <= self.current_sfc.get_latency_request():
+                reward += 10
+            else:
+                reward -= 10
             self.current_vnf = None
-
         else:
-            idx=self.reverse_vnf_list.index(self.current_vnf)
+            idx = self.reverse_vnf_list.index(self.current_vnf)
             self.current_vnf = self.reverse_vnf_list[idx + 1]
 
         bw_required = self.service_requirements[self.current_vnf.id]['out_bw'] if self.current_vnf else 0
-        self.features=self._get_nodes_features(self.current_vnf, bw_required, self.current_location)
+        self.features = self._get_nodes_features(self.current_vnf, bw_required, self.current_location)
         obs = self._get_obs()
-
         
         return obs, reward, done, False, {}
 
@@ -215,18 +228,17 @@ class SFC_AllocationEnv_hephaestus(gymnasium.Env):
 
         # Features: [0:cpu_used, 1:cache_used, 2:reusable, 3:N/A, 4:band_cost, 5:latency_cost, 6:is_invalid, 7:is_dst]
         num_valid_nodes = len(self.valid_nodes)
-        features = np.zeros((num_valid_nodes, 8))
+        features = np.zeros((num_valid_nodes, 6))
 
         if not vnf:
             # Se não houver VNF para alocar, retorna features zeradas, marcando todos como inválidos
-            features[:, 6] = 1 
+            features[:, 5] = 1 
             return features
 
         # --- 1. Loop principal para calcular as features de cada nó (sem alterações) ---
         for i, node_id in enumerate(self.valid_nodes):
             if i == num_valid_nodes - 1:
                 node_id = self.current_sfc.dst_node
-                features[i, 7] = 1
             node_data = self.graph.nodes[node_id]
             is_reusable = self.is_reusable_at_node(self.current_sfc, self.graph, node_id, vnf)
             features[i, 2] = float(is_reusable)
@@ -236,18 +248,18 @@ class SFC_AllocationEnv_hephaestus(gymnasium.Env):
                 cpu_req, cache_req = 0, 0
             features[i, 0] = (node_data["cpu_used"] + cpu_req) / node_data["cpu_capacity"]
             features[i, 1] = (node_data["cache_used"] + cache_req) / node_data["cache_capacity"]
-            if (node_data["cpu_used"] + cpu_req) >= node_data["cpu_capacity"] or \
-               (node_data["cache_used"] + cache_req) >= node_data["cache_capacity"]:
-                features[i, 6] = 1
+            if (node_data["cpu_used"] + cpu_req) > node_data["cpu_capacity"] or \
+               (node_data["cache_used"] + cache_req) > node_data["cache_capacity"]:
+                features[i, 5] = 1
             path = get_available_shortest_path_fast(self.graph, current_location, node_id, bw_required)
             if not path:
-                features[i, 4] = 1.0
                 features[i, 5] = 1.0
-                features[i, 6] = 1
+                features[i, 3] = 1.0
+                features[i, 4] = 1
             else:
-                _, latency_cost = self.calculate_bw_lat_cost(vnf, node_id, path, bw_required)
-                features[i, 4] = _
-                features[i, 5] = latency_cost
+                bd_cost, latency_cost = self.calculate_bw_lat_cost(vnf, node_id, path, bw_required)
+                features[i, 3] = bd_cost
+                features[i, 4] = latency_cost
 
 
         return features
@@ -265,7 +277,7 @@ class SFC_AllocationEnv_hephaestus(gymnasium.Env):
         app_metrics = np.zeros(self.observation_space["app_metrics"].shape, dtype=np.float32)
         
         # Preenche com os requisitos da VNF atual, se houver
-        max_latency_sfc = 30.0 
+        max_latency_sfc = 24
         if self.current_vnf:
             # Normalização: dividir pelo máximo possível para manter no intervalo [0, 1]
             # Assumido valores máximos razoáveis. Ajuste se necessário.
@@ -275,7 +287,7 @@ class SFC_AllocationEnv_hephaestus(gymnasium.Env):
 
             cpu_req = self.current_vnf.get_cpu_request()
             cache_req = self.current_vnf.get_cache_request()
-            latency_req = self.current_sfc.get_latency_request()
+            latency_req = LATENCY_REQ
             
             app_metrics[0] = cpu_req / max_cpu_req
             app_metrics[1] = cache_req / max_cache_req
@@ -305,14 +317,17 @@ class SFC_AllocationEnv_hephaestus(gymnasium.Env):
             used_cache = node_data.get('cache_used', 0)
             
             # Latência do nó (δc do artigo) - usamos o custo de latência já calculado 
-            node_latency = self.features[i, 5] if self.features is not None else 0
+            node_latency = self.features[i, 4] if self.features is not None else 0
+            node_bw_cost = self.features[i, 3] if self.features is not None else 0 # ADICIONADO
+
 
             # Normalização e preenchimento
             cluster_metrics[i, 0] = total_cpu / max_total_cpu
             cluster_metrics[i, 1] = total_cache / max_total_cache
             cluster_metrics[i, 2] = used_cpu / total_cpu if total_cpu > 0 else 0
             cluster_metrics[i, 3] = used_cache / total_cache if total_cache > 0 else 0
-            cluster_metrics[i, 4] = min(node_latency / max_latency_sfc, 1.0) # Normaliza a latência
+            cluster_metrics[i, 4] = min(node_latency / max_latency_sfc, 1.0)
+            cluster_metrics[i, 5] = node_bw_cost # ADICIONADO (o custo já é uma proporção)
 
         # --- 3. Montar e retornar a observação final ---
         obs = {
@@ -349,7 +364,7 @@ class SFC_AllocationEnv_hephaestus(gymnasium.Env):
             self.features = self._get_nodes_features(vnf, bw_req, current_node)
         
         mask = [
-            1 if self.features[i, 6] == 0 else 0
+            1 if self.features[i, 5] == 0 else 0
             for i, _ in enumerate(self.valid_nodes)
         ]
         if np.nan in mask:
@@ -628,39 +643,58 @@ class SFC_AllocationEnv_hephaestus(gymnasium.Env):
         return gini
     
 
+    def _calculate_bandwidth_metric(self) -> float:
+        """
+        Calcula a métrica de custo de banda normalizada.
+        Um valor mais alto significa um custo maior (pior).
+        """
+        if not self.servers_used:
+            return 1.0 # Custo máximo se nenhuma VNF foi alocada
+
+        # O custo de banda por passo já é uma proporção (uso/capacidade).
+        # A média desses custos nos dá uma métrica razoável para o episódio.
+        average_bw_cost = self.total_bw_cost_episode / len(self.servers_used)
+        
+        # Garante que o valor fique entre 0 e 1
+        return min(average_bw_cost, 1.0)
+    
+
 
     # Em environment.py, adicione este método à classe SFC_AllocationEnv
 
-    def _calculate_hephaestus_reward(self) -> float:
+    # Em hephaestus_env.py, método _calculate_hephaestus_reward()
+    # Em hephaestus_env.py
+# SUBSTITUA a função _calculate_step_reward pela versão abaixo
+
+    def _calculate_step_reward(self, step_costs: Dict[str, float]) -> float:
         """
-        Calcula a recompensa final para um episódio bem-sucedido,
-        baseado na lógica multi-objetivo do trabalho HephaestusForge.
+        Calcula a recompensa para um único passo, incluindo a melhora no Gini.
         """
         # 1. Obter os pesos da configuração
-        w_cost = self.pesos_fatores.get("w_cost", 0.33)
-        w_latency = self.pesos_fatores.get("w_latency", 0.33)
-        w_inequality = self.pesos_fatores.get("w_inequality", 0.33)
+        w_cost = self.pesos_fatores.get("w_cost", 0.25)
+        w_latency = self.pesos_fatores.get("w_latency", 0.25)
+        w_inequality = self.pesos_fatores.get("w_inequality", 0.25)
+        w_bandwidth = self.pesos_fatores.get("w_bandwidth", 0.25)
 
-        # 2. Calcular cada métrica normalizada
-        cost_metric = self._calculate_deployment_cost()
-        latency_metric = self._calculate_latency_metric()
-        # O Coeficiente de Gini já é uma métrica normalizada entre [0, 1]
-        inequality_metric = self._calculate_gini_coefficient() 
+        # 2. Calcular componentes da recompensa baseados em CUSTO (onde 1 - custo é bom)
+        cost_metric = min(step_costs.get('deployment_cost', 0) / 10.0, 1.0)
+        latency_metric = min(step_costs.get('latency_cost', 0) / self.current_sfc.get_latency_request(), 1.0)
+        bandwidth_metric = min(step_costs.get('bw_cost', 0), 1.0)
 
-        # 3. Calcular cada componente da recompensa (r_x = 1 - metrica)
-        # Quanto menor a métrica, maior a recompensa do componente
         r_cost = 1.0 - cost_metric
         r_latency = 1.0 - latency_metric
-        r_inequality = 1.0 - inequality_metric
-
-        # 4. Calcular a recompensa final ponderada
-        final_reward = w_cost * r_cost + w_latency * r_latency + w_inequality * r_inequality
+        r_bandwidth = 1.0 - bandwidth_metric
         
-        # 5. Aplicar um bônus para escalar o valor
-        # Isso garante que a conclusão bem-sucedida tenha um impacto significativo no treinamento
-        # em comparação com os custos negativos de cada passo.
-        scaled_bonus = 10 * final_reward 
+        # 3. O componente de recompensa do GINI é a MELHORA DIRETA
+        # Se gini_improvement > 0, a rede ficou mais igualitária (recompensa)
+        # Se gini_improvement < 0, a rede ficou mais desigual (penalidade)
+        r_inequality = step_costs.get('gini_improvement', 0)
 
-        return scaled_bonus
-            
-            
+        # 4. Calcular recompensa final ponderada para o PASSO
+        step_reward = (w_cost * r_cost + 
+                    w_latency * r_latency + 
+                    w_bandwidth * r_bandwidth +
+                    w_inequality * r_inequality) # A melhora do Gini é somada diretamente
+
+        return step_reward
+                

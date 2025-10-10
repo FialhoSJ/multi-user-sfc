@@ -177,6 +177,31 @@ def calcular_percentual_cache_total(G: nx.Graph) -> float:
     
     return percentual_uso
 
+def calcular_percentual_banda_total(graph: nx.Graph) -> float:
+    """
+    Calcula o percentual de uso da largura de banda total da rede.
+
+    Args:
+        graph: O grafo da rede.
+
+    Returns:
+        A porcentagem de banda utilizada (de 0 a 100).
+    """
+    total_banda_usada = 0.0
+    total_banda_capacidade = 0.0
+
+    # Itera sobre todas as arestas (links) do grafo
+    for u, v, data in graph.edges(data=True):
+        total_banda_usada += data.get('bandwidth_used', 0)
+        total_banda_capacidade += data.get('bandwidth_capacity', 0)
+
+    # Evita divisão por zero se a rede não tiver capacidade
+    if total_banda_capacidade == 0:
+        return 0.0
+
+    # Retorna o resultado como uma porcentagem
+    return (total_banda_usada / total_banda_capacidade) * 100
+
 def get_sfc_latency_from_route(graph: nx.Graph,sfc: SFC, route_info, md_graph: nx.Graph = None):
     """
     Calcula a latência total de uma solução de rota para uma SFC (função pura).

@@ -5,14 +5,14 @@ from networkx import Graph
 from typing import Union, List, Dict
 from core.sfc import SFC, VNF
 from algorithms.networkUtils import get_available_shortest_path, calculate_computational_latency, calculate_latency_betwen_nodes, get_available_shortest_path_fast
-from utils.network_utils import calcular_percentual_cpu_total, calcular_percentual_cache_total
+from utils.network_utils import calcular_percentual_cpu_total, calcular_percentual_cache_total, calcular_percentual_banda_total
 
 # ADICIONADO:
 
 
 import math
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
-NON_REUSABLE_PENALTY = 10
+NON_REUSABLE_PENALTY = 6
 MOBILE_DEVICE_USAGE_REWARD = 0
 
 
@@ -49,7 +49,8 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.list_graph = list_graph
         self.list_sfc = list_sfc
         self.pesos_fatores = pesos_fatores if pesos_fatores is not None else \
-                             {"cpu": 1, "cache": 1, "lat": 1, "band":5}
+                             {"cpu": 1, "cache": 1, "lat": 1, "band":6,
+                              "congestion_multiplier" : 4}
         
         self.is_training = is_training
         if self.is_training:
@@ -69,6 +70,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.features = None
         self.ratio_cpu_used = 0
         self.ratio_cache_used = 0
+        self.ratio_banda_used = 0
         
         
         self.cache_path = {}
@@ -122,6 +124,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         
         self.ratio_cpu_used = calcular_percentual_cpu_total(self.graph)
         self.ratio_cache_used = calcular_percentual_cache_total(self.graph)
+        self.ratio_banda_used = calcular_percentual_banda_total(self.graph)
 
         
         # print("VALOR DE CPU USADO NO CODIGO  ", self.ratio_cpu_used)
@@ -595,17 +598,25 @@ class SFC_AllocationEnv(gymnasium.Env):
         weighted_node_cost = (cpu_cost * factor_weights['cpu'] +
                             cache_cost * factor_weights['cache'])
 
-        # --- 2. Network Cost (Bandwidth & Latency) ---
         bw_cost, lat_cost = self.calculate_bw_lat_cost(vnf, server_id, path, bw_required)
-        weighted_network_cost = (bw_cost * factor_weights['band'] +
+        
+        # LÓGICA DO PESO DINÂMICO
+        base_band_weight = factor_weights['band']
+        congestion_multiplier = factor_weights['congestion_multiplier']
+        # O peso aumenta linearmente com a utilização da rede.
+        # self.ratio_banda_used está entre 0 e 100. Dividimos por 100 para normalizar.
+        dynamic_band_weight = base_band_weight + (congestion_multiplier * (self.ratio_banda_used / 100.0))
+
+        # Usa o novo peso dinâmico no cálculo do custo
+        weighted_network_cost = (bw_cost * dynamic_band_weight +
                                 lat_cost * factor_weights['lat'])
 
-        # --- 3. Strategic Incentives ---
+        # --- 3. Incentivos Estratégicos ---
         incentive_cost = 0.0
         if server_id == self.current_sfc.dst_node:
             incentive_cost = -MOBILE_DEVICE_USAGE_REWARD
 
-        # --- 4. Final Total Cost ---
+        # --- 4. Custo Total Final ---
         total_cost = (weighted_node_cost +
                     weighted_network_cost +
                     incentive_cost)
