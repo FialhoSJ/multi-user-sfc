@@ -43,7 +43,7 @@ def main():
     )
     parser.add_argument('--share',  type=str, help='(str) whether to share sfs or not', default='y')
     parser.add_argument('--shareband',  type=str, help='(str) whether to share sfs or not', default='n')
-    parser.add_argument('--time',  type=int, help='(int) the total time for the simulation in seconds', default=100)
+    parser.add_argument('--time',  type=int, help='(int) the total time for the simulation in seconds', default=120)
     parser.add_argument('--mobility',  type=str, help='(str) mobility', default='y')
 
     parser.add_argument('--allow_delay', type=str, help='(str) whether to allow delay or not', default='n')
@@ -63,7 +63,7 @@ def main():
 
     # Criando emissor Poisson
     test = 10
-    official = 18
+    official = 20
     sfc_poisson_emitter = PoissonEmitter(official)
 
     # Criando instância da classe MuarScenario

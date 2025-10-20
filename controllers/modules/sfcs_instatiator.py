@@ -97,22 +97,22 @@ class SFCInstatiator:
             
             s = time.time()
 
-#             if int(sfc.id.split('_')[-1]) <=10:
-#                 salvar_variavel(sfc, "list_sfc1")
-#                 salvar_variavel(graph, "list_graph1")
-#             elif int(sfc.id.split('_')[-1]) <=20:
-#                 salvar_variavel(sfc, "list_sfc2")
-#                 salvar_variavel(graph, "list_graph2")    
-#             elif int(sfc.id.split('_')[-1]) <=30:
-#                 salvar_variavel(sfc, "list_sfc3")
-#                 salvar_variavel(graph, "list_graph3")  
+            if int(sfc.id.split('_')[-1]) <=10:
+                salvar_variavel(sfc, "list_sfc1")
+                salvar_variavel(graph, "list_graph1")
+            elif int(sfc.id.split('_')[-1]) <=20:
+                salvar_variavel(sfc, "list_sfc2")
+                salvar_variavel(graph, "list_graph2")    
+            elif int(sfc.id.split('_')[-1]) <=30:
+                salvar_variavel(sfc, "list_sfc3")
+                salvar_variavel(graph, "list_graph3")  
 
-#             elif int(sfc.id.split('_')[-1]) <=40:
-#                 salvar_variavel(sfc, "list_sfc4")
-#                 salvar_variavel(graph, "list_graph4")  
-#             else:
-#                 salvar_variavel(sfc, "list_sfc5")
-#                 salvar_variavel(graph, "list_graph5") 
+            elif int(sfc.id.split('_')[-1]) <=40:
+                salvar_variavel(sfc, "list_sfc4")
+                salvar_variavel(graph, "list_graph4")  
+            else:
+                salvar_variavel(sfc, "list_sfc5")
+                salvar_variavel(graph, "list_graph5") 
             
             # A chamada ao algoritmo agora depende do seu tipo.
             alg_success = False

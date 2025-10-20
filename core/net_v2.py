@@ -673,14 +673,33 @@ class Net2:
             return 0.0
         return self.total_cpu_used / self.total_cpu_capacity
     
+    def get_total_system_cpu_capacity(self):
+        """
+        Calcula a capacidade total de CPU do sistema inteiro (servidores + dispositivos móveis).
+        """
+        total_capacity = 0.0
+        # Soma a capacidade dos nós da infraestrutura (grafo principal)
+        for node_id, node_data in self.graph.nodes(data=True):
+            if 'cpu_capacity' in node_data:
+                total_capacity += node_data['cpu_capacity']
+        
+        # Soma a capacidade dos dispositivos móveis
+        for node_id, node_data in self.md_graph.nodes(data=True):
+            if 'cpu_capacity' in node_data:
+                total_capacity += node_data['cpu_capacity']
+        
+        return total_capacity
+    
 
     def get_total_system_utilization_cpu_rate(self):
         """Retorna a taxa de utilização de CPU do sistema inteiro (servidores + dispositivos móveis)."""
-        if self.total_cpu_capacity == 0:
+        total_capacity = self.get_total_system_cpu_capacity()
+
+        if total_capacity == 0:
             return 0.0
         
         total_used = self.total_cpu_used + self.mobile_cpu_used
-        return total_used / self.total_cpu_capacity
+        return total_used / total_capacity
     
     def get_total_system_utilization_cache_rate(self):
         """Retorna a taxa de utilização de CPU do sistema inteiro (servidores + dispositivos móveis)."""
