@@ -12,8 +12,7 @@ from utils.network_utils import calcular_percentual_cpu_total, calcular_percentu
 
 import math
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
-NON_REUSABLE_PENALTY = 6
-MOBILE_DEVICE_USAGE_REWARD = 0
+NON_REUSABLE_PENALTY = 4
 
 
 class SFC_AllocationEnv(gymnasium.Env):
@@ -49,8 +48,8 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.list_graph = list_graph
         self.list_sfc = list_sfc
         self.pesos_fatores = pesos_fatores if pesos_fatores is not None else \
-                             {"cpu": 1, "cache": 1, "lat": 3, "band":6,
-                              "congestion_multiplier" : 6}
+                             {"cpu": 1, "cache": 1, "lat": 3, "band":5,
+                              "max_dst_node_reward": 23.5}
         
         self.is_training = is_training
         if self.is_training:
@@ -81,6 +80,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.observation_space = spaces.Dict({ 
         #0 se cache e 1 se unique
         "tipo_sfc": spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
+        "usos_rede": spaces.Box(low=0, high=1, shape=(2,), dtype=np.float32),
         "recursos_nos_validos": spaces.Box(low=0, high=1, shape=(num_nodes, 6), dtype=np.float32),
         })
 
@@ -148,6 +148,10 @@ class SFC_AllocationEnv(gymnasium.Env):
         band_req = self.service_requirements[vnf.id]['out_bw']
         current_location = self.current_location
         path = get_available_shortest_path_fast(self.graph, current_location, chosen_server, band_req)
+        self.ratio_cpu_used = calcular_percentual_cpu_total(self.graph)
+        self.ratio_cache_used = calcular_percentual_cache_total(self.graph)
+        self.ratio_banda_used = calcular_percentual_banda_total(self.graph)
+
         total_cost = self._compute_allocation_cost(vnf, chosen_server,path , band_req )
         
         # 2. Tentar alocar recursos (CPU/cache) no nó escolhido
@@ -249,30 +253,30 @@ class SFC_AllocationEnv(gymnasium.Env):
                 features[i, 4] = bd_cost
                 features[i, 5] = latency_cost
 
-        first_vnf = self.current_sfc.get_previous_vnf(self.current_sfc.get_dst_vnf())
-        second_vnf = first_vnf.get_previous_vnf() if first_vnf else None
+        # first_vnf = self.current_sfc.get_previous_vnf(self.current_sfc.get_dst_vnf())
+        # second_vnf = first_vnf.get_previous_vnf() if first_vnf else None
 
        
 
-        # --- 4. LÓGICA MODIFICADA: Regra para a primeira VNF "unique" ---
-        is_1_or_2_vnf = first_vnf == self.current_vnf or second_vnf == self.current_vnf
-        unique_in_id =  "unique" in self.current_sfc.id
-        cache_in_id =  "cache" in self.current_sfc.id
-        valid_node = not features[-1, 6]
+        # # --- 4. LÓGICA MODIFICADA: Regra para a primeira VNF "unique" ---
+        # is_1_or_2_vnf = first_vnf == self.current_vnf or second_vnf == self.current_vnf
+        # unique_in_id =  "unique" in self.current_sfc.id
+        # cache_in_id =  "cache" in self.current_sfc.id
+        # valid_node = not features[-1, 6]
 
-        if (self.ratio_cpu_used >40 and
-            is_1_or_2_vnf and
-            unique_in_id and
-            valid_node ):
+        # if (self.ratio_cpu_used >40 and
+        #     is_1_or_2_vnf and
+        #     unique_in_id and
+        #     valid_node ):
 
-            features[:-1, 6] = 1
+        #     features[:-1, 6] = 1
 
-        if (self.ratio_cache_used >30 and
-            is_1_or_2_vnf and
-            cache_in_id and
-            valid_node ):
+        # if (self.ratio_cache_used >30 and
+        #     is_1_or_2_vnf and
+        #     cache_in_id and
+        #     valid_node ):
 
-            features[:-1, 6] = 1
+        #     features[:-1, 6] = 1
 
         return features
 
@@ -304,12 +308,17 @@ class SFC_AllocationEnv(gymnasium.Env):
         # A operação é feita em toda a coluna de uma vez.
         recursos_nodes[:, 4] /= 30
 
+        usos_rede =  np.array([calcular_percentual_banda_total(self.graph),
+                               calcular_percentual_cpu_total(self.graph)], dtype=np.float32)
+       
+
         if not self.current_vnf or  "cache" in self.current_sfc.id:
             tipo_sfc = np.array([0.0], dtype=np.float32)
         else:
             tipo_sfc = tipo_sfc = np.array([1.0], dtype=np.float32)
         obs = {
             "tipo_sfc": tipo_sfc ,
+            "usos_rede": usos_rede,
             "recursos_nos_validos": recursos_nodes,
         }
 
@@ -534,7 +543,9 @@ class SFC_AllocationEnv(gymnasium.Env):
                 return float(999), latency_cost
 
             # Cálculo do custo de banda
-            link_cost = (bw_required + bd_used) / bd_capacity
+            projected_usage_ratio = (bw_required + bd_used) / bd_capacity
+            epsilon = 1e-6
+            link_cost = 1.0 / (1.0 - projected_usage_ratio + epsilon)
             bw_cost += link_cost
 
         return bw_cost, latency_cost
@@ -602,19 +613,28 @@ class SFC_AllocationEnv(gymnasium.Env):
         
         # LÓGICA DO PESO DINÂMICO
         base_band_weight = factor_weights['band']
-        congestion_multiplier = factor_weights['congestion_multiplier']
-        # O peso aumenta linearmente com a utilização da rede.
-        # self.ratio_banda_used está entre 0 e 100. Dividimos por 100 para normalizar.
-        dynamic_band_weight = base_band_weight + (congestion_multiplier * (self.ratio_banda_used / 100.0))
-
-        # Usa o novo peso dinâmico no cálculo do custo
-        weighted_network_cost = (bw_cost * dynamic_band_weight +
+        
+        # O bw_cost agora carrega a penalidade de congestionamento local
+        weighted_network_cost = (bw_cost * base_band_weight +
                                 lat_cost * factor_weights['lat'])
 
-        # --- 3. Incentivos Estratégicos ---
+       # --- 3. Incentivos Estratégicos (DINÂMICOS) ---
         incentive_cost = 0.0
         if server_id == self.current_sfc.dst_node:
-            incentive_cost = -MOBILE_DEVICE_USAGE_REWARD
+            # O incentivo (prêmio) é maior quanto maior o estresse (uso) da rede
+            
+            # 1. Pega o "pior" (máximo) uso de recurso global (CPU ou Cache)
+            #    (Convertemos de 0-100 para 0.0-1.0)
+            network_stress_ratio = max(self.ratio_cpu_used, self.ratio_cache_used) / 100.0
+            
+            # 2. Pega o valor máximo do "prêmio" do dicionário de pesos
+            max_reward = factor_weights.get("max_dst_node_reward", 0.0)
+            
+            # 3. Calcula o prêmio dinâmico
+            dynamic_reward = max_reward * network_stress_ratio
+            
+            # Custo é negativo da recompensa (prêmio)
+            incentive_cost = -dynamic_reward
 
         # --- 4. Custo Total Final ---
         total_cost = (weighted_node_cost +

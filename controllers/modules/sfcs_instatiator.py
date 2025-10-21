@@ -4,12 +4,14 @@ import time
 import math
 import random
 import traceback
+from typing import List
 from utils.k_shortest_paths import k_shortest_paths
 from algorithms.networkUtils import calculate_computational_latency,calculate_latency_betwen_nodes
 from utils.network_utils import calculate_average_sfc_latency
-from utils.salvar_var import salvar_variavel
+from utils.salvar_var import salvar_lista, dividir_em_n_grupos
 from core.net_v2 import Net2
 from algorithms.kuririn import Kuririn
+from core.sfc import SFC
 from algorithms.darsppo import DARSPPO
 from algorithms.hephaestus import hephaestus
 from algorithms.environments.environment import SFC_AllocationEnv
@@ -31,6 +33,8 @@ class SFCInstatiator:
         self.sfcs_that_crashed = []
         self.verbose = True
         self.env = None
+        self.list_graph = []
+        self.lists_sfcs = []
 
     def search_solution(self,sfc_list, substrate_network: Net2, is_backup=False):
         default_solution_format = {sfc.id: {'route_info': None, 'latency': None, 'run_duration': None} for sfc in sfc_list}
@@ -86,7 +90,7 @@ class SFCInstatiator:
         return solution,is_success
     
 
-    def sequential_search(self,algorithm,sfc_list: object,graph:object,solution_format, graph_backup = None) -> None:
+    def sequential_search(self,algorithm,sfc_list: List[SFC],graph:object,solution_format, graph_backup = None) -> None:
         search_success = True
 
         for sfc in sfc_list:
@@ -97,22 +101,37 @@ class SFCInstatiator:
             
             s = time.time()
 
-            if int(sfc.id.split('_')[-1]) <=10:
-                salvar_variavel(sfc, "list_sfc1")
-                salvar_variavel(graph, "list_graph1")
-            elif int(sfc.id.split('_')[-1]) <=20:
-                salvar_variavel(sfc, "list_sfc2")
-                salvar_variavel(graph, "list_graph2")    
-            elif int(sfc.id.split('_')[-1]) <=30:
-                salvar_variavel(sfc, "list_sfc3")
-                salvar_variavel(graph, "list_graph3")  
 
-            elif int(sfc.id.split('_')[-1]) <=40:
-                salvar_variavel(sfc, "list_sfc4")
-                salvar_variavel(graph, "list_graph4")  
-            else:
-                salvar_variavel(sfc, "list_sfc5")
-                salvar_variavel(graph, "list_graph5") 
+            # self.list_graph.append(copy.deepcopy(graph))
+            # self.lists_sfcs.append(copy.deepcopy(sfc))
+
+            # if "unique_p6_50" in sfc.id:
+            #     lista_listas_grafos = dividir_em_n_grupos(self.list_graph, 5)
+            #     lista_listas_sfcs = dividir_em_n_grupos(self.lists_sfcs, 5)
+            #     for i in range(1,6):
+            #         lista_grafo = lista_listas_grafos[i-1]
+            #         lista_sfc = lista_listas_sfcs[i-1]
+            #         salvar_lista(lista_grafo, f"list_graph{i}")
+            #         salvar_lista(lista_sfc, f"list_sfc{i}")
+
+
+
+            # if int(sfc.id.split('_')[-1]) <=10:
+            #     salvar_variavel(sfc, "list_sfc1")
+            #     salvar_variavel(graph, "list_graph1")
+            # elif int(sfc.id.split('_')[-1]) <=20:
+            #     salvar_variavel(sfc, "list_sfc2")
+            #     salvar_variavel(graph, "list_graph2")    
+            # elif int(sfc.id.split('_')[-1]) <=30:
+            #     salvar_variavel(sfc, "list_sfc3")
+            #     salvar_variavel(graph, "list_graph3")  
+
+            # elif int(sfc.id.split('_')[-1]) <=40:
+            #     salvar_variavel(sfc, "list_sfc4")
+            #     salvar_variavel(graph, "list_graph4")  
+            # else:
+            #     salvar_variavel(sfc, "list_sfc5")
+            #     salvar_variavel(graph, "list_graph5") 
             
             # A chamada ao algoritmo agora depende do seu tipo.
             alg_success = False

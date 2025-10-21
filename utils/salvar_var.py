@@ -47,6 +47,81 @@ def salvar_variavel(variavel, nome_lista, pasta='variaveis_salvas', valor_unico=
             time.sleep(atraso_tentativa)
 
 
+def salvar_lista(lista_para_adicionar, nome_arquivo, pasta='variaveis_salvas', evitar_duplicatas=False):
+    """
+    Atualiza uma lista em um arquivo .pkl, adicionando os itens de uma nova lista.
+    
+    Carrega a lista existente, adiciona os itens da 'lista_para_adicionar'
+    e salva a lista combinada de volta no arquivo.
+    
+    Argumentos:
+        lista_para_adicionar (list): A lista de novos itens para adicionar.
+        nome_arquivo (str): O nome do arquivo .pkl (ex: "meus_links.pkl").
+        pasta (str): O diretório onde o arquivo está/será salvo.
+        evitar_duplicatas (bool): Se True (padrão), só adiciona itens que
+                                  ainda não existem na lista salva.
+                                  Se False, adiciona todos os itens.
+    """
+    
+    # 1. Garante que o diretório (pasta) exista
+    if not os.path.exists(pasta):
+        try:
+            os.makedirs(pasta)
+        except OSError as e:
+            print(f"Erro crítico ao criar o diretório '{pasta}': {e}")
+            return
+
+    # 2. Define o caminho completo do arquivo
+    if not nome_arquivo.endswith('.pkl'):
+        nome_arquivo = f"{nome_arquivo}.pkl"
+    caminho_arquivo = os.path.join(pasta, nome_arquivo)
+
+    # 3. Carrega a lista existente (exatamente como em 'salvar_variavel')
+    lista_salva = []
+    if os.path.exists(caminho_arquivo):
+        with open(caminho_arquivo, 'rb') as f:
+            try:
+                lista_salva = pickle.load(f)
+            except (pickle.UnpicklingError, EOFError):
+                # print(f"Aviso: Arquivo '{caminho_arquivo}' encontrado vazio ou corrompido. Será sobrescrito.")
+                lista_salva = []
+    
+    # Garante que 'lista_salva' é realmente uma lista
+    if not isinstance(lista_salva, list):
+        lista_salva = []
+
+    # 4. Adiciona os novos itens da 'lista_para_adicionar'
+    itens_adicionados_count = 0
+    if evitar_duplicatas:
+        # Lógica idêntica à sua 'salvar_variavel', mas em um loop
+        for item in lista_para_adicionar:
+            if item not in lista_salva:
+                lista_salva.append(item)
+                itens_adicionados_count += 1
+        # print(f"{itens_adicionados_count} novos itens foram adicionados.")
+    else:
+        # Simplesmente concatena as listas (permitindo duplicatas)
+        lista_salva.extend(lista_para_adicionar)
+        itens_adicionados_count = len(lista_para_adicionar)
+        # print(f"{itens_adicionados_count} itens foram adicionados (duplicatas permitidas).")
+
+    # 5. Salva a lista combinada de volta no arquivo (lógica de retry)
+    max_tentativas = 5
+    atraso_tentativa = 0.2
+    
+    for tentativa in range(max_tentativas):
+        try:
+            with open(caminho_arquivo, 'wb') as f:
+                pickle.dump(lista_salva, f)
+            # print(f"Lista atualizada em '{caminho_arquivo}'. Total de itens: {len(lista_salva)}.")
+            break 
+        except (IOError, PermissionError) as e:
+            # print(f"Tentativa {tentativa + 1}/{max_tentativas}: Falha ao salvar '{caminho_arquivo}' (Erro: {e})...")
+            time.sleep(atraso_tentativa)
+    else:
+        print(f"Falha ao salvar o arquivo '{caminho_arquivo}' após {max_tentativas} tentativas.")
+
+
 
 def carregar_lista(nome_lista, pasta='variaveis_salvas'):
     """
@@ -134,3 +209,58 @@ def salvar_duas_variaveis_seguramente(variavel1, nome_lista1, variavel2, nome_li
         if temp1 and os.path.exists(temp1): os.remove(temp1)
         if temp2 and os.path.exists(temp2): os.remove(temp2)
         return False
+
+
+def dividir_em_n_grupos(lista_completa, numero_de_grupos):
+    """
+    Divide uma lista em 'n' (numero_de_grupos) sublistas.
+
+    Se o tamanho da lista não for perfeitamente divisível por 'n',
+    os primeiros (n-1) grupos terão o tamanho base (divisão inteira),
+    e o último grupo conterá todos os itens restantes.
+
+    Argumentos:
+        lista_completa (list): A lista de entrada a ser dividida.
+        numero_de_grupos (int): O número de sublistas desejado.
+
+    Retorna:
+        list: Uma lista contendo as sublistas (grupos).
+    """
+    
+    # --- Tratamento de casos especiais ---
+    if not lista_completa:
+        # Se a lista estiver vazia, retorna uma lista de N listas vazias
+        return [[] for _ in range(numero_de_grupos)]
+        
+    if numero_de_grupos <= 0:
+        # Não é possível dividir em 0 ou menos grupos
+        raise ValueError("O número de grupos deve ser maior que zero.")
+
+    # 1. Calcula o tamanho base de cada grupo (exceto o último)
+    # Usamos divisão inteira (//)
+    tamanho_total = len(lista_completa)
+    tamanho_base = tamanho_total // numero_de_grupos
+
+    # 2. Cria a lista de resultados e o ponteiro de índice
+    resultado = []
+    indice_atual = 0
+
+    # 3. Cria os primeiros (n-1) grupos
+    # Este loop rodará (numero_de_grupos - 1) vezes
+    for _ in range(numero_de_grupos - 1):
+        # Define o início e o fim de cada fatia (slice)
+        inicio = indice_atual
+        fim = indice_atual + tamanho_base
+        
+        # Adiciona a fatia à lista de resultados
+        resultado.append(lista_completa[inicio:fim])
+        
+        # Atualiza o ponteiro para a próxima fatia
+        indice_atual = fim
+
+    # 4. Adiciona o último grupo
+    # O último grupo pega tudo o que sobrou, do índice atual até o final da lista
+    # Isso automaticamente inclui o "resto"
+    resultado.append(lista_completa[indice_atual:])
+
+    return resultado
