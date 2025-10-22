@@ -248,7 +248,7 @@ class SFC_AllocationEnv(gymnasium.Env):
                 features[i, 5] = 1.0
                 features[i, 6] = 1
             else:
-                bd_cost, latency_cost, link_mobile = self.calculate_bw_lat_cost(vnf, node_id, path, bw_required, link_mobile=True)
+                bd_cost, latency_cost= self.calculate_bw_lat_cost(vnf, node_id, path, bw_required, link_mobile=True)
                 features[i, 4] = bd_cost
                 features[i, 5] = latency_cost
 
@@ -265,11 +265,18 @@ class SFC_AllocationEnv(gymnasium.Env):
         cache_in_id =  "cache" in self.current_sfc.id
         valid_node = not features[-1, 6]
 
-        if ( is_1_vnf and valid_node and cache_in_id and link_mobile<=0.9):
+        # Acesso à aresta da rede
+        edge = self.graph.edges.get((u, v), {})
+        bd_capacity = edge.get('bandwidth_capacity', None)
+        bd_used = edge.get('bandwidth_used', 0)
+
+        link_mobile = bd_used/bd_capacity
+
+        if ( is_1_vnf and valid_node and cache_in_id and link_mobile<=0.7):
 
             features[:-1, 6] = 1
 
-        if ( is_1_vnf and valid_node and unique_in_id and self.ratio_cpu_used>60 and link_mobile<=0.9):
+        if ( is_1_vnf and valid_node and unique_in_id and self.ratio_cpu_used>60 and link_mobile<=0.7):
             features[:-1, 6] = 1
 
         # if (self.ratio_cpu_used >40 and
@@ -534,7 +541,7 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         return result
 
-    def calculate_bw_lat_cost(self, vnf: VNF, server_id, path: List, bw_required: float, link_mobile=False):
+    def calculate_bw_lat_cost(self, vnf: VNF, server_id, path: List, bw_required: float):
         # Latência computacional
         latency_cost = calculate_computational_latency(self.graph, server_id, vnf)
 
@@ -547,8 +554,7 @@ class SFC_AllocationEnv(gymnasium.Env):
             edge = self.graph.edges.get((u, v), {})
             bd_capacity = edge.get('bandwidth_capacity', None)
             bd_used = edge.get('bandwidth_used', 0)
-            if link_mobile:
-                mobile_link_use = bd_used/bd_capacity
+           
 
             # Calcula latência do enlace
             latency_cost += calculate_latency_betwen_nodes(self.graph, u, v, vnf)
@@ -563,8 +569,7 @@ class SFC_AllocationEnv(gymnasium.Env):
             link_cost = 1.0 / (1.0 - projected_usage_ratio + epsilon)
             bw_cost += link_cost
 
-        if link_mobile:
-            return bw_cost, latency_cost, mobile_link_use
+        
         return bw_cost, latency_cost
 
     
