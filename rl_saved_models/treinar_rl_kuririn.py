@@ -50,7 +50,7 @@ def carregar_dados_do_ambiente():
 
 
 # ==============================================================================
-#               FLUXO PRINCIPAL DE TREINAMENTO (SIMPLIFICADO)
+#               FLUXO PRINCIPAL DE TREINAMENTO (SIMPLIFICADO) 
 # ==============================================================================
 
 if __name__ == '__main__':

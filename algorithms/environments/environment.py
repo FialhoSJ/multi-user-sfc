@@ -12,7 +12,7 @@ from utils.network_utils import calcular_percentual_cpu_total, calcular_percentu
 
 import math
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
-NON_REUSABLE_PENALTY = 4
+NON_REUSABLE_PENALTY = 3
 
 
 class SFC_AllocationEnv(gymnasium.Env):
@@ -48,8 +48,8 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.list_graph = list_graph
         self.list_sfc = list_sfc
         self.pesos_fatores = pesos_fatores if pesos_fatores is not None else \
-                             {"cpu": 1, "cache": 1, "lat": 3, "band":5,
-                              "max_dst_node_reward": 23.5}
+                             {"cpu": 1, "cache": 1, "lat": 5, "band":5,
+                              "mobile": 0}
         
         self.is_training = is_training
         if self.is_training:
@@ -127,7 +127,6 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.ratio_banda_used = calcular_percentual_banda_total(self.graph)
 
         
-        # print("VALOR DE CPU USADO NO CODIGO  ", self.ratio_cpu_used)
         self.features = self._get_nodes_features(vnf, bw_req, current_node)
 
         obs = self._get_obs()
@@ -249,20 +248,29 @@ class SFC_AllocationEnv(gymnasium.Env):
                 features[i, 5] = 1.0
                 features[i, 6] = 1
             else:
-                bd_cost, latency_cost = self.calculate_bw_lat_cost(vnf, node_id, path, bw_required)
+                bd_cost, latency_cost, link_mobile = self.calculate_bw_lat_cost(vnf, node_id, path, bw_required, link_mobile=True)
                 features[i, 4] = bd_cost
                 features[i, 5] = latency_cost
 
-        # first_vnf = self.current_sfc.get_previous_vnf(self.current_sfc.get_dst_vnf())
-        # second_vnf = first_vnf.get_previous_vnf() if first_vnf else None
+        first_vnf = self.current_sfc.get_previous_vnf(self.current_sfc.get_dst_vnf())
+        second_vnf = first_vnf.get_previous_vnf() if first_vnf else None
 
        
 
-        # # --- 4. LÓGICA MODIFICADA: Regra para a primeira VNF "unique" ---
-        # is_1_or_2_vnf = first_vnf == self.current_vnf or second_vnf == self.current_vnf
-        # unique_in_id =  "unique" in self.current_sfc.id
-        # cache_in_id =  "cache" in self.current_sfc.id
-        # valid_node = not features[-1, 6]
+        # --- 4. LÓGICA MODIFICADA: Regra para a primeira VNF "unique" ---
+        is_1_vnf = first_vnf == self.current_vnf 
+
+        is_2_vnf = second_vnf == self.current_vnf 
+        unique_in_id =  "unique" in self.current_sfc.id
+        cache_in_id =  "cache" in self.current_sfc.id
+        valid_node = not features[-1, 6]
+
+        if ( is_1_vnf and valid_node and cache_in_id and link_mobile<=0.9):
+
+            features[:-1, 6] = 1
+
+        if ( is_1_vnf and valid_node and unique_in_id and self.ratio_cpu_used>60 and link_mobile<=0.9):
+            features[:-1, 6] = 1
 
         # if (self.ratio_cpu_used >40 and
         #     is_1_or_2_vnf and
@@ -377,6 +385,9 @@ class SFC_AllocationEnv(gymnasium.Env):
         # Verifica se há capacidade disponível para a alocação
         if (node['cpu_used'] + effective_cpu_req > node['cpu_capacity']) or \
            (node['cache_used'] + effective_cache_req > node['cache_capacity']):
+            
+            if not self.is_training:
+                    print(f"Não recurso o suficiente no nó {node_id}")
             return False
 
         # Aloca os recursos e atualiza os metadados do serviço
@@ -395,7 +406,9 @@ class SFC_AllocationEnv(gymnasium.Env):
         for u, v in zip(path[:-1], path[1:]):
             edge = self.graph.edges[u, v]
             available_bw = edge.get('bandwidth_capacity', 0) - edge.get('bandwidth_used', 0)
-            if available_bw < bandwidth_required + 1e-9: # Tolerância para ponto flutuante
+            if available_bw < bandwidth_required: # Tolerância para ponto flutuante
+                if not self.is_training:
+                    print(f"Não houve banda o suficiente no link {u} e {v}")
                 return False
 
         # 2. Se a verificação passou, alocar a banda em todos os links
@@ -521,7 +534,7 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         return result
 
-    def calculate_bw_lat_cost(self, vnf: VNF, server_id, path: List, bw_required: float):
+    def calculate_bw_lat_cost(self, vnf: VNF, server_id, path: List, bw_required: float, link_mobile=False):
         # Latência computacional
         latency_cost = calculate_computational_latency(self.graph, server_id, vnf)
 
@@ -534,6 +547,8 @@ class SFC_AllocationEnv(gymnasium.Env):
             edge = self.graph.edges.get((u, v), {})
             bd_capacity = edge.get('bandwidth_capacity', None)
             bd_used = edge.get('bandwidth_used', 0)
+            if link_mobile:
+                mobile_link_use = bd_used/bd_capacity
 
             # Calcula latência do enlace
             latency_cost += calculate_latency_betwen_nodes(self.graph, u, v, vnf)
@@ -548,6 +563,8 @@ class SFC_AllocationEnv(gymnasium.Env):
             link_cost = 1.0 / (1.0 - projected_usage_ratio + epsilon)
             bw_cost += link_cost
 
+        if link_mobile:
+            return bw_cost, latency_cost, mobile_link_use
         return bw_cost, latency_cost
 
     
@@ -621,19 +638,15 @@ class SFC_AllocationEnv(gymnasium.Env):
        # --- 3. Incentivos Estratégicos (DINÂMICOS) ---
         incentive_cost = 0.0
         if server_id == self.current_sfc.dst_node:
-            # O incentivo (prêmio) é maior quanto maior o estresse (uso) da rede
             
-            # 1. Pega o "pior" (máximo) uso de recurso global (CPU ou Cache)
-            #    (Convertemos de 0-100 para 0.0-1.0)
             network_stress_ratio = max(self.ratio_cpu_used, self.ratio_cache_used) / 100.0
             
-            # 2. Pega o valor máximo do "prêmio" do dicionário de pesos
-            max_reward = factor_weights.get("max_dst_node_reward", 0.0)
+
+            stress_factor = (network_stress_ratio * factor_weights['mobile']) 
             
-            # 3. Calcula o prêmio dinâmico
-            dynamic_reward = max_reward * network_stress_ratio
+            # O prêmio agora cresce cubicamente com o estresse
+            dynamic_reward = stress_factor ** 3 
             
-            # Custo é negativo da recompensa (prêmio)
             incentive_cost = -dynamic_reward
 
         # --- 4. Custo Total Final ---
