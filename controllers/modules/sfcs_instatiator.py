@@ -102,17 +102,17 @@ class SFCInstatiator:
             s = time.time()
 
 
-            # self.list_graph.append(copy.deepcopy(graph))
-            # self.lists_sfcs.append(copy.deepcopy(sfc))
+            self.list_graph.append(copy.deepcopy(graph))
+            self.lists_sfcs.append(copy.deepcopy(sfc))
 
-            # if "unique_p6_50" in sfc.id:
-            #     lista_listas_grafos = dividir_em_n_grupos(self.list_graph, 5)
-            #     lista_listas_sfcs = dividir_em_n_grupos(self.lists_sfcs, 5)
-            #     for i in range(1,6):
-            #         lista_grafo = lista_listas_grafos[i-1]
-            #         lista_sfc = lista_listas_sfcs[i-1]
-            #         salvar_lista(lista_grafo, f"list_graph{i}")
-            #         salvar_lista(lista_sfc, f"list_sfc{i}")
+            if "unique_p6_50" in sfc.id:
+                lista_listas_grafos = dividir_em_n_grupos(self.list_graph, 5)
+                lista_listas_sfcs = dividir_em_n_grupos(self.lists_sfcs, 5)
+                for i in range(1,6):
+                    lista_grafo = lista_listas_grafos[i-1]
+                    lista_sfc = lista_listas_sfcs[i-1]
+                    salvar_lista(lista_grafo, f"list_graph{i}")
+                    salvar_lista(lista_sfc, f"list_sfc{i}")
 
 
 

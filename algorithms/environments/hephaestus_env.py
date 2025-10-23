@@ -51,7 +51,7 @@ class SFC_AllocationEnv_hephaestus(gymnasium.Env):
         {"w_cost": 0.1,         # Prioridade baixa
         "w_latency": 0.5,      # Prioridade média
         "w_inequality": 0.1,   # Prioridade baixa
-        "w_bandwidth": 0.6     # Prioridade MÁXIMA E INEQUÍVOCA
+        "w_bandwidth": 0.3     # Prioridade MÁXIMA E INEQUÍVOCA
         }
         
         self.is_training = is_training

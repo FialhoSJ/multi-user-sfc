@@ -12,7 +12,7 @@ from utils.network_utils import calcular_percentual_cpu_total, calcular_percentu
 
 import math
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
-NON_REUSABLE_PENALTY = 3
+NON_REUSABLE_PENALTY = 4
 
 
 class SFC_AllocationEnv(gymnasium.Env):
@@ -248,7 +248,7 @@ class SFC_AllocationEnv(gymnasium.Env):
                 features[i, 5] = 1.0
                 features[i, 6] = 1
             else:
-                bd_cost, latency_cost= self.calculate_bw_lat_cost(vnf, node_id, path, bw_required, link_mobile=True)
+                bd_cost, latency_cost= self.calculate_bw_lat_cost(vnf, node_id, path, bw_required)
                 features[i, 4] = bd_cost
                 features[i, 5] = latency_cost
 
@@ -265,19 +265,17 @@ class SFC_AllocationEnv(gymnasium.Env):
         cache_in_id =  "cache" in self.current_sfc.id
         valid_node = not features[-1, 6]
 
-        # Acesso à aresta da rede
-        edge = self.graph.edges.get((u, v), {})
-        bd_capacity = edge.get('bandwidth_capacity', None)
-        bd_used = edge.get('bandwidth_used', 0)
 
-        link_mobile = bd_used/bd_capacity
-
-        if ( is_1_vnf and valid_node and cache_in_id and link_mobile<=0.7):
-
+        if ( (is_1_vnf or is_2_vnf) and valid_node and cache_in_id and self.ratio_cpu_used>50):
             features[:-1, 6] = 1
 
-        if ( is_1_vnf and valid_node and unique_in_id and self.ratio_cpu_used>60 and link_mobile<=0.7):
+        if ( (is_1_vnf ) and valid_node and unique_in_id and self.ratio_cpu_used>=70):
             features[:-1, 6] = 1
+
+        
+
+        # if ( is_1_vnf and valid_node and unique_in_id and self.ratio_cpu_used>50):
+        #     features[:-1, 6] = 1
 
         # if (self.ratio_cpu_used >40 and
         #     is_1_or_2_vnf and
