@@ -80,7 +80,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.observation_space = spaces.Dict({ 
         #0 se cache e 1 se unique
         "tipo_sfc": spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
-        "usos_rede": spaces.Box(low=0, high=1, shape=(2,), dtype=np.float32),
+        "usos_rede": spaces.Box(low=0, high=1, shape=(3,), dtype=np.float32),
         "recursos_nos_validos": spaces.Box(low=0, high=1, shape=(num_nodes, 6), dtype=np.float32),
         })
 
@@ -249,8 +249,10 @@ class SFC_AllocationEnv(gymnasium.Env):
                 features[i, 6] = 1
             else:
                 bd_cost, latency_cost= self.calculate_bw_lat_cost(vnf, node_id, path, bw_required)
+
                 features[i, 4] = bd_cost
                 features[i, 5] = latency_cost
+                
 
         first_vnf = self.current_sfc.get_previous_vnf(self.current_sfc.get_dst_vnf())
         second_vnf = first_vnf.get_previous_vnf() if first_vnf else None
@@ -267,10 +269,24 @@ class SFC_AllocationEnv(gymnasium.Env):
 
 
         if ( (is_1_vnf or is_2_vnf) and valid_node and cache_in_id and self.ratio_cpu_used>50):
-            features[:-1, 6] = 1
+            u = self.current_sfc.dst_node
+            v = self.current_sfc.closer_router
+            edge = self.graph.edges.get((u, v), {})
+            bd_capacity = edge.get('bandwidth_capacity', None)
+            if  (bd_capacity/bw_required>4):
+                features[:-1, 6] = 1
 
-        if ( (is_1_vnf ) and valid_node and unique_in_id and self.ratio_cpu_used>=70):
-            features[:-1, 6] = 1
+            
+        if ( (is_1_vnf ) and valid_node and unique_in_id and self.ratio_cpu_used>=60):
+            u = self.current_sfc.dst_node
+            v = self.current_sfc.closer_router
+            edge = self.graph.edges.get((u, v), {})
+            bd_capacity = edge.get('bandwidth_capacity', None)
+            if  bd_capacity/bw_required>4:
+                features[:-1, 6] = 1
+
+        if not (is_1_vnf or is_2_vnf):
+            features[-1,6] = 1            
 
         
 
@@ -319,10 +335,11 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         # Normaliza a coluna de latência (que agora é a coluna de índice 4 no novo array)
         # A operação é feita em toda a coluna de uma vez.
-        recursos_nodes[:, 4] /= 30
+        recursos_nodes[:, 4] /= 100
 
         usos_rede =  np.array([calcular_percentual_banda_total(self.graph),
-                               calcular_percentual_cpu_total(self.graph)], dtype=np.float32)
+                               calcular_percentual_cpu_total(self.graph),
+                               self.latency_used/100], dtype=np.float32)
        
 
         if not self.current_vnf or  "cache" in self.current_sfc.id:
