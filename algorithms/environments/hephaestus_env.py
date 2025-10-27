@@ -12,7 +12,7 @@ from utils.network_utils import calcular_percentual_cpu_total, calcular_percentu
 
 import math
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
-LATENCY_REQ = 13
+LATENCY_REQ = 15
 MOBILE_DEVICE_USAGE_REWARD = 0
 
 
@@ -49,8 +49,8 @@ class SFC_AllocationEnv_hephaestus(gymnasium.Env):
         self.list_sfc = list_sfc
         self.pesos_fatores = pesos_fatores if pesos_fatores is not None else \
         {"w_cost": 0.1,         # Prioridade baixa
-        "w_latency": 0.5,      # Prioridade média
-        "w_inequality": 0.1,   # Prioridade baixa
+        "w_latency": 0.3,      # Prioridade média
+        "w_inequality": 0.5,   # Prioridade baixa
         "w_bandwidth": 0.3     # Prioridade MÁXIMA E INEQUÍVOCA
         }
         
