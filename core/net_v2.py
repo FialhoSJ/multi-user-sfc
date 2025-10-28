@@ -16,8 +16,12 @@ class Net2:
         self.total_cpu_used = 0.00
         self.total_cpu_saved = 0
         self.total_cpu_capacity = 0.00
-
         self.total_cpu_requested = 0.00
+
+        self.total_gpu_used = 0.00
+        self.total_gpu_saved = 0
+        self.total_gpu_capacity = 0.00 # Será calculado pelas funções de getter
+        self.total_gpu_requested = 0.00
 
         self.total_cache_used = 0.00
         self.total_cache_saved = 0
@@ -27,6 +31,7 @@ class Net2:
         self.total_cache_requested = 0.00
 
         self.mobile_cpu_used = 0.0
+        self.mobile_gpu_used = 0.0 # Novo
         self.mobile_cache_used = 0.0
         #self.mobile_energy_used = 0.0
 
@@ -198,10 +203,18 @@ class Net2:
             node = self.graph.nodes[node_id]
         
         service_id = vnf.id
-        cpu_required = vnf.get_cpu_request()
+        cpu_required = vnf.get_cpu_request() # Recurso de processamento (CPU ou GPU)
         cache_required = vnf.get_cache_request()
 
-        self.total_cpu_requested = round(self.total_cpu_requested + cpu_required, 2) 
+        # --- LÓGICA DE DIRECIONAMENTO CPU/GPU ---
+        is_gpu = self._is_gpu_node(node_id)
+        
+        if is_gpu:
+            self.total_gpu_requested = round(self.total_gpu_requested + cpu_required, 2)
+        else:
+            self.total_cpu_requested = round(self.total_cpu_requested + cpu_required, 2)
+        # --- FIM DA LÓGICA ---
+            
         self.total_cache_requested = round(self.total_cache_requested + cache_required, 2) 
 
         if node['type'] not in ['server', 'mobile_device']:
@@ -211,13 +224,27 @@ class Net2:
 
         # Função auxiliar interna para alocar recursos e atualizar contadores globais
         def put_resource(cpu_req, cache_req, is_mobile):
+            # O nó em si ainda armazena em 'cpu_used'
             node['cpu_used'] = round(node['cpu_used'] + cpu_req, 2)
             node['cache_used'] = round(node['cache_used'] + cache_req, 2)
+            
+            # --- LÓGICA DE CONTADORES GLOBAIS CPU/GPU ---
+            if is_gpu: # 'is_gpu' é da função externa
+                if is_mobile:
+                    self.mobile_gpu_used = round(self.mobile_gpu_used + cpu_req, 2)
+                else:
+                    self.total_gpu_used = round(self.total_gpu_used + cpu_req, 2)
+            else: # É CPU
+                if is_mobile:
+                    self.mobile_cpu_used = round(self.mobile_cpu_used + cpu_req, 2)  
+                else:
+                    self.total_cpu_used = round(self.total_cpu_used + cpu_req, 2)
+            # --- FIM DA LÓGICA CPU/GPU ---
+
+            # --- LÓGICA DE CACHE (Inalterada) ---
             if is_mobile:
-                self.mobile_cpu_used = round(self.mobile_cpu_used + cpu_req, 2)  
                 self.mobile_cache_used = round(self.mobile_cache_used + cache_req, 2)
             else:
-                self.total_cpu_used = round(self.total_cpu_used + cpu_req, 2)
                 self.total_cache_used = round(self.total_cache_used + cache_req, 2)
         
         if sfc_id not in node['sfcs_list']:
@@ -243,7 +270,13 @@ class Net2:
             
             # 3. Se FOR compartilhável, apenas atualiza as métricas de economia
             else:
-                self.total_cpu_saved = round(self.total_cpu_saved + cpu_required, 2)
+                # --- LÓGICA DE ECONOMIA CPU/GPU ---
+                if is_gpu:
+                    self.total_gpu_saved = round(self.total_gpu_saved + cpu_required, 2)
+                else:
+                    self.total_cpu_saved = round(self.total_cpu_saved + cpu_required, 2)
+                # --- FIM DA LÓGICA ---
+                
                 self.total_cache_saved = round(self.total_cache_saved + cache_required, 2)
                 self.shared_vnfs_count += 1
                     
@@ -272,7 +305,15 @@ class Net2:
 
         cpu_required = vnf.get_cpu_request()
         cache_required = vnf.get_cache_request()
-        self.total_cpu_requested = round(self.total_cpu_requested - cpu_required, 2)
+        
+        # --- LÓGICA DE DIRECIONAMENTO CPU/GPU ---
+        is_gpu = self._is_gpu_node(node_id)
+        if is_gpu:
+            self.total_gpu_requested = round(self.total_gpu_requested - cpu_required, 2)
+        else:
+            self.total_cpu_requested = round(self.total_cpu_requested - cpu_required, 2)
+        # --- FIM DA LÓGICA ---
+
         self.total_cache_requested = round(self.total_cache_requested - cache_required, 2)
 
         session_id = sfc_id.split("_")[-1]
@@ -289,11 +330,24 @@ class Net2:
         def take_resource(cpu_required,cache_required):
             node['cpu_used'] = round(node['cpu_used'] - cpu_required,2)
             node['cache_used'] = round(node['cache_used'] - cache_required,2)
+
+            # --- LÓGICA DE CONTADORES GLOBAIS CPU/GPU ---
+            if is_gpu: # 'is_gpu' é da função externa
+                if mobile:
+                    self.mobile_gpu_used = round(self.mobile_gpu_used - cpu_required, 2)
+                else:
+                    self.total_gpu_used = round(self.total_gpu_used - cpu_required, 2)
+            else: # É CPU
+                if mobile:
+                    self.mobile_cpu_used = round(self.mobile_cpu_used - cpu_required, 2)
+                else:
+                    self.total_cpu_used = round(self.total_cpu_used - cpu_required, 2)
+            # --- FIM DA LÓGICA CPU/GPU ---
+            
+            # --- LÓGICA DE CACHE (Inalterada) ---
             if mobile:
-                self.mobile_cpu_used = round(self.mobile_cpu_used - cpu_required,2)  
                 self.mobile_cache_used = round(self.mobile_cache_used - cache_required,2)
             else:
-                self.total_cpu_used = round(self.total_cpu_used - cpu_required,2)
                 self.total_cache_used = round(self.total_cache_used - cache_required,2)
 
         if sfc_id in node['sfcs_list']:
@@ -312,9 +366,15 @@ class Net2:
                 take_resource(service_info['cpu'],service_info['cache'])
 
             else:
-                self.total_cpu_saved = round(self.total_cpu_saved - cpu_to_handle,2)
+                # --- LÓGICA DE ECONOMIA CPU/GPU ---
+                if is_gpu:
+                    self.total_gpu_saved = round(self.total_gpu_saved - cpu_to_handle,2)
+                else:
+                    self.total_cpu_saved = round(self.total_cpu_saved - cpu_to_handle,2)
+                # --- FIM DA LÓGICA ---
+
                 self.total_cache_saved = round(self.total_cache_saved - cache_to_handle,2)
-                self.shared_vnfs_count -= 1  # <--- ADICIONE ESTA LINHA
+                self.shared_vnfs_count -= 1 
                 self.shared_vnfs_count = max(0, self.shared_vnfs_count)
 
     def allocate_bandwidth(self, node1, node2, bw_required, ms_name):
@@ -451,6 +511,18 @@ class Net2:
 
     def get_node_sfcs(self, node_id):
         return self.graph.nodes[node_id]["sfcs_list"]
+    
+    def get_total_gpu_request(self):
+        """
+        Retorna o total de GPU que foi requisitado por todas as SFCs.
+        """
+        return self.total_gpu_requested
+    
+    def get_total_gpu_saved(self):
+        """
+        Retorna o total de GPU que foi economizado devido ao compartilhamento.
+        """
+        return self.total_gpu_saved
     
     def get_total_cpu_request(self):
         """
@@ -675,17 +747,37 @@ class Net2:
     
     def get_total_system_cpu_capacity(self):
         """
-        Calcula a capacidade total de CPU do sistema inteiro (servidores + dispositivos móveis).
+        Calcula a capacidade total de CPU do sistema (servidores + móveis)
+        IGNORANDO nós de GPU.
         """
         total_capacity = 0.0
         # Soma a capacidade dos nós da infraestrutura (grafo principal)
         for node_id, node_data in self.graph.nodes(data=True):
-            if 'cpu_capacity' in node_data:
+            if 'cpu_capacity' in node_data and not self._is_gpu_node(node_id):
                 total_capacity += node_data['cpu_capacity']
         
         # Soma a capacidade dos dispositivos móveis
         for node_id, node_data in self.md_graph.nodes(data=True):
-            if 'cpu_capacity' in node_data:
+            if 'cpu_capacity' in node_data and not self._is_gpu_node(node_id):
+                total_capacity += node_data['cpu_capacity']
+        
+        return total_capacity
+    
+    def get_total_system_gpu_capacity(self):
+        """
+        Calcula a capacidade total de GPU do sistema (servidores + móveis)
+        CONSIDERANDO apenas nós de GPU.
+        """
+        total_capacity = 0.0
+        # Soma a capacidade dos nós da infraestrutura (grafo principal)
+        for node_id, node_data in self.graph.nodes(data=True):
+            # O campo ainda é 'cpu_capacity', mas o ID indica que é GPU
+            if 'cpu_capacity' in node_data and self._is_gpu_node(node_id):
+                total_capacity += node_data['cpu_capacity'] 
+        
+        # Soma a capacidade dos dispositivos móveis
+        for node_id, node_data in self.md_graph.nodes(data=True):
+            if 'cpu_capacity' in node_data and self._is_gpu_node(node_id):
                 total_capacity += node_data['cpu_capacity']
         
         return total_capacity
@@ -693,12 +785,22 @@ class Net2:
 
     def get_total_system_utilization_cpu_rate(self):
         """Retorna a taxa de utilização de CPU do sistema inteiro (servidores + dispositivos móveis)."""
-        total_capacity = self.get_total_system_cpu_capacity()
+        total_capacity = self.get_total_system_cpu_capacity() # Usa a nova função filtrada
 
         if total_capacity == 0:
             return 0.0
         
         total_used = self.total_cpu_used + self.mobile_cpu_used
+        return total_used / total_capacity
+    
+    def get_total_system_utilization_gpu_rate(self):
+        """Retorna a taxa de utilização de GPU do sistema inteiro (servidores + dispositivos móveis)."""
+        total_capacity = self.get_total_system_gpu_capacity() # Usa a nova função de GPU
+
+        if total_capacity == 0:
+            return 0.0
+        
+        total_used = self.total_gpu_used + self.mobile_gpu_used
         return total_used / total_capacity
     
     def get_total_system_utilization_cache_rate(self):
@@ -712,16 +814,13 @@ class Net2:
     def get_network_cpu_utilization_percentage(self):
         """
         Calcula a porcentagem de utilização de CPU apenas para os nós da
-        infraestrutura de rede (servidores), ignorando os dispositivos móveis.
-
-        Returns:
-            float: A porcentagem de utilização da CPU da rede.
+        infraestrutura de rede (servidores), ignorando os dispositivos móveis e GPUs.
         """
         total_network_capacity = 0.0
         # Itera sobre todos os nós no grafo principal da rede
         for node_id, node_data in self.graph.nodes(data=True):
             # Adiciona a capacidade de CPU apenas de nós que a possuem (ex: servidores)
-            if 'cpu_capacity' in node_data:
+            if 'cpu_capacity' in node_data and not self._is_gpu_node(node_id): # <-- Checagem adicionada
                 total_network_capacity += node_data['cpu_capacity']
 
         # Evita divisão por zero se não houver capacidade na rede
@@ -730,6 +829,22 @@ class Net2:
         
          # Calcula a porcentagem
         utilization = (self.total_cpu_used / total_network_capacity) * 100
+        return utilization
+    
+    def get_network_gpu_utilization_percentage(self):
+        """
+        Calcula a porcentagem de utilização de GPU apenas para os nós da
+        infraestrutura de rede (servidores), ignorando os dispositivos móveis e CPUs.
+        """
+        total_network_capacity = 0.0
+        for node_id, node_data in self.graph.nodes(data=True):
+            if 'cpu_capacity' in node_data and self._is_gpu_node(node_id): # <-- Checagem de GPU
+                total_network_capacity += node_data['cpu_capacity']
+
+        if total_network_capacity == 0:
+            return 0.0
+        
+        utilization = (self.total_gpu_used / total_network_capacity) * 100
         return utilization
     
     def get_network_cache_utilization_percentage(self):
@@ -757,23 +872,32 @@ class Net2:
 
     def get_mobile_cpu_utilization_percentage(self):
         """
-        Calcula a porcentagem de utilização de CPU apenas para os nós móveis.
-
-        Returns:
-            float: A porcentagem de utilização da CPU dos nós móveis.
+        Calcula a porcentagem de utilização de CPU apenas para os nós móveis (sem GPU).
         """
         total_mobile_capacity = 0.0
-        # Itera sobre todos os nós no grafo de dispositivos móveis
         for node_id, node_data in self.md_graph.nodes(data=True):
-            if 'cpu_capacity' in node_data:
+            if 'cpu_capacity' in node_data and not self._is_gpu_node(node_id): # <-- Checagem adicionada
                 total_mobile_capacity += node_data['cpu_capacity']
 
-        # Evita divisão por zero se não houver dispositivos móveis com capacidade
         if total_mobile_capacity == 0:
             return 0.0
 
-        # Calcula a porcentagem
         utilization = (self.mobile_cpu_used / total_mobile_capacity) * 100
+        return utilization
+    
+    def get_mobile_gpu_utilization_percentage(self):
+        """
+        Calcula a porcentagem de utilização de GPU apenas para os nós móveis (com GPU).
+        """
+        total_mobile_capacity = 0.0
+        for node_id, node_data in self.md_graph.nodes(data=True):
+            if 'cpu_capacity' in node_data and self._is_gpu_node(node_id): # <-- Checagem de GPU
+                total_mobile_capacity += node_data['cpu_capacity']
+
+        if total_mobile_capacity == 0:
+            return 0.0
+
+        utilization = (self.mobile_gpu_used / total_mobile_capacity) * 100
         return utilization
     
     def get_mobile_cache_utilization_percentage(self):
@@ -800,8 +924,14 @@ class Net2:
     def get_cpu_network_used(self):
         return self.total_cpu_used
     
+    def get_gpu_network_used(self): # Novo
+        return self.total_gpu_used
+    
     def get_cpu_total_used(self):
         return self.total_cpu_used + self.mobile_cpu_used
+    
+    def get_gpu_total_used(self): # Novo
+        return self.total_gpu_used + self.mobile_gpu_used
     
 
     def get_cache_total_used(self):
@@ -826,23 +956,29 @@ class Net2:
             print(f"{u} <-> {v} -> {data}")
 
     def print_out_nodes_information(self, failure_cpu=None, failure_cache=None):
-        # Calcula ambas as métricas de utilização de CPU
-        # server_cpu_util = self.get_server_cpu_utilization_rate() * 100
-        total_cpu_util = self.get_total_system_utilization_cpu_rate() * 100
+        # Calcula as métricas de utilização de CPU e GPU
+        total_cpu_util = self.get_total_system_utilization_cpu_rate()*100
+        total_gpu_util = self.get_total_system_utilization_gpu_rate() * 100
 
-        # print(f"Server CPU utilization   : {server_cpu_util:.3f}%")
         print(f"Total System CPU util.   : {total_cpu_util:.3f}%")
+        print(f"Total System GPU util.   : {total_gpu_util:.3f}%") # Novo
         print(f"Network CPU util         : {self.get_network_cpu_utilization_percentage():.3f}%")
+        print(f"Network GPU util         : {self.get_network_gpu_utilization_percentage():.3f}%") # Novo
         print(f"Mobile CPU util          : {self.get_mobile_cpu_utilization_percentage():.3f}%")
 
         if self.total_cpu_requested > 0:
             cpu_saving_rate = (self.total_cpu_saved / self.total_cpu_requested) * 100
             print(f"CPU Saving Rate          : {cpu_saving_rate:.3f}%")
         else:
-            print("CPU Saving Rate          : N/A")
+            print("CPU Saving Rate          : N/A (No CPU requested)")
+            
+        if self.total_gpu_requested > 0: # Novo
+            gpu_saving_rate = (self.total_gpu_saved / self.total_gpu_requested) * 100
+            print(f"GPU Saving Rate          : {gpu_saving_rate:.3f}%")
+        else:
+            print("GPU Saving Rate          : N/A (No GPU requested)")
 
-        # A lógica para cache pode seguir o mesmo padrão
-        # (Para ser completo, você poderia criar métodos get_server_cache_utilization_rate etc.)
+        # A lógica para cache (inalterada)
         cache_util = (self.total_cache_used + self.mobile_cache_used) / self.total_cache_capacity * 100
         print(f"Cache utilization        : {cache_util:.3f}%")
 
@@ -883,6 +1019,12 @@ class Net2:
         # TODO A latência e banda dessa comunicação devem ser modelados 
         self.add_node(user_id, 'user', cpu_capacity)
         self.add_edge(user_id, router_id, bandwidth_capacity=100, latency=5)
+
+    def _is_gpu_node(self, node_id):
+        """Verifica se um nó é uma GPU com base no seu ID (terminando em .1)."""
+        # Converte o ID para string para uma verificação segura
+        id_str = str(node_id)
+        return id_str.endswith(".1")
 
 # Teste das funcionalidades com banda e latência
 if __name__ == '__main__':

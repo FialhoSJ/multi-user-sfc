@@ -189,6 +189,7 @@ class SubstrateNetworkController():
         current_time = time.time()
         def output_network_resources(current_time):
             self.output_writter.output_cpu_utilization(self.substrate_network, current_time,self.fail_manager.nodes_crashed)
+            self.output_writter.output_gpu_utilization(self.substrate_network, current_time,self.fail_manager.nodes_crashed)
             self.output_writter.output_cache_utilization(self.substrate_network, current_time,self.fail_manager.nodes_crashed)
             self.output_writter.output_bandwidth_utilization(self.substrate_network, current_time)
             self.output_writter.output_nodes_sf_utilization(self.substrate_network, current_time)

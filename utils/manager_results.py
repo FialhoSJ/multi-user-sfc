@@ -33,8 +33,9 @@ def create_output_dir(args,topology):
 
     timestamp = datetime.now().strftime('%Y%m%d%H%M%S%f') + str(random.randint(0, 10000))
     base_dir = f'results/'
-    #paths = ['cache', 'cpu', 'bandwidth', 'edges_vnf', 'sf']
-    paths = ['cache', 'cpu', 'bandwidth', 'sf']
+    
+    # ADICIONE 'gpu' AQUI
+    paths = ['cache', 'cpu', 'gpu', 'bandwidth', 'sf']
 
     directories = {}
 
@@ -56,12 +57,15 @@ def create_output_dir(args,topology):
         file.write(f'timestamp,{nodes_string[1:-1]}\n')
     with open(file_paths['cpu'], "a") as file:
         file.write(f'timestamp,{nodes_string[1:-1]}\n')
+        
+    # ADICIONE ESTE BLOCO PARA O ARQUIVO DE GPU
+    with open(file_paths['gpu'], "a") as file:
+        file.write(f'timestamp,{nodes_string[1:-1]}\n')
+        
     with open(file_paths['sf'], "a") as file:
         file.write(f'timestamp,{nodes_string[1:-1]}\n')
     with open(file_paths['bandwidth'], "a") as file:
         file.write(f'timestamp;{edges_string}\n')
-    # with open(file_paths['edges_vnf'], "a") as file:
-    #     file.write(f'timestamp;{edges_string}\n')
     
     dir = f'results/results_flows'
     res_dir = f'results/results_resilient'
@@ -73,18 +77,21 @@ def create_output_dir(args,topology):
     flows_path = os.path.join(directory_path, f'{timestamp}.csv')
     res_path = os.path.join(res_directory_path, f'{timestamp}.csv')
 
-    # Define o header como uma lista para facilitar alterações
+    # ADICIONE OS CAMPOS DE GPU AQUI
     header_fields = [
         "No.",
         "timestamp",
         "time_seconds",
         "users",
         "cpu_utilization",
+        "gpu_utilization", # NOVO
         "bandwidth_utilization",
         "cache_utilization",
         "network_cpu_utilization",
+        "network_gpu_utilization", # NOVO
         "network_cache_utilization",
         "mobile_cpu_utilization",
+        "mobile_gpu_utilization", # NOVO
         "mobile_cache_utilization", 
         "latency",
         "latency_diff",
@@ -96,6 +103,7 @@ def create_output_dir(args,topology):
         "recovery_time",
         "sfc_recovered",
         "cpu_saved",
+        "gpu_saved", # NOVO
         "cache_saved",
         "shared_vnfs",
         "running_sfcs",
@@ -105,6 +113,7 @@ def create_output_dir(args,topology):
         "crashing",
         "acceptance_rate",
         "cpu_per_flow",
+        "gpu_per_flow", # NOVO
         "cache_per_flow",
         "energy_consumption"
     ]
@@ -129,6 +138,7 @@ class OutputWritter:
         self.edges = topology.get_topology_info()['edges']
 
         self.cpu_utilization_file = file_paths['cpu']
+        self.gpu_utilization_file = file_paths['gpu'] # NOVO
         self.cache_utilization_file = file_paths['cache']
         self.bw_utilization_file = file_paths['bandwidth']
         self.sf_utilization_file = file_paths['sf']
@@ -165,55 +175,53 @@ class OutputWritter:
 
     def output_flows(self,substrate_network: Net2,wait_time,running_players_sessions,counter,remaining_time,current_time, sfc_id, 
                      latency, run_duration, is_success,fail_reason,bw_transcode,acceptance_rate, energy_consumption, latency_diff=None,crashing=False,alg_name='ga'):
+        
+        # Obtenha métricas de CPU
         cpu_utilization = round(substrate_network.get_total_system_utilization_cpu_rate(), 4)
+        network_cpu_utilization = round(substrate_network.get_network_cpu_utilization_percentage(), 4)
+        mobile_cpu_utilization = round(substrate_network.get_mobile_cpu_utilization_percentage(), 4)
+        
+        # Obtenha as NOVAS métricas de GPU
+        gpu_utilization = round(substrate_network.get_total_system_utilization_gpu_rate(), 4)
+        network_gpu_utilization = round(substrate_network.get_network_gpu_utilization_percentage(), 4)
+        mobile_gpu_utilization = round(substrate_network.get_mobile_gpu_utilization_percentage(), 4)
+
+        # Métricas de Cache e BW (inalteradas)
         cache_utilization = round(substrate_network.get_total_system_utilization_cache_rate(), 4)
         bw_utilization = round(substrate_network.get_bandwidth_utilization_rate(), 4)
-
-        total_cpu_request = round(substrate_network.get_total_cpu_request(), 4)
-        # reuse_cpu_rate = (substrate_network.get_total_cpu_saved()/total_cpu_request)*100 if total_cpu_request > 0 else 0
-        total_cache_request = round(substrate_network.get_total_cache_request(), 4)
-        # reuse_cache_rate = (substrate_network.get_total_cache_saved()/total_cache_request)*100 if total_cache_request > 0 else 0
-
-        network_cpu_utilization = round(substrate_network.get_network_cpu_utilization_percentage(), 4)
         network_cache_utilization = round(substrate_network.get_network_cache_utilization_percentage(), 4)
-        mobile_cpu_utilization = round(substrate_network.get_mobile_cpu_utilization_percentage(), 4)
         mobile_cache_utilization = round(substrate_network.get_mobile_cache_utilization_percentage(), 4)
         
-        # cpu_resilient = 0 #round(substrate_network.get_resilient_cpu_utilization(), 4)
-        # cache_resilient = 0 # round(substrate_network.get_resilient_cache_utilization(), 4)
-        # bw_resilient = 0 #round(substrate_network.get_resilient_bandwidth_utilization(), 4)
-
-        # active_servers_cpu = round(substrate_network.get_active_servers_cpu_rate(), 4)
-        # active_servers_cache = round(substrate_network.get_active_servers_cache_rate(), 4)
-        # active_links_bw = round(substrate_network.get_active_links_bw_rate(), 4)
+        total_cpu_request = round(substrate_network.get_total_cpu_request(), 4)
+        total_cache_request = round(substrate_network.get_total_cache_request(), 4)
 
         running_sfcs, running_players, running_sessions = running_players_sessions
         running_sfcs = substrate_network.get_number_actives_sfcs()
 
+        # Obtenha uso total e por fluxo de CPU
         cpu_used = substrate_network.get_cpu_total_used()
-        cache_used = substrate_network.get_cache_total_used()
-
-
         cpu_per_flow = cpu_used/running_sfcs if running_sfcs else 0
+        
+        # Obtenha uso total e por fluxo de GPU (NOVO)
+        gpu_used = substrate_network.get_gpu_total_used()
+        gpu_per_flow = gpu_used/running_sfcs if running_sfcs else 0
 
+        # Obtenha uso total e por fluxo de Cache
+        cache_used = substrate_network.get_cache_total_used()
         cache_per_flow = cache_used/running_sfcs if running_sfcs else 0
 
+        # Obtenha economia de CPU, GPU e Cache
         cpu_saved =  substrate_network.total_cpu_saved
+        gpu_saved =  substrate_network.total_gpu_saved # NOVO
         cache_saved =  substrate_network.total_cache_saved
         shared_vnfs_count = substrate_network.shared_vnfs_count
         
         sfc_recovery_time = 0
         sfc_recovered = None
         
-        # if sfc.id in sfcs_crashed:
-        #     sfc_recovered =  0   
-        #     sfc_recovery_time = None
         crashed_sfcs = []
 
         self.update_user_count(sfc_id)
-        # if sfc.id in sfcs_crashed and is_success == 1:
-        #     sfc_recovery_time = time.time() - sfcs_crashed[sfc.id]
-        #     sfc_recovered = 1
 
         first_loop = (self.first_time == 0)
         time_value = 0  
@@ -225,24 +233,21 @@ class OutputWritter:
             time_value = round(current_time - self.first_time,1)
         decision_time =  str(round(run_duration * 1000, 3))
 
-        # if backup_sfc:
-        #     # backup_success = is_success
-        #     is_success = None
-        #     #if alg_name == 'ga':
-        #     latency = None
-        #     decision_time = None
-
+        # ATUALIZE A STRING 'line' com os novos campos
         line = (
             f"{counter},"
             f"{current_time},"
             f"{time_value},"
             f"{self.counter_users},"
             f"{cpu_utilization},"
+            f"{gpu_utilization}," # NOVO
             f"{bw_utilization},"
             f"{cache_utilization},"
             f"{network_cpu_utilization},"
+            f"{network_gpu_utilization}," # NOVO
             f"{network_cache_utilization},"
             f"{mobile_cpu_utilization},"
+            f"{mobile_gpu_utilization}," # NOVO
             f"{mobile_cache_utilization},"
             f"{latency},"
             f"{latency_diff},"
@@ -254,6 +259,7 @@ class OutputWritter:
             f"{sfc_recovery_time},"
             f"{sfc_recovered},"
             f"{cpu_saved},"
+            f"{gpu_saved}," # NOVO
             f"{cache_saved},"
             f"{shared_vnfs_count},"
             f"{running_sfcs},"
@@ -263,6 +269,7 @@ class OutputWritter:
             f"{crashing},"
             f"{acceptance_rate},"
             f"{cpu_per_flow},"
+            f"{gpu_per_flow}," # NOVO
             f"{cache_per_flow},"
             f"{energy_consumption}\n"
         )
@@ -288,16 +295,23 @@ class OutputWritter:
     def output_cpu_utilization(self, substrate_network, deploy_time, crashed_nodes=[]) -> None:
         """
         Outputs the CPU utilization of nodes to a specified file.
+        Will only log nodes that are NOT GPU nodes (do not end in .1).
 
         Args:
             deploy_time (float): The deployment time to record with the utilization data.
             crashed_nodes (list): List of nodes that are crashed and should not report CPU usage.
         """
         processing_nodes = sorted(self.processing_nodes)
-        cpu_nodes_util = [
-            None if node in crashed_nodes else round(substrate_network.get_node_cpu_used(node), 2)
-            for node in processing_nodes
-        ]
+        
+        # Modificado para registrar 'None' se for um nó de GPU
+        cpu_nodes_util = []
+        for node in processing_nodes:
+            if node in crashed_nodes:
+                cpu_nodes_util.append(None)
+            elif str(node).endswith(".1"): # Se for GPU, não registre no arquivo de CPU
+                cpu_nodes_util.append(None)
+            else:
+                cpu_nodes_util.append(round(substrate_network.get_node_cpu_used(node), 2))
 
         # Format the array to a string
         string_cpu_nodes_util = ','.join(['None' if value is None else f"{value:.2f}" for value in cpu_nodes_util])
@@ -327,6 +341,35 @@ class OutputWritter:
         # Write the result to the file
         with open(self.cache_utilization_file, "a") as file:
             file.write(f"{deploy_time},{string_cache_nodes_util}\n")
+
+    def output_gpu_utilization(self, substrate_network, deploy_time, crashed_nodes=[]) -> None:
+        """
+        Outputs the GPU utilization of nodes to a specified file.
+        Will only log nodes that ARE GPU nodes (end in .1).
+
+        Args:
+            deploy_time (float): The deployment time to record with the utilization data.
+            crashed_nodes (list): List of nodes that are crashed and should not report CPU usage.
+        """
+        processing_nodes = sorted(self.processing_nodes)
+        
+        # Modificado para registrar 'None' se for um nó de CPU
+        gpu_nodes_util = []
+        for node in processing_nodes:
+            if node in crashed_nodes:
+                gpu_nodes_util.append(None)
+            elif not str(node).endswith(".1"): # Se for CPU, não registre no arquivo de GPU
+                gpu_nodes_util.append(None)
+            else: # É um nó GPU, registre seu uso (que está em 'cpu_used' do nó)
+                gpu_nodes_util.append(round(substrate_network.get_node_cpu_used(node), 2))
+
+        # Format the array to a string
+        string_gpu_nodes_util = ','.join(['None' if value is None else f"{value:.2f}" for value in gpu_nodes_util])
+
+        # Write the result to the file
+        with open(self.gpu_utilization_file, "a") as file:
+            file.write(f"{deploy_time},{string_gpu_nodes_util}\n")
+# --- FIM DA NOVA FUNÇÃO ---
 
 
     def output_bandwidth_utilization(self, substrate_network, deploy_time: float) -> None:
