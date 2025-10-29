@@ -36,8 +36,7 @@ class EnergyCalculator:
     def _get_power_for_node(self, graph, node) -> float:
         """
         Calcula a potência de um único nó com base na sua utilização de CPU,
-        aumentando linearmente entre os níveis de gasto e atingindo o máximo
-        após 2/3 de utilização.
+        aumentando linearmente (servidores) ou em faixas (dispositivos móveis).
         """
         node_data = graph.nodes[node]
         if node_data['cpu_capacity'] == 0:
@@ -46,8 +45,17 @@ class EnergyCalculator:
         # Calcula a porcentagem de utilização da CPU
         cpu_utilization = node_data["cpu_used"] / node_data["cpu_capacity"]
 
+        # --- LÓGICA ATUALIZADA PARA MOBILE DEVICE ---
         if node_data["type"] == "mobile_device":
-            return 7.5
+            if cpu_utilization > 0.75:
+                return 30.0  # Acima de 75%
+            elif cpu_utilization > 0.50:
+                return 18.0  # Entre 50% e 75%
+            elif cpu_utilization > 0.25:
+                return 14.4  # Entre 25% e 50%
+            else:
+                return 10.0  # Entre 0% e 25%
+        # --- FIM DA ATUALIZAÇÃO ---
 
         # Seleciona as especificações do servidor com base no seu nível
         node_type_specs = self._server_specs[node_data["level_server"]]
@@ -105,6 +113,67 @@ class EnergyCalculator:
             total_power += power_for_node
         return total_power
     
+    
+    # --- NOVOS MÉTODOS ADICIONADOS ---
+
+    def calculate_total_server_power(self, network: Net2) -> float:
+        """
+        Calcula a potência total instantânea gasta apenas pelos servidores.
+
+        Itera sobre todos os nós, mas soma apenas aqueles que NÃO são
+        do tipo 'mobile_device', aplicando a mesma lógica de cálculo
+        do método principal.
+
+        Args:
+            network: Um objeto de rede que contém o atributo 'nodes'.
+
+        Returns:
+            A potência total consumida pelos servidores em Watts.
+        """
+        graph = network.graph
+        total_server_power = 0.0
+        for node in graph.nodes:
+            node_data = graph.nodes[node]
+            
+            # Filtra apenas por servidores (excluindo dispositivos móveis)
+            if node_data.get("type") != "mobile_device":
+                power_for_node = self._get_power_for_node(graph, node)
+                
+                # Mantém a lógica customizada do método original
+                if node % 1 == 0.1:
+                    power_for_node *= 1.2
+                total_server_power += power_for_node
+                
+        return total_server_power
+
+    def calculate_total_mobile_device_power(self, network: Net2) -> float:
+        """
+        Calcula a potência total instantânea gasta apenas pelos dispositivos móveis.
+
+        Itera sobre todos os nós, mas soma apenas aqueles que são
+        do tipo 'mobile_device'.
+
+        Args:
+            network: Um objeto de rede que contém o atributo 'nodes'.
+
+        Returns:
+            A potência total consumida pelos dispositivos móveis em Watts.
+        """
+        graph = network.md_graph
+        total_mobile_power = 0.0
+        for node in graph.nodes:
+            node_data = graph.nodes[node]
+            
+            # Filtra apenas por dispositivos móveis
+            if node_data.get("type") == "mobile_device":
+                power_for_node = self._get_power_for_node(graph, node)
+                
+                # Mantém a lógica customizada do método original
+                if float(node) % 1 == 0.1:
+                    power_for_node *= 1.2
+                total_mobile_power += power_for_node
+                
+        return total_mobile_power
     
     
 

@@ -198,7 +198,11 @@ class SubstrateNetworkController():
         def output_flows(current_time, sfc_id, latency, run_duration, is_success,alg_name=self.alg,fail_reason=None,latency_diff=None, wait_time=None):
             bw_transcode = 0
 
-            energy_consumption = self.energy_calculator.calculate_total_network_power(self.substrate_network)
+            total_energy_consumption = self.energy_calculator.calculate_total_network_power(self.substrate_network)
+            server_energy_consumption = self.energy_calculator.calculate_total_server_power(self.substrate_network)
+
+            mobile_energy_consumption = self.energy_calculator.calculate_total_mobile_device_power(self.substrate_network)
+
             self.output_writter.output_flows(
                 self.substrate_network,
                 wait_time,
@@ -213,7 +217,7 @@ class SubstrateNetworkController():
                 fail_reason,
                 bw_transcode,
                 self.substrate_network.get_acceptance_rate(self.success),
-                energy_consumption,
+                server_energy_consumption, mobile_energy_consumption,total_energy_consumption,
                 latency_diff,
                 len(self.fail_manager.nodes_crashed)!=0
             )

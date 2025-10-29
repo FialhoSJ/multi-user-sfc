@@ -115,7 +115,9 @@ def create_output_dir(args,topology):
         "cpu_per_flow",
         "gpu_per_flow", # NOVO
         "cache_per_flow",
-        "energy_consumption"
+        "server_energy_consumption",
+        "mobile_energy_consumption",
+        "total_energy_consumption"
     ]
 
     res_fields = ["crash_trial","sfc_id","vnf_id","recover_success","backup_success","backup_efficient","latency_diff","latency_deg","resource_deg","time_to_recover"]
@@ -174,7 +176,8 @@ class OutputWritter:
             file.write(line)
 
     def output_flows(self,substrate_network: Net2,wait_time,running_players_sessions,counter,remaining_time,current_time, sfc_id, 
-                     latency, run_duration, is_success,fail_reason,bw_transcode,acceptance_rate, energy_consumption, latency_diff=None,crashing=False,alg_name='ga'):
+                     latency, run_duration, is_success,fail_reason,bw_transcode,acceptance_rate, total_energy_consumption,
+                     server_energy_consumption,mobile_energy_consumption,latency_diff=None,crashing=False,alg_name='ga'):
         
         # Obtenha métricas de CPU
         cpu_utilization = round(substrate_network.get_total_system_utilization_cpu_rate(), 4)
@@ -271,7 +274,9 @@ class OutputWritter:
             f"{cpu_per_flow},"
             f"{gpu_per_flow}," # NOVO
             f"{cache_per_flow},"
-            f"{energy_consumption}\n"
+            f"{total_energy_consumption},"
+            f"{server_energy_consumption},"
+            f"{mobile_energy_consumption}\n"
         )
 
         with open(self.flows_file, "a") as file:
