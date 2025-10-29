@@ -50,8 +50,8 @@ class SFC_AllocationEnv_hephaestus(gymnasium.Env):
         self.pesos_fatores = pesos_fatores if pesos_fatores is not None else \
         {"w_cost": 0.1,         # Prioridade baixa
         "w_latency": 0.3,      # Prioridade média
-        "w_inequality": 0.15,   # Prioridade baixa
-        "w_bandwidth": 0.3     # Prioridade MÁXIMA E INEQUÍVOCA
+        "w_inequality": 0.3,   # Prioridade baixa
+        "w_bandwidth": 0.1     # Prioridade MÁXIMA E INEQUÍVOCA
         }
         
         self.is_training = is_training
