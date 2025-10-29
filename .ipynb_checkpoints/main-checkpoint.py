@@ -28,9 +28,9 @@ def main():
     # command line arguments
     parser = argparse.ArgumentParser(description='Select Immersive Service arguments') 
     parser.add_argument('--application', type=str, help='type of application', default='muar')
-    parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='kuririn_PPO')
+    parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='greedyb')
     parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
-    parser.add_argument('--n_players', type=int, help='(int) number of players', default=4)
+    parser.add_argument('--n_players', type=int, help='(int) number of players', default=6)
     #on: quebrar mais em funçoes
     #off: monolítico
     parser.add_argument('--sfc',   type=str, help='(str) on or off', default='on')
@@ -63,7 +63,7 @@ def main():
 
     # Criando emissor Poisson
     test = 10
-    official = 20 
+    official = 20
     sfc_poisson_emitter = PoissonEmitter(official)
 
     # Criando instância da classe MuarScenario
