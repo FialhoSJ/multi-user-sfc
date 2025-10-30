@@ -179,13 +179,19 @@ class SubstrateNetworkController():
         self.sfc_manager.undeploy_sfc(sfc_list[0].dst_node, self.substrate_network)
 
         new_sfcs = [SFCGenerator(sfc_dict).generate() for sfc_dict in new_sfc_list]
+
+        # Define o tempo de entrada na fila AGORA
+        current_enqueue_time = time.time()
+        for sfc in new_sfcs:
+            sfc.enqueue_time = current_enqueue_time
+
         self.sfc_queue.put_begin(new_sfcs)
 
     def update(self) -> None:
         """Updates the network state and check for resource overhead."""
         self.substrate_network.update()
 
-    def output_results(self, results_dict, sfc_id,is_success,res_output=False) -> None:
+    def output_results(self, results_dict, sfc_id,is_success,res_output=False, wait_time = None) -> None:
         current_time = time.time()
         def output_network_resources(current_time):
             self.output_writter.output_cpu_utilization(self.substrate_network, current_time,self.fail_manager.nodes_crashed)
@@ -235,7 +241,8 @@ class SubstrateNetworkController():
 
             output_network_resources(current_time=current_time)
             output_flows(current_time,sfc_id,results_dict['latency'],
-                        results_dict['run_duration'],is_success)
+                        results_dict['run_duration'],is_success,
+                        wait_time=wait_time)
             
         sfcs_crash_aff = copy.deepcopy(list(self.sfcs_crash_affected.keys())) 
         if sfc_id in sfcs_crash_aff:
@@ -415,7 +422,12 @@ class SubstrateNetworkController():
             final_time = time.time()
             time_elapsed = final_time - self.timer_qeue_sfcs[0]['timer']
             if time_elapsed >= random.uniform(5,6):
+
+                current_enqueue_time = time.time()
+
                 for entry in self.timer_qeue_sfcs:
+                    for sfc in entry["new_sfc_list"]:
+                        sfc.enqueue_time = current_enqueue_time
                     self.sfc_queue.put_begin(entry["new_sfc_list"])  # Coloca na fila
                 self.timer_qeue_sfcs = {}
 
@@ -554,7 +566,21 @@ class SubstrateNetworkController():
             if time.time() - start_time > 1: # se passou 1s, sair do loop
                 break
             
-            sfc_list = self.sfc_queue.peek_sfc()                                  
+            sfc_list = self.sfc_queue.peek_sfc()
+
+            # --- calculo tempo de fila ---
+            dequeue_time = time.time()
+            wait_time = 0 # Valor padrão
+
+            # Verifica se o atributo 'enqueue_time' que criamos existe
+            if hasattr(sfc_list[0], 'enqueue_time'):
+                wait_time = dequeue_time - sfc_list[0].enqueue_time
+            
+            # (Opcional) Fallback para SFCs iniciais que podem não ter passado
+            # pelas funções acima, mas têm 'arrival_time'
+            elif hasattr(sfc_list[0], 'arrival_time'):
+                wait_time = dequeue_time - sfc_list[0].arrival_time
+            # ---------------------------                                  
             for sfc in sfc_list:
                 if sfc.dst_node in self.sfc_manager.sfcs_tracker:
                     raise ValueError(f"SFC já submetida")
@@ -563,5 +589,6 @@ class SubstrateNetworkController():
             
             for sfc_id, result_dict in log.items():
                 processed_sfcs.append(sfc_id)
-                self.output_results(sfc_id=sfc_id,results_dict=result_dict,is_success=is_success)            
+                self.output_results(sfc_id=sfc_id,results_dict=result_dict,
+                                    is_success=is_success, wait_time=wait_time)    
         return processed_sfcs
