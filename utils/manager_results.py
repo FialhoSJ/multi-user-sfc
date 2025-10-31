@@ -95,7 +95,7 @@ def create_output_dir(args,topology):
         "mobile_cache_utilization", 
         "latency",
         "latency_diff",
-        "wait_time",
+        "queue_time",
         "decision_time_ms",
         "success",
         "fail_reason",
