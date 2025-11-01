@@ -201,7 +201,8 @@ class SubstrateNetworkController():
             self.output_writter.output_nodes_sf_utilization(self.substrate_network, current_time)
             #self.output_utils.output_edges_sf_utilization(self.edges_vnf, self.current_time, self.sfc_list, deploy_time, route_info, sfc)
 
-        def output_flows(current_time, sfc_id, latency, run_duration, is_success,alg_name=self.alg,fail_reason=None,latency_diff=None, wait_time=None):
+        def output_flows(current_time, sfc_id, latency, comp_latency, comm_latency,
+                         run_duration, is_success,alg_name=self.alg,fail_reason=None,latency_diff=None, wait_time=None):
             bw_transcode = 0
 
             
@@ -220,6 +221,8 @@ class SubstrateNetworkController():
                 current_time,
                 sfc_id,
                 latency,
+                comp_latency,  
+                comm_latency, 
                 run_duration,
                 is_success,
                 fail_reason,
@@ -241,6 +244,8 @@ class SubstrateNetworkController():
 
             output_network_resources(current_time=current_time)
             output_flows(current_time,sfc_id,results_dict['latency'],
+                        results_dict.get('comp_latency'),
+                        results_dict.get('comm_latency'), 
                         results_dict['run_duration'],is_success,
                         wait_time=wait_time)
             

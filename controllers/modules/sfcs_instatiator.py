@@ -167,8 +167,10 @@ class SFCInstatiator:
             
             if alg_success:
                 total_latency = None
+                comp_latency = None
+                comm_latency = None
                 try:
-                    total_latency = self.submit_solution(graph, sfc, algorithm.get_route_info())
+                    total_latency, comp_latency, comm_latency = self.submit_solution(graph, sfc, algorithm.get_route_info())
                 except ValueError as ve:
                     logging.error(f"Falha na submissão da solução para SFC {sfc.id}: {ve}")
                     algorithm.handle_failure() 
@@ -180,11 +182,15 @@ class SFCInstatiator:
                     search_success = False
             else:
                 total_latency = None
+                comp_latency = None   
+                comm_latency = None
                 search_success = False            
             
             solution_format[sfc.id] = {
                 'route_info': algorithm.get_route_info(),
                 'latency': total_latency,
+                'comp_latency': comp_latency, 
+                'comm_latency': comm_latency,
                 'run_duration': s2 - s
                 }
             
@@ -324,7 +330,13 @@ class SFCInstatiator:
                     })
         # if total_latency> 50:
         #     print(total_latency)
-        return round(total_latency,2)
+        
+        total_comp_latency = sum(d['latencia_comp'] for d in tsaber['computacao'].values())
+        total_comm_latency = sum(item['latencia_comm'] 
+                                 for items in tsaber['comunicacao'].values() 
+                                 for item in items)
+        
+        return round(total_latency, 2), round(total_comp_latency, 2), round(total_comm_latency, 2)
     
     def is_shareable(self,service_name):
         # TODO Mudar para a informação de compartilháveis estar em uma variável separável.

@@ -94,6 +94,8 @@ def create_output_dir(args,topology):
         "mobile_gpu_utilization", # NOVO
         "mobile_cache_utilization", 
         "latency",
+        "comp_latency",     
+        "comm_latency",
         "latency_diff",
         "queue_time",
         "decision_time_ms",
@@ -176,7 +178,7 @@ class OutputWritter:
             file.write(line)
 
     def output_flows(self,substrate_network: Net2,wait_time,running_players_sessions,counter,remaining_time,current_time, sfc_id, 
-                     latency, run_duration, is_success,fail_reason,bw_transcode,acceptance_rate, total_energy_consumption,
+                     latency, comp_latency, comm_latency, run_duration, is_success,fail_reason,bw_transcode,acceptance_rate, total_energy_consumption,
                      server_energy_consumption,mobile_energy_consumption,latency_diff=None,crashing=False,alg_name='ga'):
         
         # Obtenha métricas de CPU
@@ -253,6 +255,8 @@ class OutputWritter:
             f"{mobile_gpu_utilization}," # NOVO
             f"{mobile_cache_utilization},"
             f"{latency},"
+            f"{comp_latency},"     
+            f"{comm_latency},"
             f"{latency_diff},"
             f"{wait_time},"
             f"{decision_time},"
