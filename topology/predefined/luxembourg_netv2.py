@@ -137,12 +137,16 @@ class LuxembourgV2(TopologyBase):
             if u==(v+0.1) or v==(u+0.1):
                 net.add_edge(u, v, bandwidth_capacity=float("inf"), latency=0)
             else:
+                
                 latency_ms = random.uniform(1, 2)
+                
                 pos_u = self.positions[u]
                 pos_v = self.positions[v]
                 dist = math.dist(pos_u, pos_v)  # metros
                 latency_ms = (dist / LIGHT_SPEED) * 1000  # converte para ms
                 latency_ms += round(random.uniform(0, 0.5), 3)  # simula pequena variação de latência
+                if u == 0 or v == 0:
+                    latency_ms *= 130
                 net.add_edge(u, v, bandwidth_capacity=self.bandwidth_capacity, latency=latency_ms)
 
         # net.total_cpu_capacity = len(self.edge_computing_servers) * CPU_CAPACITY

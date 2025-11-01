@@ -165,37 +165,92 @@ class SFCInstatiator:
             s2 = time.time()
             print(f"Algorithm {self.alg.name} Take time     :   {round((s2-s)*1000,3)} ms")
             
+            total_latency = None
+            comp_latency = None
+            comm_latency = None
+
             if alg_success:
-                total_latency = None
-                comp_latency = None
-                comm_latency = None
                 try:
-                    total_latency, comp_latency, comm_latency = self.submit_solution(graph, sfc, algorithm.get_route_info())
+                    # Alocação padrão do algoritmo
+                    route_info = algorithm.get_route_info()
+                    total_latency, comp_latency, comm_latency = self.submit_solution(graph, sfc, route_info)
+                    # Se submit_solution for bem-sucedido, ele modifica 'graph'
                 except ValueError as ve:
                     logging.error(f"Falha na submissão da solução para SFC {sfc.id}: {ve}")
                     algorithm.handle_failure() 
-                    search_success = False
+                    alg_success = False # Marca como falha para o fallback
                 except Exception as e:
                     logging.error(f"Erro inesperado ao submeter solução para SFC {sfc.id}: {e}")
                     logging.error(traceback.format_exc())
                     algorithm.handle_failure()
-                    search_success = False
-            else:
-                total_latency = None
-                comp_latency = None   
-                comm_latency = None
-                search_success = False            
+                    alg_success = False # Marca como falha para o fallback
             
+            # --- INÍCIO DA LÓGICA DE FALLBACK (DRY RUN) ---
+            if not alg_success:
+                logging.warn(f"SFC {sfc.id} falhou na alocação. Calculando fallback (dry run) para node 0.")
+                
+                # Criamos um grafo temporário APENAS para o cálculo.
+                # O 'graph' original não será modificado.
+                fallback_graph = copy.deepcopy(graph)
+                
+                try:
+                    fallback_node_id = 0
+                    fallback_route_info = {}
+                    
+                    # --- LINHA CORRIGIDA ---
+                    # Itera sobre sfc.vnfs_dict como uma LISTA de dicionários
+                    vnf_names = [vnf['name'] for vnf in sfc.vnfs_dict]
+                    # --- FIM DA CORREÇÃO ---
+
+                    dst_node = sfc.dst_node
+
+                    # 2. Define o 'path' para cada VNF
+                    for i in range(len(vnf_names) - 1):
+                        fallback_route_info[vnf_names[i]] = [fallback_node_id]
+                    
+                    last_vnf_name = vnf_names[-1]
+                    path_list = k_shortest_paths(fallback_graph, fallback_node_id, dst_node, k=1, weight='latency')
+                    
+                    if not path_list:
+                        logging.error(f"Cálculo de fallback para {sfc.id} falhou: Não há caminho do node 0 para {dst_node}")
+                        algorithm.route_info = None 
+                    else:
+                        fallback_route_info[last_vnf_name] = path_list[0]
+                        
+                        # 3. Tenta submeter a solução no 'fallback_graph' (temporário)
+                        # Este cálculo não afeta o 'graph' principal do loop
+                        total_latency, comp_latency, comm_latency = self.submit_solution(fallback_graph, sfc, fallback_route_info)
+                        
+                        logging.info(f"Cálculo de fallback para {sfc.id} BEM SUCEDIDO (Latência: {total_latency}).")
+                        
+                        # 4. Salva a rota de fallback para o log
+                        algorithm.route_info = fallback_route_info 
+
+                except ValueError as ve:
+                    logging.error(f"Cálculo de fallback para {sfc.id} FALHOU (Ex: node 0 sem recursos): {ve}")
+                    algorithm.route_info = None
+                    # Latências permanecem None
+                except Exception as e:
+                    logging.error(f"Erro inesperado no cálculo de fallback para {sfc.id}: {e}")
+                    logging.error(traceback.format_exc()) # Adiciona o traceback para depuração
+                    algorithm.route_info = None
+                    # Latências permanecem None
+
+                # CRUCIAL: 'alg_success' permanece False, 
+                # então 'search_success' será definido como False abaixo.
+
+            # --- FIM DA LÓGICA DE FALLBACK ---
+
             solution_format[sfc.id] = {
-                'route_info': algorithm.get_route_info(),
-                'latency': total_latency,
+                'route_info': algorithm.get_route_info(), # Pega o route_info (original, falho, ou de fallback)
+                'latency': total_latency,      # Pega a latência (calculada, de fallback, ou None)
                 'comp_latency': comp_latency, 
                 'comm_latency': comm_latency,
                 'run_duration': s2 - s
                 }
             
             if not alg_success:
-                search_success = False
+                search_success = False # Garante que a falha seja propagada
 
         return solution_format,search_success
 
@@ -231,6 +286,9 @@ class SFCInstatiator:
             cache_required = vnf.get_cache_request()
             node = graph.nodes[node_id]
             latency = calculate_computational_latency(graph, node_id, vnf)
+            
+            if  node_id == 0:
+                return 0
 
             if node['type'] not in ['server', 'mobile_device']:
                 raise ValueError(f"Serviços só podem ser alocados em servidores ou usuários, não em '{node['type']}'.")

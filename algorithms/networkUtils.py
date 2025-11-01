@@ -47,6 +47,8 @@ def calculate_5g_latency(
     return calcular_latencia_um_ponto(data)
 
 def calculate_computational_latency(graph,node,vnf):
+    if node == 0:
+        return 0
     ips = graph.nodes[node]['ips']
     packet = vnf.get_income_interface_bandwidth()/60 * 1e6
     return packet * 10 * 1000/ips
