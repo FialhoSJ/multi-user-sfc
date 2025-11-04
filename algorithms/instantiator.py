@@ -51,8 +51,11 @@ class AlgorithmInstantiator:
         elif type ==  'vegeta':
             alg = Vegeta()
         elif 'kuririn' in type:
-            if "PPO" in type:
+            if "MaskablePPO":
+                alg = Kuririn('MASKABLEPPO')
+            elif "PPO" in type:
                 alg = Kuririn('PPO')
+            
             if "DQN" in type:
                 alg = Kuririn('DQN')    
         elif 'darsppo' in type:

@@ -15,8 +15,13 @@ from stable_baselines3.common.logger import configure
 from utils.salvar_var import carregar_lista
 from algorithms.environments.environment import SFC_AllocationEnv
 
+
+from stable_baselines3 import PPO
+from stable_baselines3.common.callbacks import EvalCallback
 from sb3_contrib import MaskablePPO
 from sb3_contrib.common.maskable.callbacks import MaskableEvalCallback
+
+USE_MASKING = True
 
 # ==============================================================================
 #      FUNÇÃO PARA CARREGAR O AMBIENTE (Seu código original, sem alterações)
@@ -76,17 +81,27 @@ if __name__ == '__main__':
     eval_env = Monitor(eval_env)
     
     # --- 3. CARREGAR MODELO EXISTENTE OU CRIAR UM NOVO ---
-    model_name = "PPO_allocation_model.zip"
+    if USE_MASKING:
+        model_name = "MASKABLEPPO_allocation_model.zip"
+        ModelClass = MaskablePPO
+        model_log_name = "MaskablePPO_SFC_Allocation"
+        print("Configurado para usar MaskablePPO.")
+    else:
+        model_name = "PPO_allocation_model.zip"
+        ModelClass = PPO
+        model_log_name = "PPO_SFC_Allocation"
+        print("Configurado para usar PPO Padrão.")
+
     final_model_path = os.path.join(save_dir, model_name)
 
     if os.path.exists(final_model_path):
         print(f"Modelo salvo encontrado em '{final_model_path}'. Carregando para continuar o treinamento...")
-        model = MaskablePPO.load(final_model_path, env=train_env)
+        model = ModelClass.load(final_model_path, env=train_env) # Usa ModelClass
         new_logger = configure(tensorboard_log_dir, ["stdout", "tensorboard"])
         model.set_logger(new_logger)
     else:
-        print("Nenhum modelo salvo encontrado. Iniciando novo treinamento...")
-        model = MaskablePPO(
+        print(f"Nenhum modelo salvo encontrado. Iniciando novo treinamento para {model_name}...")
+        model = ModelClass( # Usa ModelClass
             "MultiInputPolicy",
             train_env,
             verbose=1,
@@ -94,14 +109,26 @@ if __name__ == '__main__':
         )
 
     # --- 4. TREINAMENTO (NOVO OU CONTINUADO) ---
-    eval_callback = MaskableEvalCallback(
-        eval_env,
-        log_path=log_dir,
-        eval_freq=1000,
-        n_eval_episodes=30,
-        deterministic=False,
-        render=False
-    )
+    if USE_MASKING:
+        print("Usando MaskableEvalCallback.")
+        eval_callback = MaskableEvalCallback(
+            eval_env,
+            log_path=log_dir,
+            eval_freq=1000,
+            n_eval_episodes=30,
+            deterministic=False,
+            render=False
+        )
+    else:
+        print("Usando EvalCallback padrão.")
+        eval_callback = EvalCallback( # Callback Padrão
+            eval_env,
+            log_path=log_dir,
+            eval_freq=1000,
+            n_eval_episodes=30,
+            deterministic=False,
+            render=False
+        )
     
     additional_timesteps = 150_000
     
@@ -109,17 +136,17 @@ if __name__ == '__main__':
     model.learn(
         total_timesteps=additional_timesteps,
         callback=eval_callback,
-        tb_log_name="MaskablePPO_SFC_Allocation_Single", # Nome do log alterado para refletir o modo single
+        tb_log_name=model_log_name, # Usa o nome do log dinâmico
         reset_num_timesteps=False
     )
     print("--- Treinamento finalizado ---")
 
     # --- 5. SALVAR O MODELO ATUALIZADO ---
-    model.save(os.path.join(save_dir, "PPO_allocation_model"))
+    model.save(final_model_path) # Salva com o nome correto
     print(f"\nModelo final salvo em: {final_model_path}")
 
-    # --- 6. TESTE COM O MODELO FINAL (SEM ALTERAÇÕES NECESSÁRIAS AQUI) ---
-    print("\n--- Iniciando teste com o modelo em 1000 episódios ---")
+    # --- 6. TESTE COM O MODELO FINAL (MODIFICADO) ---
+    print(f"\n--- Iniciando teste com o modelo {model_name} em 1000 episódios ---")
     
     num_episodes = 1000 
     all_rewards = []
@@ -132,16 +159,22 @@ if __name__ == '__main__':
         total_reward = 0
 
         while not done:
-            # Ao usar um ambiente não-vetorizado, a função action_masks() é acessada diretamente
-            action_masks = eval_env.env.action_masks()
-            action, _ = model.predict(obs, action_masks=action_masks, deterministic=False)
+            # --- MODIFICADO: Chamada condicional do predict ---
+            if USE_MASKING:
+                # MaskablePPO precisa das máscaras
+                action_masks = eval_env.env.action_masks()
+                action, _ = model.predict(obs, action_masks=action_masks, deterministic=False)
+            else:
+                # PPO Padrão não usa máscaras
+                action, _ = model.predict(obs, deterministic=False)
+            
             obs, reward, terminated, truncated, info = eval_env.step(action)
             
             total_reward += reward
             done = terminated or truncated
 
         all_rewards.append(total_reward)
-        if eval_env.env.success: # Acesso direto ao atributo 'success'
+        if eval_env.env.success: 
             successful_runs += 1
             total_latency_on_success += eval_env.env.latency_used
 

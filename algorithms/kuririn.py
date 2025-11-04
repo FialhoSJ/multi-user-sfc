@@ -3,7 +3,7 @@ from core.sfc import SFC, VNF
 import logging
 import re
 import networkx as nx
-from stable_baselines3 import  DQN
+from stable_baselines3 import DQN, PPO 
 from sb3_contrib import MaskablePPO
 
 from algorithms.environments.environment import SFC_AllocationEnv
@@ -29,37 +29,40 @@ class Kuririn:
     ### MODIFICADO ###
     # O construtor agora carrega o modelo imediatamente.
     def __init__(self, model_name):
-        # --- Atributos ---
-        self.model_name = model_name.upper() # Garante consistência (PPO ou DQN)
-        self.model_path = f'rl_saved_models/{self.model_name}_allocation_model.zip'
-        self.name = f"kuririn{model_name}"
-        
-        # --- ADICIONADO: Carregamento do modelo na inicialização ---
-        # O modelo é carregado UMA ÚNICA VEZ e mantido na memória.
-        self.model = self._load_model()
-        
-        # Demais atributos da sua classe (mantidos do original)
-        self.graph = None
-        self.sfc = None
-        self.route_info = {}
-        self.node_info = {}
-        self.latency = None
-        self.latency_request = None
-        self.single_source_minimum_latency_path = None
-        self.fail_reason = None
-        self.can_host_multiple_sfs = True
-        self.is_backup = False
-        self.valid_nodes = None
-        self.last_propose = None
-        self.precomputed_paths = {}
-        # self.env foi removido pois não pertence mais à classe.
+            # --- Atributos ---
+            self.model_name = model_name.upper() # Ex: "PPO", "MASKABLEPPO", ou "DQN"
+            
+            # --- MODIFICADO: O caminho agora é mais explícito ---
+            # Garante que PPO carregue "PPO_allocation_model.zip"
+            # e MaskablePPO carregue "MaskablePPO_allocation_model.zip"
+            self.model_path = f'rl_saved_models/{self.model_name}_allocation_model.zip'
+            self.name = f"kuririn{model_name}"
+            
+            # --- ADICIONADO: Carregamento do modelo na inicialização ---
+            self.model = self._load_model()
+            
+            # Demais atributos da sua classe (mantidos do original)
+            self.graph = None
+            self.sfc = None
+            self.route_info = {}
+            self.node_info = {}
+            self.latency = None
+            self.latency_request = None
+            self.single_source_minimum_latency_path = None
+            self.fail_reason = None
+            self.can_host_multiple_sfs = True
+            self.is_backup = False
+            self.valid_nodes = None
+            self.last_propose = None
+            self.precomputed_paths = {}
+            # self.env foi removido pois não pertence mais à classe.
 
-        # Pesos de custo (mantidos do original)
-        self.cpu_factor = 5
-        self.cache_factor = 5
-        self.band_factor = 2
-        self.latency_factor = 2
-        self.boot_factor = 0
+            # Pesos de custo (mantidos do original)
+            self.cpu_factor = 5
+            self.cache_factor = 5
+            self.band_factor = 2
+            self.latency_factor = 2
+            self.boot_factor = 0
 
     ### ADICIONADO ###
     # Método privado para carregar o modelo, chamado apenas uma vez.
@@ -70,13 +73,17 @@ class Kuririn:
             raise FileNotFoundError(f"Arquivo do modelo não encontrado: {self.model_path}")
         
         logger.info(f"Carregando modelo de: {self.model_path}")
-        if self.model_name == "PPO":
+        
+        # Carrega MaskablePPO se o nome for "MASKABLEPPO"
+        if self.model_name == "MASKABLEPPO":
             return MaskablePPO.load(self.model_path, device='cpu')
+        # Carrega PPO padrão se o nome for "PPO"
+        elif self.model_name == "PPO":
+            return PPO.load(self.model_path, device='cpu')
         elif self.model_name == "DQN":
             return DQN.load(self.model_path, device='cpu')
         else:
-            raise ValueError(f"Nome do modelo inválido: '{self.model_name}'. Use 'PPO' ou 'DQN'.")
-
+            raise ValueError(f"Nome do modelo inválido: '{self.model_name}'. Use 'PPO', 'MaskablePPO' ou 'DQN'.")
     # O método clear_all foi mantido como no original.
     def clear_all(self):
         self.substrate_network = None
@@ -215,8 +222,14 @@ class Kuririn:
 
         done = False
         while not done:
-            action_masks = env.action_masks()
-            action, _ = self.model.predict(obs, action_masks=action_masks, deterministic=False)
+            # --- MODIFICADO: Chamada condicional do predict ---
+            if self.model_name == "MASKABLEPPO":
+                action_masks = env.action_masks()
+                action, _ = self.model.predict(obs, action_masks=action_masks, deterministic=False)
+            else:
+                # PPO Padrão e DQN não usam máscaras
+                action, _ = self.model.predict(obs, deterministic=False)
+            
             obs, _, terminated, truncated, _ = env.step(action)
             done = terminated or truncated
 
