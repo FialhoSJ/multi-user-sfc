@@ -212,6 +212,32 @@ def calcular_percentual_cpu_total(G: nx.Graph) -> float:
     return percentual_uso
 
 
+def get_graph_processing_utilization_simplified(graph: nx.Graph) -> float:
+    """
+    Calcula a porcentagem de utilização de processamento total (CPU + GPU)
+    para um grafo específico, tratando todos os nós de processamento
+    da mesma forma.
+    """
+    total_processing_used = 0.0
+    total_processing_capacity = 0.0
+
+    # Itera sobre todos os nós no grafo fornecido
+    for node_id, node_data in graph.nodes(data=True):
+        
+        # Verifica se o nó tem capacidade de processamento
+        if 'cpu_capacity' in node_data:
+            total_processing_capacity += node_data.get('cpu_capacity', 0.0)
+            total_processing_used += node_data.get('cpu_used', 0.0)
+
+    # Evita divisão por zero
+    if total_processing_capacity == 0:
+        return 0.0
+
+    # Calcula e retorna a porcentagem
+    utilization_percentage = (total_processing_used / total_processing_capacity) * 100
+    return utilization_percentage
+
+
 def calcular_percentual_cache_total(G: nx.Graph) -> float:
     """
     Calcula o percentual de uso de cache total em um grafo do NetworkX.

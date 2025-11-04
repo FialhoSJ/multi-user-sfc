@@ -563,6 +563,36 @@ class Net2:
     def get_sfc_by_id(self, sfc_id):
         return self.sfc_dict[sfc_id]
     
+    def get_total_system_processing_utilization_rate(self):
+        """
+        Calcula a taxa de utilização de processamento total do sistema
+        (CPU + GPU), tanto da rede quanto dos dispositivos móveis.
+        
+        Retorna:
+            float: A taxa de utilização (0.0 a 1.0).
+        """
+        
+        # 1. Calcular o USO total (CPU + GPU)
+        # (self.total_cpu_used + self.mobile_cpu_used)
+        total_cpu_used = self.get_cpu_total_used() 
+        
+        # (self.total_gpu_used + self.mobile_gpu_used)
+        total_gpu_used = self.get_gpu_total_used()
+        
+        total_processing_used = total_cpu_used + total_gpu_used
+
+        # 2. Calcular a CAPACIDADE total (CPU + GPU)
+        total_cpu_capacity = self.get_total_system_cpu_capacity()
+        total_gpu_capacity = self.get_total_system_gpu_capacity()
+        
+        total_processing_capacity = total_cpu_capacity + total_gpu_capacity
+        
+        # 3. Calcular a taxa
+        if total_processing_capacity == 0:
+            return 0.0
+        
+        return total_processing_used / total_processing_capacity
+    
     # Adicione esta função dentro da classe Net2, junto com os outros métodos.
 
     def calculate_average_sfc_latency(self):
@@ -959,7 +989,10 @@ class Net2:
         # Calcula as métricas de utilização de CPU e GPU
         total_cpu_util = self.get_total_system_utilization_cpu_rate()*100
         total_gpu_util = self.get_total_system_utilization_gpu_rate() * 100
+        total_processing_util = self.get_total_system_processing_utilization_rate()*100
 
+
+        print(f"Total processing util.   : {total_processing_util:.3f}%")
         print(f"Total System CPU util.   : {total_cpu_util:.3f}%")
         print(f"Total System GPU util.   : {total_gpu_util:.3f}%") # Novo
         print(f"Network CPU util         : {self.get_network_cpu_utilization_percentage():.3f}%")

@@ -5,7 +5,7 @@ from networkx import Graph
 from typing import Union, List, Dict
 from core.sfc import SFC, VNF
 from algorithms.networkUtils import get_available_shortest_path, calculate_computational_latency, calculate_latency_betwen_nodes, get_available_shortest_path_fast
-from utils.network_utils import calcular_percentual_cpu_total, calcular_percentual_cache_total, calcular_percentual_banda_total
+from utils.network_utils import calcular_percentual_cpu_total, calcular_percentual_cache_total, calcular_percentual_banda_total,get_graph_processing_utilization_simplified
 
 # ADICIONADO:
 
@@ -122,7 +122,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         bw_req = self.service_requirements[vnf.id]["out_bw"]
         current_node = self.current_location
         
-        self.ratio_cpu_used = calcular_percentual_cpu_total(self.graph)
+        self.ratio_cpu_used = get_graph_processing_utilization_simplified(self.graph)
         self.ratio_cache_used = calcular_percentual_cache_total(self.graph)
         self.ratio_banda_used = calcular_percentual_banda_total(self.graph)
 
@@ -147,7 +147,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         band_req = self.service_requirements[vnf.id]['out_bw']
         current_location = self.current_location
         path = get_available_shortest_path_fast(self.graph, current_location, chosen_server, band_req)
-        self.ratio_cpu_used = calcular_percentual_cpu_total(self.graph)
+        self.ratio_cpu_used = get_graph_processing_utilization_simplified(self.graph)
         self.ratio_cache_used = calcular_percentual_cache_total(self.graph)
         self.ratio_banda_used = calcular_percentual_banda_total(self.graph)
 
@@ -338,7 +338,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         recursos_nodes[:, 4] /= 100
 
         usos_rede =  np.array([calcular_percentual_banda_total(self.graph),
-                               calcular_percentual_cpu_total(self.graph),
+                               get_graph_processing_utilization_simplified(self.graph),
                                self.latency_used/100], dtype=np.float32)
        
 
