@@ -57,6 +57,7 @@ class SFC_AllocationEnv_DARSPPO(gymnasium.Env):
         self.current_vnf: VNF = None
         self.current_location: Union[int, str] = None
         self.features = None
+        self.initial_delay = 0.0
 
         # --- Espaços de Ação e Observação ---
         num_nodes = len(valid_nodes)
@@ -545,6 +546,7 @@ class SFC_AllocationEnv_DARSPPO(gymnasium.Env):
             bool: True se a alocação inicial foi bem-sucedida, False caso contrário.
         """
         # A lista de VNFs já está em ordem reversa (do destino para a origem)
+        self.initial_delay = 0.0
         vnf_list = self.reverse_vnf_list
         
         # O ponto de partida para a primeira VNF é o destino final da SFC
