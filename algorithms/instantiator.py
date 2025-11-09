@@ -59,9 +59,21 @@ class AlgorithmInstantiator:
             if "DQN" in type:
                 alg = Kuririn('DQN')    
         elif 'darsppo' in type:
-            alg = DARSPPO()
-        elif "hephaestus" in type:
-            alg = hephaestus()
+            if "MaskablePPO":
+                alg = DARSPPO('MASKABLEPPO')
+            elif "PPO" in type:
+                alg = DARSPPO('PPO')
+            
+            if "DQN" in type:
+                alg = DARSPPO('DQN')    
+        elif 'hephaestus' in type:
+            if "MaskablePPO":
+                alg = hephaestus('MASKABLEPPO')
+            elif "PPO" in type:
+                alg = hephaestus('PPO')
+            
+            if "DQN" in type:
+                alg = hephaestus('DQN')    
     
         else:
             raise ValueError('algorithm not found')
