@@ -53,12 +53,12 @@ if __name__ == '__main__':
     #           Usa as variáveis BATCH_* definidas abaixo.
     #           (Ignora --alg, --repetition, --threads)
     #
-    RUN_MODE = 'single'
+    RUN_MODE = 'batch'
     
     # --- Configurações do MODO BATCH (ignoradas se RUN_MODE = 'single') ---
-    BATCH_ALGS = ['hephaestus', 'ga', 'msf'] # (Lista) Lista de algoritmos
-    BATCH_TOTAL_RUNS = 1                    # (X) Execuções totais POR algoritmo
-    BATCH_PARALLEL_RUNS = 1                # (Y) Execuções simultâneas (pool)
+    BATCH_ALGS = ['hephaestus', 'ga', 'msf', "kuririnMaskablePPO"] # (Lista) Lista de algoritmos
+    BATCH_TOTAL_RUNS = 15                    # (X) Execuções totais POR algoritmo
+    BATCH_PARALLEL_RUNS = 15                # (Y) Execuções simultâneas (pool)
     # =========================================================================
 
     

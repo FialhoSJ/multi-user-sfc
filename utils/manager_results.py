@@ -117,9 +117,17 @@ def create_output_dir(args,topology):
         "cpu_per_flow",
         "gpu_per_flow", # NOVO
         "cache_per_flow",
+        "jain_cpu",
+        "jain_gpu",
+        "jain_cache",
+        "jain_bw",
         "server_energy_consumption",
         "mobile_energy_consumption",
-        "total_energy_consumption"
+        "total_energy_consumption",
+        "cpu_fairness",
+        "gpu_fairness",
+        "cache_fairness",
+        "bandwidth_fairness"
     ]
 
     res_fields = ["crash_trial","sfc_id","vnf_id","recover_success","backup_success","backup_efficient","latency_diff","latency_deg","resource_deg","time_to_recover"]
@@ -221,6 +229,11 @@ class OutputWritter:
         cache_saved =  substrate_network.total_cache_saved
         shared_vnfs_count = substrate_network.shared_vnfs_count
         
+        jain_cpu = round(substrate_network.get_cpu_jain_fairness(), 4)
+        jain_gpu = round(substrate_network.get_gpu_jain_fairness(), 4)
+        jain_cache = round(substrate_network.get_cache_jain_fairness(), 4)
+        jain_bw = round(substrate_network.get_bandwidth_jain_fairness(), 4)
+        
         sfc_recovery_time = 0
         sfc_recovered = None
         
@@ -278,6 +291,10 @@ class OutputWritter:
             f"{cpu_per_flow},"
             f"{gpu_per_flow}," # NOVO
             f"{cache_per_flow},"
+            f"{jain_cpu},"
+            f"{jain_gpu},"
+            f"{jain_cache},"
+            f"{jain_bw},"
             f"{total_energy_consumption},"
             f"{server_energy_consumption},"
             f"{mobile_energy_consumption}\n"

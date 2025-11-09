@@ -976,6 +976,122 @@ class Net2:
     def get_bandwidth_utilization_rate(self):
         self.update()
         return self.total_bandwidth_used*1.0/self.total_bandwidth_capacity
+    
+    
+    
+    def calculate_jain_fairness(self, utilizations):
+        """
+        Calcula o Jain's Fairness Index para uma lista de taxas de utilização.
+        
+        Args:
+            utilizations (list): Uma lista de floats (taxas de utilização, 0.0 a 1.0).
+            
+        Returns:
+            float: O índice de justiça (1.0 é perfeitamente justo).
+        """
+        if not utilizations:
+            return 1.0  # Perfeitamente justo se não houver recursos para medir
+
+        n = len(utilizations)
+        sum_of_values = sum(utilizations)
+        sum_of_squares = sum(x * x for x in utilizations)
+
+        if sum_of_squares == 0:
+            return 1.0  # Todos os valores são 0, então é perfeitamente justo
+
+        numerator = sum_of_values ** 2
+        denominator = n * sum_of_squares
+        
+        return numerator / denominator
+
+    def get_cpu_jain_fairness(self):
+        """
+        Calcula o JFI para a utilização de CPU em todos os nós 
+        (servidores e móveis) que *não* são GPUs.
+        """
+        cpu_utilizations = []
+        
+        # Itera sobre a rede principal
+        for node_id, node_data in self.graph.nodes(data=True):
+            # Considera apenas nós que não são GPU e têm capacidade de CPU
+            if not self._is_gpu_node(node_id) and node_data.get('cpu_capacity', 0) > 0:
+                util = node_data['cpu_used'] / node_data['cpu_capacity']
+                cpu_utilizations.append(util)
+                
+        # Itera sobre dispositivos móveis
+        for node_id, node_data in self.md_graph.nodes(data=True):
+            # Considera apenas nós que não são GPU e têm capacidade de CPU
+            if not self._is_gpu_node(node_id) and node_data.get('cpu_capacity', 0) > 0:
+                util = node_data['cpu_used'] / node_data['cpu_capacity']
+                cpu_utilizations.append(util)
+                
+        return self.calculate_jain_fairness(cpu_utilizations)
+
+    def get_gpu_jain_fairness(self):
+        """
+        Calcula o JFI para a utilização de GPU em todos os nós 
+        (servidores e móveis) que *são* GPUs.
+        """
+        gpu_utilizations = []
+        
+        # Itera sobre a rede principal
+        for node_id, node_data in self.graph.nodes(data=True):
+            # Considera apenas nós que SÃO GPU e têm capacidade
+            # (armazenada em 'cpu_capacity')
+            if self._is_gpu_node(node_id) and node_data.get('cpu_capacity', 0) > 0:
+                util = node_data['cpu_used'] / node_data['cpu_capacity']
+                gpu_utilizations.append(util)
+                
+        # Itera sobre dispositivos móveis
+        for node_id, node_data in self.md_graph.nodes(data=True):
+            # Considera apenas nós que SÃO GPU e têm capacidade
+            if self._is_gpu_node(node_id) and node_data.get('cpu_capacity', 0) > 0:
+                util = node_data['cpu_used'] / node_data['cpu_capacity']
+                gpu_utilizations.append(util)
+                
+        return self.calculate_jain_fairness(gpu_utilizations)
+
+    def get_cache_jain_fairness(self):
+        """
+        Calcula o JFI para a utilização de Cache em todos os nós 
+        (servidores e móveis).
+        """
+        cache_utilizations = []
+        
+        # Itera sobre a rede principal
+        for node_id, node_data in self.graph.nodes(data=True):
+            if node_data.get('cache_capacity', 0) > 0:
+                util = node_data['cache_used'] / node_data['cache_capacity']
+                cache_utilizations.append(util)
+                
+        # Itera sobre dispositivos móveis
+        for node_id, node_data in self.md_graph.nodes(data=True):
+            if node_data.get('cache_capacity', 0) > 0:
+                util = node_data['cache_used'] / node_data['cache_capacity']
+                cache_utilizations.append(util)
+                
+        return self.calculate_jain_fairness(cache_utilizations)
+
+    def get_bandwidth_jain_fairness(self):
+        """
+        Calcula o JFI para a utilização de Banda em todos os enlaces
+        (arestas cabeadas e canais wireless de roteadores).
+        """
+        bw_utilizations = []
+        
+        # 1. Itera sobre as arestas (links cabeadas)
+        for u, v, edge_data in self.graph.edges(data=True):
+            if edge_data.get('bandwidth_capacity', 0) > 0:
+                util = edge_data['bandwidth_used'] / edge_data['bandwidth_capacity']
+                bw_utilizations.append(util)
+                
+        # 2. Itera sobre os nós (para canais wireless de roteadores)
+        for node_id, node_data in self.graph.nodes(data=True):
+            if node_data.get('type') == 'router' and node_data.get('w_channel_capacity', 0) > 0:
+                util = node_data['w_channel_used'] / node_data['w_channel_capacity']
+                bw_utilizations.append(util)
+                
+        return self.calculate_jain_fairness(bw_utilizations)
 
     def print_network(self):
         print("\n--- Nós ---")
