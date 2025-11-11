@@ -124,10 +124,6 @@ def create_output_dir(args,topology):
         "server_energy_consumption",
         "mobile_energy_consumption",
         "total_energy_consumption",
-        "cpu_fairness",
-        "gpu_fairness",
-        "cache_fairness",
-        "bandwidth_fairness"
     ]
 
     res_fields = ["crash_trial","sfc_id","vnf_id","recover_success","backup_success","backup_efficient","latency_diff","latency_deg","resource_deg","time_to_recover"]

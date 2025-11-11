@@ -23,10 +23,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Select MUAR arguments')
     parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
     parser.add_argument('--n_players', type=int, help='(int) number of players', default=6)
-    parser.add_argument('--threads', type=int, help='(int) number of cores to use', default=1)
-    parser.add_argument('--repetition', type=int, help='(int) repetitions', default=1)
+    parser.add_argument('--threads', type=int, help='(int) number of cores to use', default=10)
+    parser.add_argument('--repetition', type=int, help='(int) repetitions', default=10)
     parser.add_argument('--sfc', type=str, help='(str) on or off', default='on')
-    parser.add_argument('--alg', type=str, help='(str  algorithm name', default='hephaestus') # osfem, msf, musfico, ga;...
+    parser.add_argument('--alg', type=str, help='(str  algorithm name', default='darsppoMaskablePPO') # osfem, msf, musfico, ga;...
     parser.add_argument('--share', type=str, help='(str) whether to share sfs or not', default='y')
     parser.add_argument('--shareband', type=str, help='(str) whether to share sfs or not', default='y')
 #     parser.add_argument('--servers_to_crash', type=str, nargs='+', help='(list) list of reliability values',default=[3]) #0.95, 0.975, 0.99
@@ -53,7 +53,7 @@ if __name__ == '__main__':
     #           Usa as variáveis BATCH_* definidas abaixo.
     #           (Ignora --alg, --repetition, --threads)
     #
-    RUN_MODE = 'batch'
+    RUN_MODE = 'single'
     
     # --- Configurações do MODO BATCH (ignoradas se RUN_MODE = 'single') ---
     BATCH_ALGS = ['hephaestusMaskablePPO', 'darsppoMaskablePPO', 'ga', "kuririnMaskablePPO"] # (Lista) Lista de algoritmos
