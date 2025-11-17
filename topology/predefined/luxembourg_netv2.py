@@ -78,7 +78,7 @@ class LuxembourgV2(TopologyBase):
         quantidade_cpu_effi = self.cpu_capacity - quantidade_cpu_eco
         quantidade_cache_effi = self.cache_capacity - quantidade_cache_eco
 
-        boost_effi_factor = 1.2
+        boost_effi_factor = 17
 
         # Adiciona os nós
         net.add_node(0, node_type='router', cpu_capacity=0.0)

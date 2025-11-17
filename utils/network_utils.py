@@ -109,7 +109,7 @@ class EnergyCalculator:
             power_for_node = self._get_power_for_node(graph, node)
             # A lógica customizada para nós específicos foi mantida
             if node % 1 == 0.1:
-                power_for_node *= 1.2
+                power_for_node *= 5.5
             total_power += power_for_node
         return total_power
     
