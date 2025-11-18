@@ -23,7 +23,7 @@ from sb3_contrib.common.maskable.callbacks import MaskableEvalCallback
 # --------------------------------
 
 # --- FLAG DE CONTROLE ADICIONADA ---
-USE_MASKING = False
+USE_MASKING = True
 # -----------------------------------
 
 # ==============================================================================

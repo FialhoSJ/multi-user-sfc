@@ -21,7 +21,7 @@ from stable_baselines3.common.callbacks import EvalCallback
 from sb3_contrib import MaskablePPO
 from sb3_contrib.common.maskable.callbacks import MaskableEvalCallback
 
-USE_MASKING = False
+USE_MASKING = True
 
 # ==============================================================================
 #      FUNÇÃO PARA CARREGAR O AMBIENTE (Seu código original, sem alterações)
