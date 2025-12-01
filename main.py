@@ -47,9 +47,9 @@ def main():
     parser.add_argument('--mobility',  type=str, help='(str) mobility', default='y')
 
     parser.add_argument('--allow_delay', type=str, help='(str) whether to allow delay or not', default='n')
-    parser.add_argument('--backup', type=str, help='(str) whether to allow delay or not', default='n')
-    parser.add_argument('--ava', type=str, help='(str) whether to allow delay or not', default='1.0')
-    parser.add_argument('--number_of_fails', type=str, help='(str) whether to allow delay or not', default='1')
+    parser.add_argument('--backup', type=str, help='(str) whether to allow delay or not', default='y')
+    parser.add_argument('--ava', type=str, help='(str) whether to allow delay or not', default='0.95')
+    parser.add_argument('--number_of_fails', type=str, help='(str) whether to allow delay or not', default='5')
     parser.add_argument('--verbose',   type=str, help='verbose log', default='y')
 
     #Coleta dos parâmetros da simulação
