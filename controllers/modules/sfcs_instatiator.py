@@ -187,7 +187,6 @@ class SFCInstatiator:
             
             # --- INÍCIO DA LÓGICA DE FALLBACK (DRY RUN) ---
             if not alg_success:
-                logging.warn(f"SFC {sfc.id} falhou na alocação. Calculando fallback (dry run) para node 0.")
                 
                 # Criamos um grafo temporário APENAS para o cálculo.
                 # O 'graph' original não será modificado.
