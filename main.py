@@ -3,6 +3,7 @@ def main():
     import argparse
     from controllers.modules.sfcs_manager import SFCManager
     from controllers.modules.sfcs_instatiator import SFCInstatiator
+    from utils.failure_generator import calcular_janelas_falha
 
     from controllers.substrate_network_controller import SubstrateNetworkController
     from datetime import datetime as dt
@@ -46,9 +47,12 @@ def main():
     parser.add_argument('--time',  type=int, help='(int) the total time for the simulation in seconds', default=120)
     parser.add_argument('--mobility',  type=str, help='(str) mobility', default='y')
 
+    parser.add_argument('--allow_delay', type=str, help='(str) whether to allow delay or not', default='n')
+
     parser.add_argument('--backup', type=str, help='(str) whether to allow delay or not', default='s')
-    parser.add_argument('--ava', type=str, help='(str) whether to allow delay or not', default='0.98')
+    parser.add_argument('--ava', type=str, help='(str) whether to allow delay or not', default='0.95')
     parser.add_argument('--number_of_fails', type=str, help='(str) whether to allow delay or not', default='3')
+    parser.add_argument('--min_fail_duration', type=float, help='(float) minimum duration of a failure in seconds', default=5.0)
     parser.add_argument('--verbose',   type=str, help='verbose log', default='y')
 
     #Coleta dos parâmetros da simulação
@@ -72,6 +76,15 @@ def main():
     sfc_poisson_emitter.start(muar_scenario.generate_sfc_session,(None))
 
     ALG = AlgorithmInstantiator().instantiate_algorithm(args.alg)
+
+    # Gera o cronograma de falhas usando a função do utils
+    failure_schedule = calcular_janelas_falha(
+        duracao_simulacao=float(args.n_sessions)*official,
+        num_falhas=int(args.number_of_fails),
+        duracao_minima_falha=args.min_fail_duration,
+        confiabilidade=float(args.ava)
+    )
+    print(f"--- Cronograma de Falhas Agendado (Início, Duração) ---\n{failure_schedule}\n----------------------------------------------------")
     
     network = topology.generate_substrate_network()
     network.verbose = 'y'
@@ -86,7 +99,8 @@ def main():
     sbn_controller.sfc_queue = sfc_queue
     sbn_controller.sfc = args.sfc
     sbn_controller.alg = ALG.name
-    sbn_controller.fail_manager = Crasher(topology=topology,args=args,interval=150)
+    sbn_controller.fail_manager = Crasher(topology=topology, args=args)
+    sbn_controller.failure_schedule = failure_schedule  # Passa o cronograma para o controlador
 
     # sbn_controller.backup_manager = BackupManager(args=args)
     sbn_controller.mobility_manager = MobilityManager(args)

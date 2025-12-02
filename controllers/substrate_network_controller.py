@@ -79,6 +79,8 @@ class SubstrateNetworkController():
         self.timer_qeue_sfcs = []
         self.sfcs_crash_affected = {}
         self.crashs_trials  = 0
+        self.failure_schedule = []
+        self.active_failures = []
 
         # Implementações extras
         self.verbose = False
@@ -316,7 +318,8 @@ class SubstrateNetworkController():
             self.remove_mobile_user(mob_player_id)
         return solution,is_success
 
-    def server_fail_operation(self):
+    def server_fail_operation(self) -> Tuple[List[str], list]:
+        """Triggers a failure and returns the crashed nodes and affected SFCs."""
         servers_failed = self.fail_manager.activate_crasher(self.substrate_network,self.sfc_manager,self.alg)
         self.sfc_manager.crashed_servers = self.fail_manager.nodes_crashed
         print(f"Servidores Crashados: {servers_failed}")
@@ -332,22 +335,10 @@ class SubstrateNetworkController():
                 self.mobility_manager.mark_vehicle_as_redeploying(tracker_id)
                 sfc_list = self.sfc_manager.sfcs_tracker[tracker_id]['sfc_list']
                 self.send_back_to_qeue(sfc_list, changed_location=False)
-            # self.substrate_network.set_node_cache_capacity(server, -0.0000001)
-            # self.substrate_network.set_node_cpu_capacity(server, -0.0000001)
-            # self.substrate_network.set_node_cache_free(server, 0)
-            # self.substrate_network.set_node_cpu_free(server, 0)
-            # for sfc_id in mscs_affected: # Aqui serve para tirarmos as sfcs de backup da análise e também montarmos uam estrutura boa.
-            #     # if self.sfc_manager.is_Backup(sfc):
-            #     #     self.sfc_manager.remove_backup_by_id(sfc,self.substrate_network)
-            #     #     continue
-            #     sfc_list = self.sfc_manager.get_sfc_List(sfc_id,self.substrate_network)
-            #     if sfc_list not in fallen_sfcs_list:
-            #         self.send_back_to_qeue(sfc_list, changed_location=False)
-            #         fallen_sfcs_list.append(sfc_list)  # Inicializa a chave corretamente
         
         for server in servers_failed:
             self.substrate_network.set_node_down(server) 
-        return fallen_sfcs_list
+        return servers_failed, fallen_sfcs_list
    
     def recover_sfcs(self,fallen_sfcs_list):
         pass
@@ -417,10 +408,15 @@ class SubstrateNetworkController():
             
         #     self.timer_qeue_sfcs.append({"new_sfc_list":[sfc],"timer":time.time()})
 
-    def server_recovery_operation(self,interval=200):
-        node = self.fail_manager.nodes_crashed[0]
-        self.substrate_network.restore_node(node,cpu_capacity=100,cache_capacity=100)
-        self.sfc_manager.crashed_servers =  self.fail_manager.recover_from_crash(self.substrate_network)
+    def server_recovery_operation(self, nodes_to_recover: List[str]):
+        """Recovers a specific list of crashed nodes."""
+        for node in nodes_to_recover:
+            if node in self.fail_manager.nodes_crashed:
+                self.substrate_network.restore_node(node, cpu_capacity=100, cache_capacity=100)
+                self.fail_manager.nodes_crashed.remove(node)
+                print(f"Recuperando servidor: {node}")
+        # Atualiza a lista de servidores crashados no sfc_manager
+        self.sfc_manager.crashed_servers = self.fail_manager.nodes_crashed
 
     def check_timer_qeue(self):
         if self.timer_qeue_sfcs:
@@ -493,16 +489,14 @@ class SubstrateNetworkController():
     def initialize_timers(self):
         """Inicializa variáveis de controle e intervalos de tempo."""
         self.mobility_interval = 5
-        self.crasher_interval = self.fail_manager.fail_interval  # 260 segundos
-        self.crashs_trials = 0
-        self.crash_limit = self.fail_manager.number_of_fails
-        self.fail_recovery_time = (1000 - (self.fail_manager.availability) * 1000) * 2
         self.backup_interval_creation = 40 if self.alg in ['msf', 'greedyb'] else 5
         
-        start_timer = time.time()
-        self.last_mobility_time = start_timer
-        self.last_backup_time = start_timer
-        self.last_crasher_time = start_timer
+        self.start_time = time.time()
+        self.last_mobility_time = self.start_time
+        self.last_backup_time = self.start_time
+        
+        # Converte a lista de falhas para uma deque para processamento eficiente
+        self.failure_schedule = deque(self.failure_schedule)
         
         self.iteration_counter = 0
 
@@ -521,25 +515,39 @@ class SubstrateNetworkController():
                 self.last_backup_time = time.time()
 
     def handle_fails(self):
-        """Gerencia a ativação e recuperação de falhas."""
-        current_time = time.time()
-        
-        # Recuperação de nós falhos
-        if self.fail_manager.activated and self.fail_manager.nodes_crashed:
-            if current_time - self.last_crasher_time >= self.fail_recovery_time:
-                self.server_recovery_operation()
-        
-        # Ativação de falhas
-        #Verifica se uma nova falha pode ser ativada.
-        #Exemplo: Limite da falhas e tempo entre falhas
-        should_trigger_fail = (time.time() - self.last_crasher_time >= self.crasher_interval
-                                and self.crashs_trials < self.crash_limit)
-        
-        if self.fail_manager.activated and should_trigger_fail:
-            self.crashs_trials += 1
-            sfcs_affected = self.server_fail_operation()
+        """Gerencia a ativação e recuperação de falhas com base em um cronograma."""
+        if not self.fail_manager.activated:
+            return
+
+        elapsed_time = time.time() - self.start_time
+
+        # 1. Lidar com recuperações
+        # Itera sobre uma cópia, pois podemos modificar a lista original
+        for failure in list(self.active_failures):
+            if elapsed_time >= failure['recovery_time']:
+                self.server_recovery_operation(nodes_to_recover=failure['nodes'])
+                self.active_failures.remove(failure)
+
+        # 2. Lidar com novas falhas
+        # Verifica se há falhas agendadas e se está na hora da próxima
+        if self.failure_schedule and elapsed_time >= self.failure_schedule[0][0]:
+            start_time, duration = self.failure_schedule.popleft()
+            
+            print(f"\n>>> [FALHA] Evento agendado para {start_time:.2f}s com duração de {duration:.2f}s ativado em {elapsed_time:.2f}s.")
+
+            # server_fail_operation agora retorna (nós que falharam, sfcs afetadas)
+            crashed_nodes, sfcs_affected = self.server_fail_operation()
+            
+            # A lógica de recover_sfcs lida com backups, então a mantemos.
             self.recover_sfcs(sfcs_affected)
-            self.last_crasher_time = time.time()
+
+            # Agenda a recuperação para os nós específicos que falharam neste evento
+            if duration > 0: # Apenas agenda recuperação se a duração não for instantânea/zero
+                recovery_time = elapsed_time + duration
+                self.active_failures.append({
+                    'nodes': crashed_nodes,
+                    'recovery_time': recovery_time
+                })
 
     def should_trigger_fail(self):
         """Verifica se uma nova falha pode ser ativada.

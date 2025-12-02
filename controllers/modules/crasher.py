@@ -209,8 +209,35 @@ class Crasher():
             self.nodes_crashed = nodes_to_crash
             return nodes_to_crash
         else:
-            self.nodes_crashed.append(node_choose)
-            return [node_choose]
+            nodes_to_crash = set()
+            if node_choose is not None:
+                all_network_nodes = set(network.graph.nodes())
+                nodes_to_crash.add(node_choose)
+                node_str = str(node_choose)
+
+                try:
+                    if '.1' in node_str:
+                        # Nó de desempenho (ex: 33.1), encontrar o nó base (ex: 33)
+                        base_node = int(node_str.split('.1')[0])
+                        if base_node in all_network_nodes:
+                            nodes_to_crash.add(base_node)
+                    else:
+                        # Nó base (ex: 33), encontrar o nó de desempenho (ex: 33.1)
+                        counterpart_node_str = f"{node_str}.1"
+                        counterpart_node = float(counterpart_node_str)
+                        if counterpart_node in all_network_nodes:
+                            nodes_to_crash.add(counterpart_node)
+                except (ValueError, IndexError):
+                    # Ignora se houver um erro de conversão com um nome de nó inesperado
+                    pass
+            
+            final_nodes_list = list(nodes_to_crash)
+            
+            # Adiciona os nós à lista global de falhas, garantindo unicidade
+            self.nodes_crashed.extend(final_nodes_list)
+            self.nodes_crashed = list(set(self.nodes_crashed))
+
+            return final_nodes_list
 
         ###############################################################
         # # #node_choose = 5
