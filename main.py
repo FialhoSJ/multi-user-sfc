@@ -31,7 +31,7 @@ def main():
     parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='ga')
     parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
     parser.add_argument('--n_players', type=int, help='(int) number of players', default=6)
-    #on: quebrar mais em funçoes
+    #on:  quebrar mais em funçoes
     #off: monolítico
     parser.add_argument('--sfc',   type=str, help='(str) on or off', default='on')
     parser.add_argument('--topology', type=str, help='(str) wich topology ex: luxembourg,small luxembourg ,paloalto', default='luxembourgv2') #luxembourgv2
