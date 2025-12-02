@@ -28,7 +28,7 @@ def main():
     # command line arguments
     parser = argparse.ArgumentParser(description='Select Immersive Service arguments') 
     parser.add_argument('--application', type=str, help='type of application', default='muar')
-    parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='greedyb')
+    parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='ga')
     parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
     parser.add_argument('--n_players', type=int, help='(int) number of players', default=6)
     #on: quebrar mais em funçoes
@@ -46,10 +46,9 @@ def main():
     parser.add_argument('--time',  type=int, help='(int) the total time for the simulation in seconds', default=120)
     parser.add_argument('--mobility',  type=str, help='(str) mobility', default='y')
 
-    parser.add_argument('--allow_delay', type=str, help='(str) whether to allow delay or not', default='n')
-    parser.add_argument('--backup', type=str, help='(str) whether to allow delay or not', default='n')
-    parser.add_argument('--ava', type=str, help='(str) whether to allow delay or not', default='1.0')
-    parser.add_argument('--number_of_fails', type=str, help='(str) whether to allow delay or not', default='1')
+    parser.add_argument('--backup', type=str, help='(str) whether to allow delay or not', default='s')
+    parser.add_argument('--ava', type=str, help='(str) whether to allow delay or not', default='0.98')
+    parser.add_argument('--number_of_fails', type=str, help='(str) whether to allow delay or not', default='3')
     parser.add_argument('--verbose',   type=str, help='verbose log', default='y')
 
     #Coleta dos parâmetros da simulação
