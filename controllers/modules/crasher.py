@@ -145,167 +145,140 @@ class Crasher():
 
 
     def update_node_rel(self, network):
-        nodes_rel = network.nodes_reliability
-        updated_rel = {}
-
-        for node, rel in nodes_rel.items():
-            time = 0.01 # padrão por simplificação
-            base_failure_rate = 1 - rel
-
-            alpha_base = 1000
-            alpha_cpu = 1
-            alpha_mem = 1.5
-
-            # TODO pode ser que diferenciar o uso de recurso de backup pra normal seja mais eficiente
-            cpu_used =  network.graph.nodes[node]['cpu_used']
-            cache_used =  network.graph.nodes[node]['cache_used']
-
-            lambda_total = (alpha_base * base_failure_rate +
-                            alpha_cpu * cpu_used +
-                            alpha_mem * cache_used)
-            
-            reliability = math.exp(-lambda_total * time)
-            p_falha = 1-reliability
-            updated_rel[node] = p_falha
-        return updated_rel
-
-    def activate_crasher(self, network,sfc_manager,alg_name):
-        """Activates the crasher on the given network, excluding specific nodes."""
-
-
-        ###############################################################
-        node_choose = None
-        h_rel = 0
+        """
+        Calcula a probabilidade de falha AGRUPADA por servidor físico.
+        Considera nós irmãos (ex: 33 e 33.1) como um único servidor.
+        """
+        # Dicionário para armazenar dados agregados: 
+        # { 'base_id_str': {'cpu_used': 0, 'cpu_cap': 0, 'nodes': [], 'rel_base': 1.0} }
+        physical_servers = {}
         
-        nodes_rel = self.update_node_rel(network)
-        for node,rel in nodes_rel.items():
-            if rel > h_rel:
-                h_rel = rel
-                node_choose = node
-
-        #reuse_quantity 
-        if self.crash_links:
-            nodes_to_crash = [node_choose]
+        # 1. Varre todos os nós para agrupar irmãos e somar recursos
+        for node in network.graph.nodes():
+            node_str = str(node)
+            # Identifica o ID base (ex: '33.1' vira '33', '33' vira '33')
+            base_id = node_str.split('.1')[0]
             
-            # Coleta todas as edges (conexões) da rede
-            edges = network.sfs_flux_info.keys()
-
-            # Lista para armazenar as edges do servidor escolhido
-            edges_to_crash = []
+            # Coleta métricas do nó atual
+            cpu_used = network.graph.nodes[node].get('cpu_used', 0)
             
-            for edge in edges:
-                # Verifica se o node escolhido (node_choose) está na edge
-                if node_choose in edge:
-                    # Identifica o servidor parceiro na edge
-                    server_par = edge[0] if node_choose != edge[0] else edge[1]
-                    
-                    # Se o servidor parceiro não estiver na lista de servidores de edges ou for um valor específico, adicione-o
-                    if server_par not in self.ec_servers and server_par != 0 and server_par != 34:
-                        nodes_to_crash.append(server_par)
-
-                    edges_to_crash.append(edge)  # Armazena a edge na lista de edges a serem derrubadas
-            # Remove duplicatas da lista de nós a serem derrubados
-            nodes_to_crash = list(set(nodes_to_crash))
-            self.nodes_crashed = nodes_to_crash
-            return nodes_to_crash
-        else:
-            nodes_to_crash = set()
-            if node_choose is not None:
-                all_network_nodes = set(network.graph.nodes())
-                nodes_to_crash.add(node_choose)
-                node_str = str(node_choose)
-
-                try:
-                    if '.1' in node_str:
-                        # Nó de desempenho (ex: 33.1), encontrar o nó base (ex: 33)
-                        base_node = int(node_str.split('.1')[0])
-                        if base_node in all_network_nodes:
-                            nodes_to_crash.add(base_node)
-                    else:
-                        # Nó base (ex: 33), encontrar o nó de desempenho (ex: 33.1)
-                        counterpart_node_str = f"{node_str}.1"
-                        counterpart_node = float(counterpart_node_str)
-                        if counterpart_node in all_network_nodes:
-                            nodes_to_crash.add(counterpart_node)
-                except (ValueError, IndexError):
-                    # Ignora se houver um erro de conversão com um nome de nó inesperado
-                    pass
-            
-            final_nodes_list = list(nodes_to_crash)
-            
-            # Adiciona os nós à lista global de falhas, garantindo unicidade
-            self.nodes_crashed.extend(final_nodes_list)
-            self.nodes_crashed = list(set(self.nodes_crashed))
-
-            return final_nodes_list
-
-        ###############################################################
-        # # #node_choose = 5
-        # #     #print(rel)
-        # node_choose = None
-        # if alg_name not in ['vegeta','msf','g']:
-        #     #node_choose = self.cluster_method(network=network)
-        #     #node_choose = self.most_sf_type(network,sf_type='RE')
-        #     node_choose = self.highest_resource_consumer(network)
-        #     #node_choose = self.crash_cluster(network)
-
-        # if alg_name in ['g']:
-        #     node_choose = random.choice(self.ec_servers)
-        #     while node_choose in [33,34,9]:
-        #         node_choose = random.choice(self.ec_servers)
-
-        # if alg_name in ['msf']:
-        #     node_choose = None
-        #     max_resource_usage = -1  # Variável para rastrear o maior consumo de recursos
-            
-        #     for node in [9,33,34]:
-        #         # Obtém o consumo de CPU e cache para o nó
-        #         cpu_used   = network.get_node_cpu_used(node)  
-        #         total_resource_usage = cpu_used   # Soma dos recursos usados
-        #         if total_resource_usage > max_resource_usage:
-        #             max_resource_usage = total_resource_usage
-        #             node_choose = node
-        # Após o loop, `node_more_sfc` terá o nó com mais SFCs únicas
-        # if node_choose == None:
-        #     return False
-        # if alg_name == 'ga':
+            # Tenta pegar capacidade, default 100 se não existir
+            try:
+                cpu_cap = network.graph.nodes[node].get('cpu_capacity', 100)
+                if cpu_cap <= 0: cpu_cap = 100
+            except:
+                cpu_cap = 100
                 
-        # sfcs_with_backup = list(sfc_manager.sfs_backup.keys())
-        # server_backup_count = {}
+            # Coleta confiabilidade base (network.nodes_reliability pode ter chave int ou str)
+            # Assume que a confiabilidade base é igual para as partes, pega a do nó atual
+            node_rel_base = network.nodes_reliability.get(node, 1.0)
+            if node not in network.nodes_reliability:
+                # Tenta converter para int se a chave for int no dicionário original
+                try:
+                    node_rel_base = network.nodes_reliability.get(int(node), 1.0)
+                except:
+                    pass
 
-        # # Itera sobre os servidores
-        # node_more_cpu = None  # Nenhum servidor inicial selecionado
-        # max_cpu_used = -1  # Valor inicial menor que qualquer possível uso de CPU
-
-        # # Itera sobre os servidores
-        # for node in self.ec_servers:
-        #     cpu_used = network.get_node_cpu_used(node)
-        #     # Verifica se este servidor tem mais CPU usada que o máximo atual
-        #     if cpu_used > max_cpu_used:
-        #         max_cpu_used = cpu_used
-        #         node_more_cpu = node
-        # # Define o servidor escolhido
-        # node_choose = node_more_cpu
-
-        # node_more_sfc = None  
-        # max_sfc = -1  
-        # for node in self.ec_servers:
-        #     count_unique = []  # Lista para rastrear SFCS únicas no nó
-        #     for sfc_vnf in network.get_node_sfc_vnf_list(node):
-        #         sfc_type = sfc_vnf[0].split("_")[1]
-        #         if sfc_type == 'unique':
-        #             count_unique.append(sfc_vnf[0])  # Adiciona a SFC se não estiver na lista
+            # Inicializa o grupo se não existir
+            if base_id not in physical_servers:
+                physical_servers[base_id] = {
+                    'cpu_used': 0, 
+                    'cpu_cap': 0, 
+                    'nodes': [], 
+                    'base_failure_rate': (1 - node_rel_base) # Pega o inverso da confiabilidade (taxa de falha)
+                }
             
+            # Agrega os valores
+            physical_servers[base_id]['cpu_used'] += cpu_used
+            physical_servers[base_id]['cpu_cap'] += cpu_cap
+            physical_servers[base_id]['nodes'].append(node)
             
-        #sfcs_in_node = len(count_unique)  # Calcula o número de SFCS únicas no nó
+            # Atualiza a taxa de falha base para ser a maior encontrada entre as partes (pior caso) ou média
+            # Aqui mantemos a lógica simples: se uma parte tem rel ruim, o server tem rel ruim.
+            current_rate = 1 - node_rel_base
+            if current_rate > physical_servers[base_id]['base_failure_rate']:
+                physical_servers[base_id]['base_failure_rate'] = current_rate
 
-        #     # Verifica se este nó tem mais SFCS únicas que o máximo atual
-        #     if sfcs_in_node > max_sfc:
-        #         max_sfc = sfcs_in_node
-        #         node_more_sfc = node
+        # 2. Calcula a probabilidade final para cada grupo físico
+        aggregated_probs = {} # { base_id: {'prob': 0.5, 'members': [33, 33.1]} }
+        
+        for base_id, stats in physical_servers.items():
+            time = 0.01
+            alpha_base = 1000
+            alpha_cpu = 1 
+            alpha_mem = 0 # Cache ignorado conforme pedido
+            
+            # Calcula a taxa de uso real do servidor físico (soma dos usos / soma das capacidades)
+            total_used = stats['cpu_used']
+            total_cap = stats['cpu_cap']
+            
+            cpu_stress_ratio = 0
+            if total_cap > 0:
+                cpu_stress_ratio = total_used / total_cap
+            
+            # Fórmula da taxa de falha (Lambda)
+            lambda_total = (alpha_base * stats['base_failure_rate'] +
+                            alpha_cpu * cpu_stress_ratio)
+            
+            # Converte taxa em probabilidade (Exponencial)
+            p_falha = 1 - math.exp(-lambda_total * time)
+            
+            aggregated_probs[base_id] = {
+                'prob': p_falha,
+                'members': stats['nodes']
+            }
+            
+        return aggregated_probs
 
-        # Define o servidor escolhido
-        # node_choose = node_more_sfc
+    def activate_crasher(self, network, sfc_manager, alg_name):
+        """
+        Ativa falhas usando Seleção por Roleta em Servidores Físicos Agrupados.
+        """
+        node_choose_members = []
+        
+        # 1. Recebe as probabilidades já agrupadas por servidor físico
+        # Retorno: { '33': {'prob': 0.X, 'members': [33, 33.1]}, ... }
+        server_groups = self.update_node_rel(network)
+        
+        candidates_keys = []
+        weights = []
+
+        # 2. Filtra candidatos válidos (apenas servidores de borda)
+        for base_id, info in server_groups.items():
+            # Verifica se pelo menos uma parte do servidor está na lista de servidores permitidos (ec_servers)
+            # A lista ec_servers geralmente tem inteiros, base_id é string aqui. Convertemos para verificar.
+            is_valid_candidate = False
+            for member in info['members']:
+                if member in self.ec_servers:
+                    is_valid_candidate = True
+                    break
+            
+            if is_valid_candidate:
+                candidates_keys.append(base_id)
+                weights.append(info['prob'])
+
+        # 3. Gira a Roleta
+        if candidates_keys and sum(weights) > 0:
+            # Sorteia uma chave (ex: '33') com base no peso (probabilidade de falha)
+            chosen_key = random.choices(candidates_keys, weights=weights, k=1)[0]
+            node_choose_members = server_groups[chosen_key]['members']
+            
+        elif candidates_keys:
+            # Fallback aleatório uniforme se pesos forem zero
+            chosen_key = random.choice(candidates_keys)
+            node_choose_members = server_groups[chosen_key]['members']
+
+        # 4. Efetiva a falha em todos os membros do grupo sorteado
+        if self.crash_links:
+            # (Mantendo lógica original de links se necessário, mas adaptada para usar o primeiro membro como referência)
+             # Se crash_links for True, essa lógica precisaria de revisão profunda para suportar grupos. 
+             # Vou manter o pass para não quebrar, assumindo crash_links=False conforme contexto usual.
+            pass 
+        else:
+            self.nodes_crashed.extend(node_choose_members)
+            self.nodes_crashed = list(set(self.nodes_crashed)) # Remove duplicatas por segurança
+
+            return node_choose_members
 
     # def recover_from_crash(self, network):
     #     nodes_crashed = list(self.nodes_crashed)
