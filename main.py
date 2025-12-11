@@ -29,7 +29,7 @@ def main():
     # command line arguments
     parser = argparse.ArgumentParser(description='Select Immersive Service arguments') 
     parser.add_argument('--application', type=str, help='type of application', default='muar')
-    parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='ga')
+    parser.add_argument('--alg',   type=str, help='(str) algorithm name', default='greedyb')
     parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
     parser.add_argument('--n_players', type=int, help='(int) number of players', default=6)
     #on:  quebrar mais em funçoes
@@ -51,8 +51,8 @@ def main():
 
     parser.add_argument('--backup', type=str, help='(str) whether to allow delay or not', default='s')
     parser.add_argument('--ava', type=str, help='(str) whether to allow delay or not', default='0.95')
-    parser.add_argument('--number_of_fails', type=str, help='(str) whether to allow delay or not', default='3')
-    parser.add_argument('--min_fail_duration', type=float, help='(float) minimum duration of a failure in seconds', default=5.0)
+    parser.add_argument('--number_of_fails', type=str, help='(str) whether to allow delay or not', default='5')
+    parser.add_argument('--min_fail_duration', type=float, help='(float) minimum duration of a failure in seconds', default=10)
     parser.add_argument('--verbose',   type=str, help='verbose log', default='y')
 
     #Coleta dos parâmetros da simulação
@@ -77,14 +77,43 @@ def main():
 
     ALG = AlgorithmInstantiator().instantiate_algorithm(args.alg)
 
-    # Gera o cronograma de falhas usando a função do utils
-    failure_schedule = calcular_janelas_falha(
+    # 1. Gera cronograma para NÓS (Servidores)
+    raw_node_schedule = calcular_janelas_falha(
         duracao_simulacao=float(args.n_sessions)*official,
         num_falhas=int(args.number_of_fails),
         duracao_minima_falha=args.min_fail_duration,
         confiabilidade=float(args.ava)
     )
-    print(f"--- Cronograma de Falhas Agendado (Início, Duração) ---\n{failure_schedule}\n----------------------------------------------------")
+
+    raw_link_schedule = calcular_janelas_falha(
+        duracao_simulacao=float(args.n_sessions)*official,
+        num_falhas=int(args.number_of_link_fails),     # Novo parametro
+        duracao_minima_falha=args.min_link_fail_duration, # Novo parametro
+        confiabilidade=float(args.link_ava)            # Novo parametro
+    )
+    # print(f"--- Cronograma de Falhas Agendado (Início, Duração) ---\n{failure_schedule}\n----------------------------------------------------")
+
+    # 3. Unifica e "Etiqueta" os eventos
+    full_failure_schedule = []
+
+    # Adiciona nós com a etiqueta 'node'
+    for start, duration in raw_node_schedule:
+        full_failure_schedule.append({
+            'type': 'node', 
+            'start': start, 
+            'duration': duration
+        })
+
+    # Adiciona links com a etiqueta 'link'
+    for start, duration in raw_link_schedule:
+        full_failure_schedule.append({
+            'type': 'link', 
+            'start': start, 
+            'duration': duration
+        })
+
+    # 4. Ordena tudo cronologicamente (importante para o popleft funcionar certo)
+    full_failure_schedule.sort(key=lambda x: x['start'])
     
     network = topology.generate_substrate_network()
     network.verbose = 'y'
@@ -95,7 +124,7 @@ def main():
     else: 
         sbn_controller = SubstrateNetworkController() # runs sequential    
 
-    sbn_controller.substrate_network = network
+    sbn_controller.substrate_network = network 
     sbn_controller.sfc_queue = sfc_queue
     sbn_controller.sfc = args.sfc
     sbn_controller.alg = ALG.name
