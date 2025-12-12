@@ -48,11 +48,11 @@ ch.setFormatter(formatter)
 # add ch to logger
 logger.addHandler(ch)
 # 'application' code
-logger.debug('debug message')
-logger.info('info message')
-logger.warn('warn message')
-logger.error('error message')
-logger.critical('critical message')
+# logger.debug('debug message')
+# logger.info('info message')
+# logger.warn('warn message')
+# logger.error('error message')
+# logger.critical('critical message')
 
 class SubstrateNetworkController():
     def __init__(self):
@@ -412,7 +412,9 @@ class SubstrateNetworkController():
         """Recovers a specific list of crashed nodes."""
         for node in nodes_to_recover:
             if node in self.fail_manager.nodes_crashed:
-                self.substrate_network.restore_node(node, cpu_capacity=100, cache_capacity=100)
+                # --- CORREÇÃO AQUI ---
+                self.substrate_network.restore_node(node)
+                # ---------------------
                 self.fail_manager.nodes_crashed.remove(node)
                 print(f"Recuperando servidor: {node}")
         # Atualiza a lista de servidores crashados no sfc_manager
@@ -515,39 +517,79 @@ class SubstrateNetworkController():
                 self.last_backup_time = time.time()
 
     def handle_fails(self):
-        """Gerencia a ativação e recuperação de falhas com base em um cronograma."""
+        """Gerencia a ativação e recuperação de falhas (Nós e Links) com base no cronograma."""
         if not self.fail_manager.activated:
             return
 
         elapsed_time = time.time() - self.start_time
 
-        # 1. Lidar com recuperações
-        # Itera sobre uma cópia, pois podemos modificar a lista original
+        # -------------------------------------------------
+        # 1. Lidar com recuperações pendentes (Nós e Links)
+        # -------------------------------------------------
+        # Itera sobre uma cópia (list(...)), pois podemos remover itens da lista original durante o loop
         for failure in list(self.active_failures):
             if elapsed_time >= failure['recovery_time']:
-                self.server_recovery_operation(nodes_to_recover=failure['nodes'])
+                
+                # --- Recuperação de Nó ---
+                if failure.get('type') == 'node':
+                    # Suporta chave 'nodes' (legado) ou 'target'
+                    nodes_to_recover = failure.get('nodes', failure.get('target'))
+                    self.server_recovery_operation(nodes_to_recover=nodes_to_recover)
+                
+                # --- Recuperação de Link ---
+                elif failure.get('type') == 'link':
+                    self.link_recovery_operation(link_tuple=failure['target'])
+                
+                # Remove da lista de falhas ativas após recuperar
                 self.active_failures.remove(failure)
 
-        # 2. Lidar com novas falhas
-        # Verifica se há falhas agendadas e se está na hora da próxima
-        if self.failure_schedule and elapsed_time >= self.failure_schedule[0][0]:
-            start_time, duration = self.failure_schedule.popleft()
+        # -------------------------------------------------
+        # 2. Lidar com novas falhas agendadas
+        # -------------------------------------------------
+        if self.failure_schedule and elapsed_time >= self.failure_schedule[0]['start']:
+            event = self.failure_schedule.popleft()
             
-            print(f"\n>>> [FALHA] Evento agendado para {start_time:.2f}s com duração de {duration:.2f}s ativado em {elapsed_time:.2f}s.")
+            # === Tipo: NÓ (Server) ===
+            if event['type'] == 'node':
+                start_time = event['start']
+                duration = event['duration']
+                
+                print(f"\n>>> [EVENTO] Falha de NÓ agendada para {start_time:.2f}s (Duração: {duration:.2f}s).")
 
-            # server_fail_operation agora retorna (nós que falharam, sfcs afetadas)
-            crashed_nodes, sfcs_affected = self.server_fail_operation()
+                # Executa a lógica de falha de servidor (Roleta de servidores)
+                crashed_nodes, sfcs_affected = self.server_fail_operation()
+                
+                # Tenta recuperar/logar SFCs afetadas (específico para lógica de nós/backup)
+                self.recover_sfcs(sfcs_affected)
+
+                # Agenda a recuperação apenas se a duração for positiva
+                if duration > 0 and crashed_nodes: 
+                    recovery_time = elapsed_time + duration
+                    self.active_failures.append({
+                        'type': 'node',
+                        'nodes': crashed_nodes,   # Mantém compatibilidade
+                        'target': crashed_nodes,  # Padrão novo
+                        'recovery_time': recovery_time
+                    })
             
-            # A lógica de recover_sfcs lida com backups, então a mantemos.
-            self.recover_sfcs(sfcs_affected)
-
-            # Agenda a recuperação para os nós específicos que falharam neste evento
-            if duration > 0: # Apenas agenda recuperação se a duração não for instantânea/zero
-                recovery_time = elapsed_time + duration
-                self.active_failures.append({
-                    'nodes': crashed_nodes,
-                    'recovery_time': recovery_time
-                })
+            # === Tipo: LINK ===
+            elif event['type'] == 'link':
+                start_time = event['start']
+                duration = event['duration']
+                
+                print(f"\n>>> [EVENTO] Falha de LINK agendada para {start_time:.2f}s (Duração: {duration:.2f}s).")
+                
+                # Executa a lógica de falha de link (Roleta de links)
+                link_crashed, _ = self.link_fail_operation()
+                
+                # Agenda a recuperação apenas se um link foi derrubado e duração > 0
+                if link_crashed and duration > 0:
+                    recovery_time = elapsed_time + duration
+                    self.active_failures.append({
+                        'type': 'link',
+                        'target': link_crashed, # Tupla (u, v)
+                        'recovery_time': recovery_time
+                    })
 
     def should_trigger_fail(self):
         """Verifica se uma nova falha pode ser ativada.
@@ -605,3 +647,73 @@ class SubstrateNetworkController():
                 self.output_results(sfc_id=sfc_id,results_dict=result_dict,
                                     is_success=is_success, wait_time=wait_time)    
         return processed_sfcs
+    
+
+    def link_fail_operation(self):
+        """Executa o ciclo de vida de uma falha de link."""
+        
+        # 1. Roleta: Escolhe qual link falhar baseado no stress
+        link_failed = self.fail_manager.activate_link_crasher(self.substrate_network)
+        
+        if not link_failed:
+            print(">>> [CRASHER] Nenhum link disponível para falhar (Roleta vazia).")
+            return None, []
+
+        u, v = link_failed
+        print(f">>> [CRASHER] Link Sorteado na Roleta: {u} <-> {v}")
+
+        # 2. Identifica SFCs afetadas (quem passa por esse link?)
+        affected_sfcs = []
+        # Itera sobre o routing info de todas as SFCs
+        for sfc_id, routing_info in self.sfc_manager.sfcs_routing_info.items():
+            path_broken = False
+            for vnf, path in routing_info.items():
+                if vnf in ['src', 'dst'] or not path: 
+                    continue
+                
+                # Verifica se o par {u, v} está contido em algum segmento do caminho
+                for i in range(len(path) - 1):
+                    node_a, node_b = path[i], path[i+1]
+                    # Verifica se é o link crashado (independente da ordem)
+                    if {node_a, node_b} == {u, v}:
+                        path_broken = True
+                        break
+                if path_broken:
+                    break
+            
+            if path_broken:
+                affected_sfcs.append(sfc_id)
+
+        # 3. Derruba o link na topologia
+        self.substrate_network.set_link_down(u, v)
+
+        # 4. Trata as SFCs afetadas (Reenfileira para re-roteamento)
+        fallen_sfcs_objects = []
+        
+        # Agrupa por Session/Group ID para usar a lógica de tracker existente
+        affected_groups = set()
+        for sfc_id in affected_sfcs:
+            try:
+                # Assume que sfc_id existe no tracking. Se não, ignora.
+                sfc_obj = self.substrate_network.get_sfc_by_id(sfc_id)
+                affected_groups.add(sfc_obj.dst_node)
+            except:
+                pass
+
+        for group_id in affected_groups:
+            if group_id in self.sfc_manager.sfcs_tracker:
+                self.mobility_manager.mark_vehicle_as_redeploying(group_id)
+                sfc_list = self.sfc_manager.sfcs_tracker[group_id]['sfc_list']
+                
+                # Envia de volta para a fila. 
+                # Como o link está com latência INFINITA, o algoritmo buscará outra rota.
+                self.send_back_to_qeue(sfc_list, changed_location=False)
+                fallen_sfcs_objects.extend(sfc_list)
+
+        return link_failed, fallen_sfcs_objects
+    
+    def link_recovery_operation(self, link_tuple):
+        """Recupera o link físico."""
+        u, v = link_tuple
+        self.substrate_network.restore_link(u, v)
+        print(f">>> [RECOVERY] Link Restaurado: {u} <-> {v}")

@@ -8,7 +8,7 @@ class Crasher():
     
     def __init__(self,topology,args,interval=200,time=30):
         self.time = time
-        self.activated = (float(args.ava) != 1.0)
+        self.activated = (float(args.ava) != 1.0 or float(args.link_ava) != 1.0)
         self.number_of_fails = 0 if not (float(args.ava) != 1.0) else int(args.number_of_fails)
         self.availability = float(args.ava)
         self.ec_servers = topology.get_topology_info()['ec_servers']
@@ -300,32 +300,126 @@ class Crasher():
             self.nodes_crashed.remove(server)  # Remove o servidor recuperado da lista
         return self.nodes_crashed
     
-    
-    
-    
-    def implement_crash(self, nodes_crashed, network,players_sfc_list):
-        if len(nodes_crashed) != 0: 
-            print(f"Servidores Crashados: {nodes_crashed}")
-            sfc_ids = []
 
-            for server in nodes_crashed:
-                server_info = network.get_node_sfc_vnf_list(server)
-                network.set_node_cache_capacity(server, -0.0000001)
-                network.set_node_cpu_capacity(server, -0.0000001)
+    # Adicione na classe Crasher em crasher.py
+
+    # Adicione/Substitua métodos na classe Crasher
+
+    def calculate_link_probabilities(self, network):
+        """
+        Calcula a probabilidade de falha para cada link válido baseada no congestionamento.
+        CRITÉRIO ATUALIZADO: Apenas links entre roteadores.
+        Ignora links entre nós irmãos (ex: 33 e 33.1).
+        """
+        link_probs = {} # Key: (u, v), Value: probabilidade
+        
+        # Parâmetros da Roleta
+        time_factor = 0.01
+        alpha_base = 100   # Peso da falha natural/física
+        alpha_bw = 5000    # Peso do estresse de banda
+        base_failure_rate = 0.0001 
+
+        for u, v in network.graph.edges():
+            # 1. Filtro: Ignorar Mobile (Proteção para grafos mistos, se houver)
+            if 'mobile' in str(u) or 'mobile' in str(v):
+                continue
+            
+            # ---------------------------------------------------------
+            # 2. NOVO FILTRO: Apenas Roteadores (Router <-> Router)
+            # ---------------------------------------------------------
+            # Obtém o tipo do nó no grafo (definido em net_v2.py)
+            type_u = network.graph.nodes[u].get('type')
+            type_v = network.graph.nodes[v].get('type')
+
+            # Se qualquer um dos dois NÃO for roteador (ex: for server ou user), ignora o link.
+
+            if type_u != 'server' or type_v != 'server':
+                continue
+
+            # 3. Filtro: Ignorar Irmãos (Lógica Mantida conforme solicitado)
+            # Isso previne falhas em links lógicos internos, caso existam entre roteadores no futuro
+            base_u = str(u).split('.')[0]
+            base_v = str(v).split('.')[0]
+            if base_u == base_v:
+                continue
+
+            # 4. Coleta de Métricas
+            edge_data = network.graph.edges[u, v]
+            bw_used = edge_data.get('bandwidth_used', 0)
+            bw_cap = edge_data.get('bandwidth_capacity', 1000)
+            
+            if bw_cap <= 0: bw_cap = 1 
+            
+            bw_stress_ratio = bw_used / bw_cap
+
+            # 5. Cálculo do Lambda (Taxa de Falha)
+            lambda_total = (alpha_base * base_failure_rate) + (alpha_bw * bw_stress_ratio)
+
+            # 6. Converte para Probabilidade (Distribuição Exponencial)
+            p_falha = 1 - math.exp(-lambda_total * time_factor)
+            
+            # Ordena a tupla para garantir chave consistente
+            link_key = tuple(sorted((u, v)))
+            link_probs[link_key] = p_falha
+
+        return link_probs
+
+    def activate_link_crasher(self, network):
+        """
+        Seleciona um link para falhar usando Roleta Ponderada (Weighted Roulette).
+        """
+        # 1. Obtém as probabilidades calculadas
+        link_probabilities = self.calculate_link_probabilities(network)
+        
+        candidates = list(link_probabilities.keys())
+        weights = list(link_probabilities.values())
+
+        chosen_link = None
+
+        # 2. Gira a Roleta
+        if candidates and sum(weights) > 0:
+            # Sorteia com base no peso (quem tem mais banda usada, tem mais chance de cair)
+            chosen_list = random.choices(candidates, weights=weights, k=1)
+            chosen_link = chosen_list[0]
+            
+        elif candidates:
+            # Fallback se todos os pesos forem zero (rede vazia)
+            chosen_link = random.choice(candidates)
+
+        if chosen_link:
+             # Registra quem caiu (opcional, para controle interno)
+            if not hasattr(self, 'links_crashed_history'):
+                self.links_crashed_history = []
+            self.links_crashed_history.append(chosen_link)
+
+        return chosen_link
+    
+    
+    
+    
+    # def implement_crash(self, nodes_crashed, network,players_sfc_list):
+    #     if len(nodes_crashed) != 0: 
+    #         print(f"Servidores Crashados: {nodes_crashed}")
+    #         sfc_ids = []
+
+    #         for server in nodes_crashed:
+    #             server_info = network.get_node_sfc_vnf_list(server)
+    #             network.set_node_cache_capacity(server, -0.0000001)
+    #             network.set_node_cpu_capacity(server, -0.0000001)
                 
-                if server_info != []:
-                    # Extrai os sfc_ids
-                    sfc_ids = list(set([sfc[0] for sfc in server_info]))
-            sfcs_list = []
-            for sfc_id in sfc_ids:
-                new_sfc_list = self.find_sfc_pair_or_list(players_sfc_list,sfc_id)
-                sfcs_list.append(new_sfc_list)
-            unique_lists = [list(t) for t in set(tuple(sublist) for sublist in sfcs_list)]
-            return unique_lists
+    #             if server_info != []:
+    #                 # Extrai os sfc_ids
+    #                 sfc_ids = list(set([sfc[0] for sfc in server_info]))
+    #         sfcs_list = []
+    #         for sfc_id in sfc_ids:
+    #             new_sfc_list = self.find_sfc_pair_or_list(players_sfc_list,sfc_id)
+    #             sfcs_list.append(new_sfc_list)
+    #         unique_lists = [list(t) for t in set(tuple(sublist) for sublist in sfcs_list)]
+    #         return unique_lists
 
 
-    def find_sfc_pair_or_list(self,player_sfc_id_list, sfc_key):
-        for sfc_list in player_sfc_id_list:
-            if sfc_key in sfc_list:
-                return sfc_list  # Retorna a lista onde a chave está presente
-        return None  # Retorna None se a chave não for encontrada
+    # def find_sfc_pair_or_list(self,player_sfc_id_list, sfc_key):
+    #     for sfc_list in player_sfc_id_list:
+    #         if sfc_key in sfc_list:
+    #             return sfc_list  # Retorna a lista onde a chave está presente
+    #     return None  # Retorna None se a chave não for encontrada

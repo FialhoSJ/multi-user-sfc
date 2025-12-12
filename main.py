@@ -50,9 +50,15 @@ def main():
     parser.add_argument('--allow_delay', type=str, help='(str) whether to allow delay or not', default='n')
 
     parser.add_argument('--backup', type=str, help='(str) whether to allow delay or not', default='s')
-    parser.add_argument('--ava', type=str, help='(str) whether to allow delay or not', default='0.95')
-    parser.add_argument('--number_of_fails', type=str, help='(str) whether to allow delay or not', default='5')
-    parser.add_argument('--min_fail_duration', type=float, help='(float) minimum duration of a failure in seconds', default=10)
+    # Argumentos para Falha de Servidores (NÓS) - Já existem, mantive para referência
+    parser.add_argument('--ava', type=str, help='Node availability (0.0 to 1.0)', default='1.0')
+    parser.add_argument('--number_of_fails', type=str, help='Number of node failures', default='0')
+    parser.add_argument('--min_fail_duration', type=float, help='Min duration of node failure', default=200)
+
+    # --- NOVO: Argumentos para Falha de Links ---
+    parser.add_argument('--link_ava', type=str, help='Link availability (0.0 to 1.0)', default='0.95')
+    parser.add_argument('--number_of_link_fails', type=str, help='Number of link failures', default='100')
+    parser.add_argument('--min_link_fail_duration', type=float, help='Min duration of link failure', default=10)    
     parser.add_argument('--verbose',   type=str, help='verbose log', default='y')
 
     #Coleta dos parâmetros da simulação
@@ -85,13 +91,17 @@ def main():
         confiabilidade=float(args.ava)
     )
 
+    # --- NOVO: Gera cronograma para LINKS ---
     raw_link_schedule = calcular_janelas_falha(
         duracao_simulacao=float(args.n_sessions)*official,
-        num_falhas=int(args.number_of_link_fails),     # Novo parametro
-        duracao_minima_falha=args.min_link_fail_duration, # Novo parametro
-        confiabilidade=float(args.link_ava)            # Novo parametro
+        num_falhas=int(args.number_of_link_fails),
+        duracao_minima_falha=args.min_link_fail_duration,
+        confiabilidade=float(args.link_ava)
     )
-    # print(f"--- Cronograma de Falhas Agendado (Início, Duração) ---\n{failure_schedule}\n----------------------------------------------------")
+
+    print(f"--- Cronograma NÓS: {len(raw_node_schedule)} falhas ---")
+    print(f"--- Cronograma LINKS: {len(raw_link_schedule)} falhas ---")
+
 
     # 3. Unifica e "Etiqueta" os eventos
     full_failure_schedule = []
@@ -101,19 +111,23 @@ def main():
         full_failure_schedule.append({
             'type': 'node', 
             'start': start, 
-            'duration': duration
+            'duration': duration,
+            # 'nodes': ... (será decidido na hora pelo crasher)
         })
 
-    # Adiciona links com a etiqueta 'link'
+    # --- NOVO: Adiciona links com a etiqueta 'link' ---
     for start, duration in raw_link_schedule:
         full_failure_schedule.append({
-            'type': 'link', 
-            'start': start, 
+            'type': 'link',
+            'start': start,
             'duration': duration
+            # 'target': ... (será decidido na hora pelo crasher)
         })
 
-    # 4. Ordena tudo cronologicamente (importante para o popleft funcionar certo)
+    # 4. Ordena tudo cronologicamente (CRUCIAL para o popleft funcionar)
     full_failure_schedule.sort(key=lambda x: x['start'])
+
+
     
     network = topology.generate_substrate_network()
     network.verbose = 'y'
@@ -129,7 +143,7 @@ def main():
     sbn_controller.sfc = args.sfc
     sbn_controller.alg = ALG.name
     sbn_controller.fail_manager = Crasher(topology=topology, args=args)
-    sbn_controller.failure_schedule = failure_schedule  # Passa o cronograma para o controlador
+    sbn_controller.failure_schedule = full_failure_schedule  # Passa o cronograma para o controlador
 
     # sbn_controller.backup_manager = BackupManager(args=args)
     sbn_controller.mobility_manager = MobilityManager(args)

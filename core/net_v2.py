@@ -705,18 +705,46 @@ class Net2:
         if node_id not in self.graph:
             raise ValueError(f"Nó {node_id} não existe na topologia.")
         
-        self.graph.nodes[node_id]['cpu_capacity'] = 0
-        self.graph.nodes[node_id]['cache_capacity'] = 0
+        # --- CORREÇÃO: Salva a capacidade original antes de zerar ---
+        node = self.graph.nodes[node_id]
+        
+        # Salva apenas se ainda não tiver salvo (para evitar sobrescrever com 0 em chamadas duplicadas)
+        if 'original_cpu_capacity' not in node:
+            node['original_cpu_capacity'] = node.get('cpu_capacity', 0)
+            node['original_cache_capacity'] = node.get('cache_capacity', 0)
 
-        if self.graph.nodes[node_id]['cpu_used'] > 0 or self.graph.nodes[node_id]['cache_used'] > 0 :
-            raise ValueError("Servidor deveria estar com zero de uso")
+        # Zera a capacidade atual (Simula a falha)
+        node['cpu_capacity'] = 0
+        node['cache_capacity'] = 0
 
-    def restore_node(self, node_id, cpu_capacity, cache_capacity):
+        # Verificação de segurança existente
+        if node['cpu_used'] > 0 or node['cache_used'] > 0 :
+            # Nota: Em simulações complexas, você pode querer forçar cpu_used = 0 aqui também,
+            # mas manteremos o raise original para alertar sobre desalocação incorreta.
+            raise ValueError("Servidor deveria estar com zero de uso antes do crash")
+
+    def restore_node(self, node_id, cpu_capacity=None, cache_capacity=None):
+        """
+        Restaura o nó. Se cpu_capacity/cache_capacity não forem passados,
+        tenta recuperar os valores originais salvos antes do crash.
+        """
         if node_id not in self.graph:
             raise ValueError(f"Nó {node_id} não existe na topologia.")
 
-        self.graph.nodes[node_id]['cpu_capacity'] = cpu_capacity
-        self.graph.nodes[node_id]['cache_capacity'] = cache_capacity
+        node = self.graph.nodes[node_id]
+
+        # --- CORREÇÃO: Recupera os valores originais ---
+        # Prioridade: 1. Argumento passado -> 2. Valor Salvo -> 3. Padrão 100
+        
+        restored_cpu = cpu_capacity if cpu_capacity is not None else node.get('original_cpu_capacity', 100)
+        restored_cache = cache_capacity if cache_capacity is not None else node.get('original_cache_capacity', 100)
+
+        node['cpu_capacity'] = restored_cpu
+        node['cache_capacity'] = restored_cache
+        
+        # Limpa as chaves temporárias para manter o dicionário limpo (opcional)
+        node.pop('original_cpu_capacity', None)
+        node.pop('original_cache_capacity', None)
 
 
     def get_node_cpu_used(self, node_id):
@@ -1174,6 +1202,44 @@ class Net2:
         # Converte o ID para string para uma verificação segura
         id_str = str(node_id)
         return id_str.endswith(".1")
+    
+
+    # Adicione na classe Net2
+
+    def set_link_down(self, u, v):
+        """Simula a falha física do link: Banda 0 e Latência Infinita."""
+        if not self.graph.has_edge(u, v):
+            # Tenta ordem inversa caso seja grafo direcionado mal formatado, 
+            # mas nx.Graph é não-direcionado, então a ordem não importa.
+            raise ValueError(f"Link {u}-{v} não encontrado.")
+
+        edge = self.graph.edges[u, v]
+
+        # Salva o estado original (apenas na primeira vez que cai)
+        if 'original_bw' not in edge:
+            edge['original_bw'] = edge.get('bandwidth_capacity', 1000.0)
+            edge['original_lat'] = edge.get('latency', 1.0)
+        
+        # Derruba
+        edge['bandwidth_capacity'] = 0.0
+        # edge['bandwidth_used'] = 0.0 # Opcional: forçar limpeza ou deixar o controller lidar
+        edge['latency'] = float('inf') # Latência infinita evita que o Dijkstra escolha este caminho
+
+    def restore_link(self, u, v):
+        """Restaura o link aos valores originais."""
+        if not self.graph.has_edge(u, v):
+            return
+
+        edge = self.graph.edges[u, v]
+        
+        # Recupera valores salvos
+        if 'original_bw' in edge:
+            edge['bandwidth_capacity'] = edge['original_bw']
+            edge['latency'] = edge['original_lat']
+            
+            # Limpa as chaves de backup para permitir novo crash limpo no futuro
+            del edge['original_bw']
+            del edge['original_lat']
 
 # Teste das funcionalidades com banda e latência
 if __name__ == '__main__':
