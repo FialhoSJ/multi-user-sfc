@@ -36,7 +36,7 @@ def calcular_janelas_falha(
     
     # 1. Validações de Guarda (Fail Fast)
     if num_falhas <= 0:
-        logger.warning("Solicitado 0 falhas. Retornando lista vazia.")
+        # logger.warning("Solicitado 0 falhas. Retornando lista vazia.")
         return []
     
     if not (0.0 <= confiabilidade <= 1.0):
