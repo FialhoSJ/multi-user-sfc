@@ -2,6 +2,7 @@ from .node import Node
 class SubstrateNode(Node):
     def __init__(self, id):
         self.id = id
+        self.is_active = True
         self.cpu_capacity = None
         self.cpu_used = 0
         self.cpu_free = 0
@@ -23,6 +24,9 @@ class SubstrateNode(Node):
 
     def get_id(self):
         return self.id
+    
+    def is_up(self):
+        return self.is_active
 
     def set_cpu_capacity(self, cpu_capacity):
         """Set up CPU capacity for this substrate network node.

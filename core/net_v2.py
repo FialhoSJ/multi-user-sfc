@@ -63,7 +63,8 @@ class Net2:
                                 reuse=[],
                                 services={},
                                 sfcs_list=[],
-                                level_server = node_level)
+                                level_server = node_level,
+                                is_active = True)
         elif node_type == 'mobile_device': # Grafo separado
 
             # Esse pequeno sorteio busca simular dispositivos moveis com diferentes nivel de capacidade e 
@@ -88,7 +89,8 @@ class Net2:
                                 position=position,
                                 reuse=[],
                                 services={},
-                                sfcs_list=[]
+                                sfcs_list=[],
+                                is_active = True
                                 )
         elif node_type == 'router':
             self.graph.add_node(node_id,type=node_type,
@@ -100,7 +102,8 @@ class Net2:
                                 w_channel_used=0.0,
                                 position=position,
                                 services={},
-                                w_services={})            
+                                w_services={},
+                                is_active=True)            
         else:
             raise ValueError("Tipo de nó não reconhecido")
 
@@ -196,11 +199,18 @@ class Net2:
         session = sfc_id.split("_")[-1]
         mobile = False
         
-        if isinstance(node_id, str): # Se é um mobile device 
+        # Correção para suportar IDs de texto em servidores (sem assumir que string = mobile)
+        if node_id in self.md_graph:
             node = self.md_graph.nodes[node_id]
             mobile = True
-        else:
+        elif node_id in self.graph:
             node = self.graph.nodes[node_id]
+            mobile = False
+        else:
+            raise ValueError(f"Nó {node_id} não encontrado em nenhum dos grafos (allocate).")
+
+        if not node.get('is_active', True):
+            raise ValueError(f"David - Falha critica: tentativa de alocar no nó {node_id} que está inativo")
         
         service_id = vnf.id
         cpu_required = vnf.get_cpu_request() # Recurso de processamento (CPU ou GPU)
@@ -295,11 +305,16 @@ class Net2:
 
     def deallocate_microservice(self, node_id, sfc_id, vnf):
         mobile = False
-        if isinstance(node_id, str):
-            mobile = True
+        
+        # Correção: Verificação de pertinência ao invés de tipo
+        if node_id in self.md_graph:
             node = self.md_graph.nodes[node_id]
-        else:
+            mobile = True
+        elif node_id in self.graph:
             node = self.graph.nodes[node_id]
+            mobile = False
+        else:
+            raise ValueError(f"Nó {node_id} não encontrado em nenhum dos grafos (deallocate).")
         
         service_id = vnf.id
 
@@ -504,10 +519,7 @@ class Net2:
             return self.get_link_latency(node1,node2)
         
     def is_mobile_node(self,node):
-        if isinstance(node,str):
-            return True
-        else:
-            return False
+        return node in self.md_graph
 
     def get_node_sfcs(self, node_id):
         return self.graph.nodes[node_id]["sfcs_list"]
@@ -707,6 +719,8 @@ class Net2:
         
         # --- CORREÇÃO: Salva a capacidade original antes de zerar ---
         node = self.graph.nodes[node_id]
+
+        node["is_active"] = False
         
         # Salva apenas se ainda não tiver salvo (para evitar sobrescrever com 0 em chamadas duplicadas)
         if 'original_cpu_capacity' not in node:
@@ -717,11 +731,13 @@ class Net2:
         node['cpu_capacity'] = 0
         node['cache_capacity'] = 0
 
-        # Verificação de segurança existente
-        if node['cpu_used'] > 0 or node['cache_used'] > 0 :
-            # Nota: Em simulações complexas, você pode querer forçar cpu_used = 0 aqui também,
-            # mas manteremos o raise original para alertar sobre desalocação incorreta.
-            raise ValueError("Servidor deveria estar com zero de uso antes do crash")
+        # # Verificação de segurança existente
+        # if node['cpu_used'] > 0 or node['cache_used'] > 0 :
+        #     # Nota: Em simulações complexas, você pode querer forçar cpu_used = 0 aqui também,
+        #     # mas manteremos o raise original para alertar sobre desalocação incorreta.
+        #     raise ValueError("Servidor deveria estar com zero de uso antes do crash")
+
+        print(f"Debug: Nó {node_id} caiu! (Carga perdida: {node.get('cpu_used', 0)})")
 
     def restore_node(self, node_id, cpu_capacity=None, cache_capacity=None):
         """
@@ -733,8 +749,7 @@ class Net2:
 
         node = self.graph.nodes[node_id]
 
-        # --- CORREÇÃO: Recupera os valores originais ---
-        # Prioridade: 1. Argumento passado -> 2. Valor Salvo -> 3. Padrão 100
+        node["is_active"] = True
         
         restored_cpu = cpu_capacity if cpu_capacity is not None else node.get('original_cpu_capacity', 100)
         restored_cache = cache_capacity if cache_capacity is not None else node.get('original_cache_capacity', 100)
@@ -745,6 +760,8 @@ class Net2:
         # Limpa as chaves temporárias para manter o dicionário limpo (opcional)
         node.pop('original_cpu_capacity', None)
         node.pop('original_cache_capacity', None)
+
+        print(f"David - Debug: Nó {node_id} recuperado e Ativo")
 
 
     def get_node_cpu_used(self, node_id):
