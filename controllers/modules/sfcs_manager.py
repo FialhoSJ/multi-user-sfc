@@ -490,3 +490,86 @@ class SFCManager:
             latency = None
 
         return latency, route_info
+    
+    # Adicione dentro da classe SFCManager em sfcs_manager.py
+
+    def attempt_recovery_by_replica(self, sfc_id, crashed_node_id, substrate_network) -> bool:
+        """
+        Tenta recuperar uma SFC afetada por falha trocando a VNF falha por sua réplica.
+        Retorna True se recuperado com sucesso, False se precisar de redeploy total.
+        """
+        # 1. Verifica se a SFC possui backups registrados no sistema
+        # A estrutura sfcs_backups_instatiated mapeia: ID_Original -> Lista de Backups
+        if sfc_id not in self.backup_manager.sfcs_backups_instatiated:
+            return False
+
+        # 2. Identifica qual VNF específica estava no nó que caiu
+        # sfcs_routing_info estrutura: {vnf_id: [node_id, ...caminho...]}
+        route_info = self.sfcs_routing_info.get(sfc_id)
+        if not route_info:
+            return False
+
+        affected_vnf_id = None
+        for vnf_id, path in route_info.items():
+            if vnf_id in ['src', 'dst']: continue
+            if not path: continue
+            
+            # O primeiro elemento da lista é o nó onde a VNF está hospedada
+            if path[0] == crashed_node_id:
+                affected_vnf_id = vnf_id
+                break
+        
+        if not affected_vnf_id:
+            return False # Não encontrou VNF da SFC neste nó (pode ser erro de consistência)
+
+        # 3. Busca se existe uma réplica ESPECÍFICA para essa VNF
+        backups_list = self.backup_manager.sfcs_backups_instatiated[sfc_id]
+        target_backup = None
+        
+        for backup_entry in backups_list:
+            # backup_entry ex: {'sfc_backup_id': '...', 'vnf_id': 'vnf1', 'route_info': ...}
+            # Removemos sufixos como "_b" para comparar IDs se necessário, mas o manager costuma salvar o ID limpo
+            if backup_entry['vnf_id'] == affected_vnf_id:
+                target_backup = backup_entry
+                break
+        
+        if not target_backup:
+            return False # Existe backup para a SFC, mas não para a VNF que caiu
+
+        # 4. Verifica se o nó da réplica está VIVO
+        # Precisamos descobrir onde a réplica está hospedada.
+        # O backup é uma mini-SFC. Pegamos a rota dele.
+        backup_route = target_backup['route_info']
+        backup_node_id = None
+        
+        # Encontra o nó da VNF de backup (ignorando src/dst da mini-cadeia)
+        for b_vnf_key, b_path in backup_route.items():
+            if b_vnf_key not in ['src', 'dst'] and "src" not in b_vnf_key and "dst" not in b_vnf_key:
+                backup_node_id = b_path[0]
+                break
+        
+        if backup_node_id is None:
+            return False
+
+        # Verifica no grafo se o nó da réplica está ativo
+        # (Importante para casos onde múltiplos servidores caem ao mesmo tempo)
+        backup_node_obj = substrate_network.graph.nodes[backup_node_id]
+        if not backup_node_obj.get('is_active', True):
+            if self.verbose:
+                print(f"Recuperação falhou: Réplica para SFC {sfc_id} também está inativa no nó {backup_node_id}.")
+            return False
+
+        # 5. COSTURA DA ROTA (Stitching)
+        # Atualiza o routing_info da SFC original para apontar para o nó da réplica
+        print(f">>> [RECOVERY] Costurando rota da SFC {sfc_id}: VNF {affected_vnf_id} movida de {crashed_node_id} para {backup_node_id} (Backup)")
+        
+        # Atualiza o nó hospedeiro
+        # Nota: Idealmente recalcularíamos o caminho (path) exato entre as VNFs vizinhas,
+        # mas para a lógica de orquestração de falhas, apontar o nó correto garante a continuidade lógica.
+        self.sfcs_routing_info[sfc_id][affected_vnf_id][0] = backup_node_id
+        
+        # Registra o backup como ativado
+        if target_backup['sfc_backup_id'] not in self.backup_manager.backups_activated:
+            self.backup_manager.backups_activated.append(target_backup['sfc_backup_id'])
+
+        return True
