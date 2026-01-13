@@ -45,66 +45,38 @@ class Crasher:
 
     def calculate_node_probabilities(self, network) -> Dict:
         """
-        Calcula a probabilidade de falha (Peso da Roleta).
-        Fórmula: P(Falha) = (1 - R_base) + (Stress * Stress_Factor)
+        Calcula a probabilidade de falha baseada na lógica de confiabilidade do Net2.
+        P(Falha) = 1 - Confiabilidade
         """
         physical_servers = {}
         
-        # 1. Agregação (Nó Lógico -> Servidor Físico)
+        # 1. Agregação por Servidor Físico (Assume IDs de nó como '33' e '33.1')
         for node in network.graph.nodes():
             node_data = network.graph.nodes[node]
+            # Considera apenas servidores (ignora switches/roteadores para este cálculo se necessário)
             if 'server' not in str(node_data.get('type', '')):
                 continue
 
-            # Agrupa irmãos (Ex: 33 e 33.1)
             node_str = str(node)
-            base_id = node_str.split('.1')[0] 
+            base_id = node_str.split('.1')[0] # Agrupa GPU (.1) com CPU
             
-            level = node_data.get('level_server', 'default')
-            cpu_used = network.get_node_cpu_used(node)
-            
-            # Tenta pegar capacidade original se estiver down
-            cpu_cap = network.get_node_cpu_capacity(node)
-            if cpu_cap <= 0:
-                cpu_cap = node_data.get('original_cpu_capacity', 100.0)
-
             if base_id not in physical_servers:
-                physical_servers[base_id] = {
-                    'total_used': 0.0, 
-                    'total_cap': 0.0, 
-                    'level': level,
-                    'members': []
-                }
-            
-            physical_servers[base_id]['total_used'] += cpu_used
-            physical_servers[base_id]['total_cap'] += cpu_cap
-            physical_servers[base_id]['members'].append(node)
+                physical_servers[base_id] = []
+            physical_servers[base_id].append(node)
 
-        # 2. Cálculo dos Pesos
         aggregated_probs = {}
         
-        for base_id, stats in physical_servers.items():
-            # A. Confiabilidade Base (Ex: 0.99)
-            base_reliability = self._get_base_reliability(stats['level'])
+        for base_id, members in physical_servers.items():
+            # Usa a confiabilidade do nó principal (geralmente o nó de CPU representa o chassi)
+            # Se base_id for o próprio ID do nó, usa-o.
+            main_node = base_id 
             
-            # B. Taxa de Uso (0.0 a 1.0)
-            utilization_ratio = 0.0
-            if stats['total_cap'] > 0:
-                utilization_ratio = stats['total_used'] / stats['total_cap']
-            
-            # C. Penalidade por Estresse (Dinâmica via argumento)
-            stress_penalty = utilization_ratio * self.alpha_stress
-            
-            # D. Confiabilidade Final (Ex: 0.99 - (1.0 * 0.05) = 0.94)
-            final_reliability = base_reliability - stress_penalty
-            if final_reliability < 0: final_reliability = 0.0
-
-            # E. Probabilidade de Falha (Inverso) -> Peso da Roleta
-            prob_failure = 1.0 - final_reliability
+            reliability = network.get_node_reliability(main_node)
+            prob_failure = 1.0 - reliability
             
             aggregated_probs[base_id] = {
                 'prob': prob_failure,
-                'members': stats['members']
+                'members': members
             }
             
         return aggregated_probs
