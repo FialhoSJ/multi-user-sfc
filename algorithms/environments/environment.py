@@ -557,6 +557,8 @@ class SFC_AllocationEnv(gymnasium.Env):
     # 6. Helpers de Configuração (SFC e Snapshots)
     # =================================================================================
 
+    
+    
     def set_forbidden_nodes(self, nodes: List[Union[str, int]]):
         self.forbidden_nodes = nodes
 

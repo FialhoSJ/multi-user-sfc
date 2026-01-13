@@ -159,6 +159,7 @@ def main():
     sbn_controller.alg = ALG.name
     sbn_controller.fail_manager = Crasher(topology=topology, args=args)
     sbn_controller.failure_schedule = full_failure_schedule
+    sbn_controller.substrate_network.set_reliability_params(args)
     
     # Gerenciadores Auxiliares
     sbn_controller.mobility_manager = MobilityManager(args)
