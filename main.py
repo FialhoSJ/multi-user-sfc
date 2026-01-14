@@ -56,8 +56,8 @@ def main():
     parser.add_argument('--backup', type=str, default='s', help='Backup enabled')
     
     # 1. Configuração MACRO (Gera o Cronograma)
-    parser.add_argument('--ava', type=str, default='0.95', help='Meta Global de Disponibilidade')
-    parser.add_argument('--number_of_fails', type=str, default='100', help='Number of node failures')
+    parser.add_argument('--ava', type=str, default='0.99', help='Meta Global de Disponibilidade')
+    parser.add_argument('--number_of_fails', type=str, default='30', help='Number of node failures')
     parser.add_argument('--min_fail_duration', type=float, default=20, help='Min duration of node failure')
 
     # 2. Configuração MICRO (Define a Confiabilidade Base por Nível)
@@ -69,7 +69,7 @@ def main():
     # Fator de Estresse (NOVO)
     # Define o quanto a carga da CPU penaliza a confiabilidade.
     # Ex: 0.05 significa que 100% de uso reduz a confiabilidade em 5%.
-    parser.add_argument('--stress_factor', type=float, default=0.05, help='Penalidade na confiabilidade por estresse (0.0 a 1.0)')
+    parser.add_argument('--stress_factor', type=float, default=0.20, help='Penalidade na confiabilidade por estresse (0.0 a 1.0)')
     
     # Falhas de LINKS
     parser.add_argument('--link_ava', type=str, default='0.95', help='Link availability (0.0 to 1.0)')
