@@ -324,8 +324,8 @@ class SFC_AllocationEnv(gymnasium.Env):
             if is_reusable:
                 cpu_req, cache_req = 0, 0
             
-            features[i, 0] = (node_data["cpu_used"] + cpu_req) / node_data["cpu_capacity"]
-            features[i, 1] = (node_data["cache_used"] + cache_req) / node_data["cache_capacity"]
+            features[i, 0] = (node_data["cpu_used"] + cpu_req) / node_data["cpu_capacity"] if node_data["cpu_capacity"] > 0 else 0
+            features[i, 1] = (node_data["cache_used"] + cache_req) / node_data["cache_capacity"] if node_data["cache_capacity"] > 0 else 0
             
             # Validação de Capacidade
             if (node_data["cpu_used"] + cpu_req) >= node_data["cpu_capacity"] or \
