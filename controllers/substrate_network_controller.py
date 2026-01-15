@@ -485,8 +485,11 @@ class SubstrateNetworkController():
             and self.crashs_trials < self.crash_limit)
 
     def server_fail_operation(self) -> Tuple[List[str], list]:
-        """Dispara a falha e tenta recuperar via réplicas antes de redeploy."""
-        # 1. Pede ao Crasher para executar a roleta e definir quem cai
+        """
+        Dispara a falha e tenta recuperar via réplicas. 
+        LOGA EXPLICITAMENTE SE A RECUPERAÇÃO FALHAR.
+        """
+        # 1. Executa a roleta do Crasher
         servers_failed = self.fail_manager.activate_crasher(
             self.substrate_network, 
             self.sfc_manager, 
@@ -502,53 +505,74 @@ class SubstrateNetworkController():
         for server in servers_failed:
             self.substrate_network.set_node_down(server)
 
-        # 3. Identifica SFCs afetadas e TENTA RECUPERAR
+        # 3. Identifica SFCs afetadas
         fallen_sfcs_list = []
         processed_servers = set(servers_failed)
         
-        for server in processed_servers:
-            # Pega SFCs que estavam neste nó
-            sfcs_in_node = self.substrate_network.get_node_sfcs(server)
-            sfcs_to_redeploy = set()
+        # Dicionário para evitar duplicatas ao processar falhas
+        processed_sfc_ids = set()
 
+        for server in processed_servers:
+            sfcs_in_node = self.substrate_network.get_node_sfcs(server)
+            
             for sfc_id in sfcs_in_node:
-                # --- LÓGICA DE RECUPERAÇÃO NOVA ---
+                if sfc_id in processed_sfc_ids:
+                    continue
+                processed_sfc_ids.add(sfc_id)
+
+                # --- TENTATIVA DE RECUPERAÇÃO ---
                 recovered = self.sfc_manager.attempt_recovery_by_replica(
                     sfc_id, 
                     server, 
                     self.substrate_network
                 )
                 
+                # --- INSTRUMENTAÇÃO PARA CSV DE RESILIÊNCIA ---
+                # Prepara os dados para o log
+                info_log = {
+                    "recover_success": recovered,
+                    "backup_success": recovered, # Se recuperou, o backup funcionou
+                    "backup_efficient": 1 if recovered else 0,
+                    "latency_diff": 0, # Calculado depois se sucesso
+                    "time_to_recover": 0,
+                    "vnf_id": "unknown", # Poderia refinar buscando qual VNF caiu
+                    "latency_degrad": 0,
+                    "resource_degrad": 0
+                }
+                
+                # Se RECUPEROU: Adiciona à lista de monitoramento para logar métricas de latência no próximo ciclo
                 if recovered:
-                    # Se recuperou, a rota foi atualizada "in-place".
-                    continue 
+                    self.sfcs_crash_affected[sfc_id] = {
+                        "fall_time": time.time(),
+                        "old_latency": 0, # Idealmente capturar latência antiga
+                        "resource_info": 0,
+                        "backup_success": True
+                    }
+                    # O log de sucesso será feito em output_results na próxima iteração
+                
+                # Se FALHOU (DROP): Loga IMEDIATAMENTE antes de destruir a SFC
                 else:
-                    # Se não recuperou, adiciona à lista de redeploy
-                    sfcs_to_redeploy.add(sfc_id)
-            
-            # Processa as SFCs que realmente morreram (sem réplica)
-            if sfcs_to_redeploy:
-                # Agrupa por Tracker (Dono) para enviar de volta pra fila
-                tracker_ids = set()
-                for sfc_id in sfcs_to_redeploy:
+                    self.output_writter.resilient_output(sfc_id, info_log, self.crashs_trials)
+                    
+                    # Lógica de Redeploy (envia para fila)
                     try:
                         sfc_obj = self.substrate_network.get_sfc_by_id(sfc_id)
-                        tracker_ids.add(sfc_obj.dst_node)
-                    except KeyError:
-                        continue 
-                
-                for tracker_id in tracker_ids:
-                    if tracker_id in self.sfc_manager.sfcs_tracker:
-                        self.mobility_manager.mark_vehicle_as_redeploying(tracker_id)
-                        sfc_list = self.sfc_manager.sfcs_tracker[tracker_id]['sfc_list']
+                        tracker_id = sfc_obj.dst_node
                         
-                        # Verifica se já não mandamos essa lista para redeploy
-                        if sfc_list[0] not in fallen_sfcs_list:
-                            self.send_back_to_qeue(sfc_list, changed_location=False)
-                            fallen_sfcs_list.extend(sfc_list)
-        
+                        if tracker_id in self.sfc_manager.sfcs_tracker:
+                            self.mobility_manager.mark_vehicle_as_redeploying(tracker_id)
+                            sfc_list = self.sfc_manager.sfcs_tracker[tracker_id]['sfc_list']
+                            
+                            # Verifica se já não mandamos essa lista para redeploy
+                            if sfc_list[0] not in fallen_sfcs_list:
+                                self.send_back_to_qeue(sfc_list, changed_location=False)
+                                fallen_sfcs_list.extend(sfc_list)
+                    except Exception as e:
+                        print(f"Erro ao processar falha da SFC {sfc_id}: {e}")
+
         # Atualiza lista de falhas no Manager
         self.sfc_manager.crashed_servers = self.fail_manager.nodes_crashed
+        self.crashs_trials += 1 # Incrementa contador de trials
         
         return servers_failed, fallen_sfcs_list
 

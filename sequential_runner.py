@@ -23,9 +23,9 @@ if __name__ == '__main__':
     # ... (o resto do seu código permanece o mesmo) ...
     parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
     parser.add_argument('--n_players', type=int, help='(int) number of players', default=6)
-    parser.add_argument('--repetition', type=int, help='(int) repetitions', default=3)
+    parser.add_argument('--repetition', type=int, help='(int) repetitions', default=2)
     parser.add_argument('--sfc', type=str, help='(str) on or off', default='on')
-    parser.add_argument('--alg', type=str, help='(str) algorithm name', default='kuririnPPO')
+    parser.add_argument('--alg', type=str, help='(str) algorithm name', default='greedyb')
     parser.add_argument('--verbose', type=str, help='verbose log', default='n')
     parser.add_argument('--time', type=int, help='(int) the total time for the simulation in seconds', default=120)
     args = parser.parse_args()
@@ -34,8 +34,8 @@ if __name__ == '__main__':
     # Construção dos comandos a serem executados
     cmd = []
     # avas = ['1.0', '0.99', '0.97', '0.95']
-    avas = ['1.0']
-    number_of_fails = ['3']
+    avas = ['0.99']
+    number_of_fails = ['40']
     for a in avas:
         for n in number_of_fails:
             for _ in range(args.repetition):
