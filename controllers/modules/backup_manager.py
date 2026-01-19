@@ -186,20 +186,20 @@ class BackupManager:
                 backup_sf_list = [
                     {
                         "type": 2, "name": src_name, "CPU": 0, "cache": 0, 
-                        "in_bw": 0, "out_bw": src_out * reduction_factor, 
+                        "in_bw": 0, "out_bw": 0, 
                         "latency": 0, "location": src
                     },
                     {
                         "type": 2, "name": backup_vnf_name, 
                         "CPU": cpu * reduction_factor, 
                         "cache": cache * reduction_factor, 
-                        "in_bw": src_out * reduction_factor, 
+                        "in_bw": 0, 
                         "out_bw": dst_in * reduction_factor, 
                         "latency": 0, "original_loc": location, "original_sfc": sfc_id
                     },
                     {
                         "type": 2, "name": dst_name, "CPU": 0, "cache": 0, 
-                        "in_bw": dst_in * reduction_factor, "out_bw": 0, 
+                        "in_bw": 0, "out_bw": 0, 
                         "latency": 0, "location": dst
                     }
                 ]
@@ -277,18 +277,21 @@ class BackupManager:
         backup_vnf_name = vnf_to_replicate_id + "_b"
         
         mini_sfc_vnfs = [
-            {"type": 2, "name": "src_virt", "CPU": 0, "cache": 0, "in_bw": 0, 
-             "out_bw": target_vnf_info['in_bw'] * factor, "latency": 0, "location": prev_node},
-            
-            {"type": 2, "name": vnf_to_replicate_id + "_b", 
-             "CPU": target_vnf_info['CPU'] * factor, 
-             "cache": target_vnf_info['cache'] * factor, 
-             "in_bw": target_vnf_info['in_bw'] * factor, 
-             "out_bw": target_vnf_info['out_bw'] * factor, 
-             "latency": 0, "original_sfc": sfc_id},
-            
-            {"type": 2, "name": "dst_virt", "CPU": 0, "cache": 0, 
-             "in_bw": target_vnf_info['out_bw'] * factor, "out_bw": 0, "latency": 0, "location": next_node}
+        # O nó virtual de origem não gasta banda real
+        {"type": 2, "name": "src_virt", "CPU": 0, "cache": 0, "in_bw": 0, 
+        "out_bw": 0, "latency": 0, "location": prev_node}, # MUDOU PARA 0
+        
+        # A VNF de Backup reserva CPU/Cache, mas pede 0 de banda por enquanto
+        {"type": 2, "name": vnf_to_replicate_id + "_b", 
+        "CPU": target_vnf_info['CPU'] * factor, 
+        "cache": target_vnf_info['cache'] * factor, 
+        "in_bw": 0,  # MUDOU PARA 0
+        "out_bw": 0, # MUDOU PARA 0
+        "latency": 0, "original_sfc": sfc_id},
+        
+        # O nó virtual de destino
+        {"type": 2, "name": "dst_virt", "CPU": 0, "cache": 0, 
+        "in_bw": 0, "out_bw": 0, "latency": 0, "location": next_node} # MUDOU PARA 0
         ]
         
         # --- CORREÇÃO 1: DURAÇÃO DINÂMICA ---

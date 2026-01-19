@@ -587,6 +587,37 @@ class Net2:
             edge['latency'] = edge['original_lat']
             del edge['original_bw']
             del edge['original_lat']
+            
+    def activate_backup_path_bandwidth(self, path, bw_required, vnf_id_backup):
+        """
+        Ativa o consumo de banda em um caminho de backup que estava em standby (0 bw).
+        """
+        # Itera sobre os links do caminho
+        for u, v in zip(path[:-1], path[1:]):
+            if not self.graph.has_edge(u, v):
+                continue
+                
+            edge = self.graph.edges[u, v]
+            
+            # 1. Verifica se há capacidade (Best Effort)
+            # Se não houver banda agora, a ativação falha (risco do Cold Standby)
+            if edge['bandwidth_used'] + bw_required > edge['bandwidth_capacity']:
+                print(f"CRITICAL: Falha ao ativar banda de backup no link {u}-{v}. Congestionamento.")
+                return False
+
+            # 2. Atualiza o uso global do link
+            edge['bandwidth_used'] += bw_required
+            self.total_bandwidth_used += bw_required
+            
+            # 3. Atualiza o registro do serviço naquele link
+            # O serviço já existe lá (com 0 bw), apenas atualizamos
+            if vnf_id_backup in edge['services_in_transit']:
+                edge['services_in_transit'][vnf_id_backup]['bw_used'] += bw_required
+            else:
+                # Caso raro onde o serviço não estava registrado, criamos
+                edge['services_in_transit'][vnf_id_backup] = {'copys': 1, 'bw_used': bw_required}
+                
+        return True
 
     # =========================================================================
     # 5.1. GERENCIAMENTO DE CONFIABILIDADE (Novo)

@@ -395,6 +395,7 @@ class SFCManager:
     def attempt_recovery_by_replica(self, sfc_id, crashed_node_id, substrate_network) -> bool:
         """
         Tenta recuperar uma SFC afetada por falha trocando a VNF falha por sua réplica.
+        Ativa a banda (que estava em standby/zero) no momento da recuperação.
         Retorna True se recuperado com sucesso, False se precisar de redeploy total.
         """
         # 1. Verifica se a SFC possui backups registrados no sistema
@@ -436,10 +437,22 @@ class SFCManager:
         backup_node_id = None
 
         # Encontra o nó da VNF de backup (ignorando src/dst da mini-cadeia)
+        # Procura por chaves que não sejam src/dst e que terminem em '_b' (padrão de nomeação de backup)
+        # ou usa a chave vnf_id do target_backup se for consistente
+        backup_vnf_key_target = affected_vnf_id + "_b"
+
         for b_vnf_key, b_path in backup_route.items():
-            if b_vnf_key not in ['src', 'dst'] and "src" not in b_vnf_key and "dst" not in b_vnf_key:
+            if b_vnf_key == backup_vnf_key_target and b_path:
                 backup_node_id = b_path[0]
                 break
+        
+        # Fallback se não achar pelo nome exato, pega a primeira VNF intermediária
+        if backup_node_id is None:
+             for b_vnf_key, b_path in backup_route.items():
+                if b_vnf_key not in ['src', 'dst'] and "src" not in b_vnf_key and "dst" not in b_vnf_key and b_path:
+                    backup_node_id = b_path[0]
+                    backup_vnf_key_target = b_vnf_key # Atualiza a chave encontrada
+                    break
 
         if backup_node_id is None:
             return False
@@ -451,11 +464,44 @@ class SFCManager:
                 print(f"Recuperação falhou: Réplica para SFC {sfc_id} também está inativa no nó {backup_node_id}.")
             return False
 
+        # --- [NOVO] 4.1. Ativação de Banda (Cold Standby) ---
+        # Recupera a banda necessária da SFC Original
+        sfc_orig = substrate_network.get_sfc_by_id(sfc_id)
+        original_vnf_bw = 0
+        
+        # Procura nos metadados da SFC original quanto essa VNF consumia
+        for vnf_dict in sfc_orig.vnfs_dict:
+            if vnf_dict['name'] == affected_vnf_id:
+                original_vnf_bw = vnf_dict['out_bw'] 
+                break
+        
+        # Pega a rota física do backup (caminho de links)
+        path_to_activate = backup_route.get(backup_vnf_key_target, [])
+        
+        # Tenta ativar a banda nos links físicos
+        # Se os links estiverem congestionados, isso retornará False
+        activation_success = substrate_network.activate_backup_path_bandwidth(
+            path_to_activate, 
+            original_vnf_bw, 
+            backup_vnf_key_target
+        )
+        
+        if not activation_success:
+            if self.verbose:
+                print(f"Recuperação falhou: Banda insuficiente para ativar réplica {backup_vnf_key_target} no caminho {path_to_activate}.")
+            return False 
+
         # 5. COSTURA DA ROTA (Stitching)
-        print(f">>> [RECOVERY] Costurando rota da SFC {sfc_id}: VNF {affected_vnf_id} movida de {crashed_node_id} para {backup_node_id} (Backup)")
+        if self.verbose:
+            print(f">>> [RECOVERY] Costurando rota da SFC {sfc_id}: VNF {affected_vnf_id} movida de {crashed_node_id} para {backup_node_id} (Backup Ativado com {original_vnf_bw}Mbps)")
 
         # Atualiza o routing_info da SFC original para apontar para o nó da réplica
+        # A rota lógica agora passa pelo nó de backup
         self.sfcs_routing_info[sfc_id][affected_vnf_id][0] = backup_node_id
+        
+        # (Opcional) Atualiza também o caminho completo se o backup tiver múltiplos saltos, 
+        # mas geralmente o stitching simples basta se o controlador usar apenas o nó host.
+        # self.sfcs_routing_info[sfc_id][affected_vnf_id] = path_to_activate
 
         # Registra o backup como ativado
         if target_backup['sfc_backup_id'] not in self.backup_manager.backups_activated:
