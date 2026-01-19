@@ -57,11 +57,19 @@ class SFCInstatiator:
         algorithm.clear_all()
 
         graph = copy.deepcopy(substrate_network.graph)
-        self.add_mobile_user_to_graph(graph, substrate_network, sfc_list)
+        
+        # Verificamos se o nó destino é realmente um dispositivo móvel.
+        # Se for um servidor (caso do backup), ele já está no 'graph' e pulamos essa etapa.
+        dst_node_id = sfc_list[0].dst_node
+        
+        # Verifica se o ID existe no grafo de dispositivos móveis do Net2
+        if dst_node_id in substrate_network.md_graph:
+            self.add_mobile_user_to_graph(graph, substrate_network, sfc_list)
+        # -------------------------------------------------------
 
         # Configuração do Ambiente (Environment) baseado no tipo de algoritmo
-        valid_nodes = [node for node in graph.nodes() if graph.nodes[node]['type'] != 'router']
-        
+        valid_nodes = [node for node in graph.nodes() if graph.nodes[node]['type'] != 'router']  
+              
         if isinstance(algorithm, Kuririn):
             self.env = SFC_AllocationEnv(
                 valid_nodes=valid_nodes,

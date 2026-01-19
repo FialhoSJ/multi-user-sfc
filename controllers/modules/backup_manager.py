@@ -8,16 +8,18 @@ class BackupManager:
         self.sfcs_backups_instatiated = {}
         self.backups_sfc_instantiated = {}
         self.backups_activated = []
-
-        # Simplificação da lógica booleana
         self.backup_activated = (args.backup == 'y') and (args.ava != '1.0')
         self.alg = args.alg
+        
+        # 1.0 = Réplica exata (Hot Standby robusto)
+        # 0.5 = Réplica otimizada (Cold/Warm Standby)
+        # O importante é ser IGUAL para Greedy, Seletive e AI.
+        self.standard_reduction_factor = 1.0
 
     def greedy_strategy(self, network, sfc_id_duration, threshold=0):
         backups_mount = []
         sfcs_id = list(sfc_id_duration.keys())
         
-        # Somente um servidor será selecionado, e será aquele com mais chance de falhar
         random.shuffle(sfcs_id)
         
         if not sfcs_id:
@@ -38,16 +40,28 @@ class BackupManager:
             if random.random() < 0.6:
                 continue
 
-            # Construção do nome do backup
             name = f"{parts[0]}_{parts[1]}_backup_{parts[2]}_{parts[3]}"
-
             if name in self.backups_sfc_instantiated:
                 continue
 
+            # --- CORREÇÃO DE DURAÇÃO ---
+            # Calcula quanto tempo falta para a SFC acabar
+            current_time = time.time()
+            start_time = sfc_id_duration[sfc_id]['timer']
+            total_duration = sfc_id_duration[sfc_id]['duration']
+            
+            elapsed = current_time - start_time
+            remaining_duration = max(10, total_duration - elapsed + 10)
+
             # Preparação da nova SFC
-            reduction_factor = 0.25
+            reduction_factor = self.standard_reduction_factor 
+            
             sfc = network.get_sfc_by_id(sfc_id)
             vnf_info = sfc.vnfs_dict
+
+            # --- CORREÇÃO DE LATÊNCIA ---
+            # Herda o requisito original ou usa 10ms como fallback seguro
+            original_latency_req = getattr(sfc, 'latency_request', 10)
 
             new_vnfs_dict = []
             for info in vnf_info:
@@ -65,20 +79,51 @@ class BackupManager:
                 'bandwidth': sfc.input_throughput,
                 'src_node': sfc.src.substrate_node,
                 'dst_node': sfc.dst.substrate_node,
-                'duration': sfc_id_duration[sfc_id]['duration'],
-                'latency': 7
+                'duration': remaining_duration, # Valor corrigido
+                'latency': original_latency_req # Valor corrigido (Antes era 7)
             }
 
             new_sfc = SFCGenerator(player_dict).generate()
             backups_mount.append([new_sfc])
 
         return backups_mount
+    
+    def escolher_src_dst(self, dicionario, vnf_escolhida, latency_limit=10):
+        chaves = list(dicionario.keys())
+        
+        if vnf_escolhida not in chaves:
+            return None, None, None
+
+        idx = chaves.index(vnf_escolhida)
+        latency_dismiss = 0
+        src = None
+        dst = None
+
+        if idx == 0:  # Primeira VNF
+            dst = chaves[idx]
+            src = chaves[idx + 1]
+            latency_dismiss = len(dicionario[src]) - 1
+        elif idx == len(chaves) - 1:  # Última VNF
+            dst = chaves[idx - 1]
+            src = chaves[idx]
+            latency_dismiss = len(dicionario[vnf_escolhida]) - 1
+        else:  # Intermediária
+            dst = chaves[idx - 1]
+            src = chaves[idx + 1]
+            latency_dismiss = (len(dicionario[src]) - 1) + (len(dicionario[vnf_escolhida]) - 1)
+
+        src_node = dicionario[src][0]
+        dst_node = dicionario[dst][0]
+        
+        # --- CORREÇÃO: Usa o limite passado como argumento ---
+        latency_requirement = latency_limit - latency_dismiss
+        
+        return dst_node, src_node, latency_requirement
 
     def seletive_strategy(self, network, sfc_id_duration, threshold=0):
         backups_mount = []
         nodes_fail_p = network.nodes_reliability.copy()
         
-        # Seleciona nós acima do threshold
         nodes_highest_p = {node: rel for node, rel in nodes_fail_p.items() if rel > threshold}
         
         if not nodes_highest_p:
@@ -100,7 +145,6 @@ class BackupManager:
                 vnf_id = vnf.id
                 parts = sfc_id.split("_")
 
-                # Validações
                 if len(parts) > 2 and parts[2] == 'backup':
                     continue
 
@@ -108,11 +152,9 @@ class BackupManager:
                     continue
 
                 name = f"{parts[0]}_{parts[1]}_backup_{vnf_id}_{parts[2]}_{parts[3]}"
-
                 if name in self.backups_sfc_instantiated:
                     continue
 
-                # Coleta de informações da SFC original
                 sfc = network.get_sfc_by_id(sfc_id)
                 vnf_info = sfc.vnfs_dict
                 resources_info = next((i for i in vnf_info if i['name'] == vnf_id), None)
@@ -122,14 +164,16 @@ class BackupManager:
                 if 'dst' in sfc_rf: del sfc_rf['dst']
 
                 location = sfc_rf[vnf_id][0]
-                
-                # Recursos
                 src_out = resources_info['in_bw']
                 dst_in = resources_info['out_bw']
                 cpu = resources_info['CPU']
                 cache = resources_info['cache']
 
-                dst, src, latency_req = self.escolher_src_dst(sfc_rf, vnf_id)
+                # --- CORREÇÃO AQUI ---
+                # Passamos a latência original para a função auxiliar
+                original_latency = getattr(sfc, 'latency_request', 10)
+                dst, src, latency_req = self.escolher_src_dst(sfc_rf, vnf_id, original_latency)
+                
                 if latency_req < 0:
                     continue
 
@@ -137,7 +181,7 @@ class BackupManager:
                 src_name = "source"
                 backup_vnf_name = vnf_id + "_b"
                 dst_name = "destiny"
-                reduction_factor = 0.75
+                reduction_factor = self.standard_reduction_factor
 
                 backup_sf_list = [
                     {
@@ -147,8 +191,10 @@ class BackupManager:
                     },
                     {
                         "type": 2, "name": backup_vnf_name, 
-                        "CPU": cpu * reduction_factor, "cache": cache * reduction_factor, 
-                        "in_bw": src_out * reduction_factor, "out_bw": dst_in * reduction_factor, 
+                        "CPU": cpu * reduction_factor, 
+                        "cache": cache * reduction_factor, 
+                        "in_bw": src_out * reduction_factor, 
+                        "out_bw": dst_in * reduction_factor, 
                         "latency": 0, "original_loc": location, "original_sfc": sfc_id
                     },
                     {
@@ -158,9 +204,9 @@ class BackupManager:
                     }
                 ]
 
-                # Cálculo de duração restante
+                # Cálculo de duração (Seletive já fazia +/- certo, mas padronizamos)
                 time_elapsed = current_time - sfc_id_duration[sfc_id]["timer"]
-                duration = sfc_id_duration[sfc_id]["duration"] - time_elapsed
+                duration = max(10, sfc_id_duration[sfc_id]["duration"] - time_elapsed + 10)
 
                 new_sfc_dict = {
                     "name": name,
@@ -199,7 +245,10 @@ class BackupManager:
         vnf_info = original_sfc.vnfs_dict
         
         # Obtém Especificações Técnicas da VNF
-        target_vnf_info = next((info for info in vnf_info if info['name'] == vnf_to_replicate_id), None)
+        target_vnf_info = next((info for info in original_sfc.vnfs_dict if info['name'] == vnf_to_replicate_id), None)
+        
+        factor = self.standard_reduction_factor
+        
         if not target_vnf_info:
             return None
 
@@ -220,7 +269,7 @@ class BackupManager:
         # ENCONTRA LOCALIZAÇÃO FÍSICA PRÓXIMA
         next_vnf = original_sfc.get_next_vnf(current_vnf_obj)
         if next_vnf.id == 'dst':
-            next_node = original_sfc.dst.substrate_node # Corrigido: .dst_node geralmente é .dst.substrate_node dependendo da sua impl.
+            next_node = original_sfc.dst.substrate_node
         else:
             next_node = route_info[next_vnf.id][0]
 
@@ -228,11 +277,30 @@ class BackupManager:
         backup_vnf_name = vnf_to_replicate_id + "_b"
         
         mini_sfc_vnfs = [
-            {"type": 2, "name": "src_virt", "CPU": 0, "cache": 0, "in_bw": 0, "out_bw": target_vnf_info['in_bw'], "latency": 0, "location": prev_node},
-            {"type": 2, "name": backup_vnf_name, "CPU": target_vnf_info['CPU'], "cache": target_vnf_info['cache'], 
-             "in_bw": target_vnf_info['in_bw'], "out_bw": target_vnf_info['out_bw'], "latency": 0, "original_sfc": sfc_id},
-            {"type": 2, "name": "dst_virt", "CPU": 0, "cache": 0, "in_bw": target_vnf_info['out_bw'], "out_bw": 0, "latency": 0, "location": next_node}
+            {"type": 2, "name": "src_virt", "CPU": 0, "cache": 0, "in_bw": 0, 
+             "out_bw": target_vnf_info['in_bw'] * factor, "latency": 0, "location": prev_node},
+            
+            {"type": 2, "name": vnf_to_replicate_id + "_b", 
+             "CPU": target_vnf_info['CPU'] * factor, 
+             "cache": target_vnf_info['cache'] * factor, 
+             "in_bw": target_vnf_info['in_bw'] * factor, 
+             "out_bw": target_vnf_info['out_bw'] * factor, 
+             "latency": 0, "original_sfc": sfc_id},
+            
+            {"type": 2, "name": "dst_virt", "CPU": 0, "cache": 0, 
+             "in_bw": target_vnf_info['out_bw'] * factor, "out_bw": 0, "latency": 0, "location": next_node}
         ]
+        
+        # --- CORREÇÃO 1: DURAÇÃO DINÂMICA ---
+        current_time = time.time()
+        start_time = getattr(original_sfc, 'arrival_time', current_time) 
+        elapsed_time = current_time - start_time
+        remaining_duration = max(10, original_sfc.duration - elapsed_time + 10)
+
+        # --- CORREÇÃO 3: LATÊNCIA DINÂMICA ---
+        # Herda o requisito original. O Agente tentará minimizar a latência para caber neste teto.
+        # Se disponível, pegamos request, senão um padrão seguro (ex: 10ms)
+        latency_constraint = getattr(original_sfc, 'latency_request', 10)
 
         mini_sfc_dict = {
             "name": f"{sfc_id}_rep_{vnf_to_replicate_id}",
@@ -240,53 +308,11 @@ class BackupManager:
             "bandwidth": original_sfc.input_throughput,
             "src_node": prev_node,
             "dst_node": next_node,
-            "duration": 100,
-            "latency": 5 
+            "duration": remaining_duration, 
+            "latency": latency_constraint # <--- Valor Corrigido
         }
 
         return SFCGenerator(mini_sfc_dict).generate()
-
-    def take_off_backup_if_exist(self, sfc_list):
-        for sfc_id in sfc_list:
-            if sfc_id in self.sfcs_backups_instatiated:
-                del self.sfcs_backups_instatiated[sfc_id]
-
-    def calculate_latency(self, route_info):
-        return sum(
-            len(path) - 1 
-            for key, path in route_info.items() 
-            if path and key not in ["src", "dst"]
-        )
-
-    def escolher_src_dst(self, dicionario, vnf_escolhida):
-        chaves = list(dicionario.keys())
-        
-        if vnf_escolhida not in chaves:
-            return None, None, None
-
-        idx = chaves.index(vnf_escolhida)
-        latency_dismiss = 0
-        src = None
-        dst = None
-
-        if idx == 0:  # Primeira VNF
-            dst = chaves[idx]
-            src = chaves[idx + 1]
-            latency_dismiss = len(dicionario[src]) - 1
-        elif idx == len(chaves) - 1:  # Última VNF
-            dst = chaves[idx - 1]
-            src = chaves[idx]
-            latency_dismiss = len(dicionario[vnf_escolhida]) - 1
-        else:  # Intermediária
-            dst = chaves[idx - 1]
-            src = chaves[idx + 1]
-            latency_dismiss = (len(dicionario[src]) - 1) + (len(dicionario[vnf_escolhida]) - 1)
-
-        src_node = dicionario[src][0]
-        dst_node = dicionario[dst][0]
-        latency_requirement = 7 - latency_dismiss
-        
-        return dst_node, src_node, latency_requirement
 
     def get_backups_instantiated_q(self):
         vnfs_backup_instantiate = 0

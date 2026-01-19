@@ -33,7 +33,7 @@ def main():
     
     # --- Parâmetros Gerais e de Log ---
     parser.add_argument('--application', type=str, default='muar', help='Type of application')
-    parser.add_argument('--alg', type=str, default='greedyb', help='Algorithm name')
+    parser.add_argument('--alg', type=str, default='kuririnMaskablePPO', help='Algorithm name')
     parser.add_argument('--time', type=int, default=120, help='Total simulation time in seconds')
     parser.add_argument('--verbose', type=str, default='y', help='Verbose log (y/n)')
     
