@@ -223,17 +223,17 @@ class BackupManager:
 
         return backups_mount
 
-    def create_backups(self, nodes_fail_p, network, backups_data, sfc_manager):
-        sfc_id_duration = copy.deepcopy(sfc_manager.sfc_id_duration)
+    # def create_backups(self, nodes_fail_p, network, backups_data, sfc_manager):
+    #     sfc_id_duration = copy.deepcopy(sfc_manager.sfc_id_duration)
 
-        if self.alg in ['vegeta', 'ga']:
-            # Nota: A ordem dos argumentos aqui parece diferir da definição da função seletive_strategy.
-            # Mantido conforme original para preservar funcionamento.
-            backups_mount = self.seletive_strategy(nodes_fail_p, network, sfc_id_duration, backups_data)
-            return backups_mount, 'seletive'
-        else:
-            backups_mount = self.greedy_strategy(nodes_fail_p, network, sfc_id_duration, backups_data)
-            return backups_mount, 'greedy'
+    #     if self.alg in ['vegeta', 'ga']:
+    #         # Nota: A ordem dos argumentos aqui parece diferir da definição da função seletive_strategy.
+    #         # Mantido conforme original para preservar funcionamento.
+    #         backups_mount = self.seletive_strategy(nodes_fail_p, network, sfc_id_duration, backups_data)
+    #         return backups_mount, 'seletive'
+    #     else:
+    #         backups_mount = self.greedy_strategy(nodes_fail_p, network, sfc_id_duration, backups_data)
+    #         return backups_mount, 'greedy'
         
     def create_contextual_mini_sfc(self, network, original_sfc, vnf_to_replicate_id, primary_node_id):
         """
