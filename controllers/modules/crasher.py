@@ -1,6 +1,7 @@
 import random
 import math
 from typing import List, Dict
+from core.net_v2 import Net2
 
 class Crasher:
     """
@@ -43,7 +44,7 @@ class Crasher:
     def _get_base_reliability(self, level: str) -> float:
         return self.tier_reliability.get(str(level), self.tier_reliability['default'])
 
-    def calculate_node_probabilities(self, network) -> Dict:
+    def calculate_node_probabilities(self, network: Net2) -> Dict:
         """
         Calcula a probabilidade de falha baseada na lógica de confiabilidade do Net2.
         P(Falha) = 1 - Confiabilidade
@@ -71,7 +72,7 @@ class Crasher:
             # Se base_id for o próprio ID do nó, usa-o.
             main_node = base_id 
             
-            reliability = network.get_node_reliability(main_node)
+            reliability = network.get_node_reliability(int(main_node))
             prob_failure = 1.0 - reliability
             
             aggregated_probs[base_id] = {

@@ -641,33 +641,65 @@ class Net2:
 
     def get_node_reliability(self, node_id):
         """
-        Calcula a confiabilidade: R_base - (Utilização * Stress_Factor)
+        Calcula a confiabilidade unificada do servidor físico.
+        Considera a soma de carga da CPU (versão normal) e GPU (versão .1)
+        para determinar o estresse total do hardware.
         """
-        if node_id not in self.graph:
-            return 0.0
-            
-        node = self.graph.nodes[node_id]
+        # 1. Normalização de IDs: Descobre quem é a CPU (base) e quem é a GPU (.1)
+        node_id_str = str(node_id)
+        if node_id_str.endswith(".1"):
+            base_id = node_id_str.replace(".1", "")
+            gpu_id = node_id_str
+        else:
+            base_id = node_id_str
+            gpu_id = node_id_str + ".1"
+
+        # 2. Variáveis acumuladoras
+        total_used = 0.0
+        total_capacity = 0.0
+        server_level = 'default'
+        is_active_physically = False
         
-        # Se o nó estiver inativo, a confiabilidade é 0
-        if not node.get('is_active', True):
+        # Função auxiliar para extrair dados se o nó existir no grafo
+        def get_part_data(nid):
+            if nid in self.graph:
+                node = self.graph.nodes[nid]
+                # Se qualquer parte (CPU ou GPU) estiver ativa, consideramos a máquina ligada
+                if node.get('is_active', True):
+                    # Pega a capacidade (tratando caso de falha momentânea onde cap=0)
+                    cap = node.get('cpu_capacity', 0.0)
+                    if cap <= 0: 
+                        cap = node.get('original_cpu_capacity', 1.0) or 1.0
+                    return node.get('cpu_used', 0.0), cap, node.get('level_server', 'default'), True
+            return 0.0, 0.0, None, False
+
+        # 3. Coleta dados das duas partes
+        used_cpu, cap_cpu, lvl_cpu, active_cpu = get_part_data(int(base_id))
+        used_gpu, cap_gpu, lvl_gpu, active_gpu = get_part_data(float(gpu_id))
+
+        # Se nem CPU nem GPU existem ou estão ativas, confiabilidade é 0
+        if not active_cpu and not active_gpu:
             return 0.0
 
-        # 1. Confiabilidade Base baseada no Nível (Tier)
-        # Assume que o node['level_server'] é algo como '1', '2', '3' ou strings 'a', 'b', 'c'
-        level = str(node.get('level_server', 'default'))
-        base_r = self.tier_reliability.get(level, self.tier_reliability['default'])
+        # Define o nível do servidor (prefere a info da base/CPU, mas aceita da GPU se necessário)
+        server_level = lvl_cpu if lvl_cpu else (lvl_gpu if lvl_gpu else 'default')
 
-        # 2. Utilização (Estresse)
-        cpu_cap = node.get('cpu_capacity', 1.0)
+        # 4. Consolidação
+        total_used = used_cpu + used_gpu
+        total_capacity = cap_cpu + cap_gpu
+
+        # Evita divisão por zero
+        if total_capacity <= 0:
+            return 0.0
+
+        # 5. Cálculo Unificado
+        # R_base depende do nível da máquina física
+        base_r = self.tier_reliability.get(str(server_level), self.tier_reliability['default'])
+
+        # O estresse agora é a fração de uso TOTAL da caixa (CPU + GPU)
+        global_utilization = total_used / total_capacity
         
-        # Lida com caso onde a capacidade é temporariamente 0 (falha) mas precisamos das estatísticas
-        if cpu_cap <= 0: 
-            cpu_cap = node.get('original_cpu_capacity', 1.0) or 1.0
-            
-        utilization = node.get('cpu_used', 0.0) / cpu_cap
-        
-        # 3. Cálculo Final
-        stress_penalty = utilization * self.alpha_stress
+        stress_penalty = global_utilization * self.alpha_stress
         final_reliability = base_r - stress_penalty
         
         return max(0.0, final_reliability)
