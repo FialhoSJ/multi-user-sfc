@@ -15,7 +15,7 @@ class Net2:
         self.sfc_dict = {}
         self.sfc_route_info = {}  # sfc_id, route_info
         self.nodes_reliability = {}
-        self.alpha_stress = 0.0
+        self.alpha_stress = {'default': 0.0, 'a': 0.0, 'b': 0.0, 'c': 0.0}
         self.tier_reliability = {'default': 1.0, 'a': 1.0, 'b': 1.0, 'c': 1.0}
         self.processing_delay_info = []
         self.shareable_sf_sfc = {}
@@ -625,25 +625,35 @@ class Net2:
 
     def set_reliability_params(self, args):
         """Define os parâmetros de confiabilidade a partir dos argumentos."""
-        # Garante que stress_factor não seja negativo
-        self.alpha_stress = args.stress_factor if hasattr(args, 'stress_factor') and args.stress_factor >= 0 else 0.0
         
-        # Valida e define confiabilidades por nível (tier)
+        # [MODIFICADO] Mapeamento dos Fatores de Estresse (Deltas) por Tier
+        # Se os argumentos não existirem (compatibilidade), assume 0.0
+        stress_c = getattr(args, 'stress_high', 0.0009)
+        stress_b = getattr(args, 'stress_normal', 0.04)
+        stress_a = getattr(args, 'stress_low', 0.15)
+        
+        self.alpha_stress = {
+            'c': max(0.0, stress_c),
+            'b': max(0.0, stress_b),
+            'a': max(0.0, stress_a),
+            'default': max(0.0, stress_b) # Default assume Normal
+        }
+        
+        # Valida e define confiabilidades BASE por nível (tier)
         def validate(val): return val if 0.0 <= val <= 1.0 else 0.99
         
-        # Usa getattr para evitar erro se o argumento não existir no objeto args
         self.tier_reliability = {
-            'c': validate(getattr(args, 'rel_high', 0.99)),
-            'b': validate(getattr(args, 'rel_normal', 0.95)),
-            'a': validate(getattr(args, 'rel_low', 0.90)),
-            'default': validate(getattr(args, 'rel_normal', 0.95))
+            'c': validate(getattr(args, 'rel_high', 0.9999)),
+            'b': validate(getattr(args, 'rel_normal', 0.99)),
+            'a': validate(getattr(args, 'rel_low', 0.95)),
+            'default': validate(getattr(args, 'rel_normal', 0.99))
         }
 
     def get_node_reliability(self, node_id):
         """
         Calcula a confiabilidade unificada do servidor físico.
-        Considera a soma de carga da CPU (versão normal) e GPU (versão .1)
-        para determinar o estresse total do hardware.
+        Considera a soma de carga da CPU e GPU para determinar o estresse total,
+        aplicando penalidades específicas baseadas no Tier do hardware (A, B, C).
         """
         # 1. Normalização de IDs: Descobre quem é a CPU (base) e quem é a GPU (.1)
         node_id_str = str(node_id)
@@ -658,15 +668,12 @@ class Net2:
         total_used = 0.0
         total_capacity = 0.0
         server_level = 'default'
-        is_active_physically = False
         
         # Função auxiliar para extrair dados se o nó existir no grafo
         def get_part_data(nid):
             if nid in self.graph:
                 node = self.graph.nodes[nid]
-                # Se qualquer parte (CPU ou GPU) estiver ativa, consideramos a máquina ligada
                 if node.get('is_active', True):
-                    # Pega a capacidade (tratando caso de falha momentânea onde cap=0)
                     cap = node.get('cpu_capacity', 0.0)
                     if cap <= 0: 
                         cap = node.get('original_cpu_capacity', 1.0) or 1.0
@@ -677,29 +684,32 @@ class Net2:
         used_cpu, cap_cpu, lvl_cpu, active_cpu = get_part_data(int(base_id))
         used_gpu, cap_gpu, lvl_gpu, active_gpu = get_part_data(float(gpu_id))
 
-        # Se nem CPU nem GPU existem ou estão ativas, confiabilidade é 0
         if not active_cpu and not active_gpu:
             return 0.0
 
-        # Define o nível do servidor (prefere a info da base/CPU, mas aceita da GPU se necessário)
+        # Define o nível do servidor
         server_level = lvl_cpu if lvl_cpu else (lvl_gpu if lvl_gpu else 'default')
 
-        # 4. Consolidação
+        # 4. Consolidação de Carga
         total_used = used_cpu + used_gpu
         total_capacity = cap_cpu + cap_gpu
 
-        # Evita divisão por zero
         if total_capacity <= 0:
             return 0.0
 
-        # 5. Cálculo Unificado
-        # R_base depende do nível da máquina física
-        base_r = self.tier_reliability.get(str(server_level), self.tier_reliability['default'])
-
-        # O estresse agora é a fração de uso TOTAL da caixa (CPU + GPU)
-        global_utilization = total_used / total_capacity
+        # 5. Cálculo Diferenciado por Tier
+        level_key = str(server_level).lower() # Garante chave 'a', 'b', 'c'
         
-        stress_penalty = global_utilization * self.alpha_stress
+        # Pega a Confiabilidade Base (Ex: Tier C = 0.9999)
+        base_r = self.tier_reliability.get(level_key, self.tier_reliability['default'])
+
+        # Pega o Fator de Estresse Específico (Ex: Tier C = 0.0009)
+        alpha = self.alpha_stress.get(level_key, self.alpha_stress['default'])
+
+        # Cálculo da Penalidade: Fração de uso * Penalidade Máxima do Tier
+        global_utilization = total_used / total_capacity
+        stress_penalty = global_utilization * alpha
+        
         final_reliability = base_r - stress_penalty
         
         return max(0.0, final_reliability)

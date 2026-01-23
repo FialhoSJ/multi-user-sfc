@@ -124,6 +124,7 @@ def create_output_dir(args,topology):
         "server_energy_consumption",
         "mobile_energy_consumption",
         "total_energy_consumption",
+        "avg_sfc_reliability"
     ]
 
     res_fields = ["crash_trial","sfc_id","vnf_id","recover_success","backup_success","backup_efficient","latency_diff","latency_deg","resource_deg","time_to_recover"]
@@ -247,6 +248,37 @@ class OutputWritter:
             time_value = round(current_time - self.first_time,1)
         decision_time =  str(round(run_duration * 1000, 3))
 
+
+        total_reliability = 0.0
+        active_sfc_count = 0
+        
+        # Verifica se há SFCs rodando
+        if substrate_network.sfc_dict:
+            for s_id, sfc in substrate_network.sfc_dict.items():
+                # Apenas se tiver rota definida
+                if s_id in substrate_network.sfc_route_info:
+                    route_info = substrate_network.sfc_route_info[s_id]
+                    
+                    # Identifica os nós físicos únicos usados por esta SFC
+                    unique_nodes = set()
+                    for vnf_id, path in route_info.items():
+                        # Ignora src/dst virtuais e pega apenas o nó de hospedagem (índice 0)
+                        if vnf_id not in ['src', 'dst'] and path:
+                            unique_nodes.add(path[0])
+                    
+                    # Calcula confiabilidade desta SFC (Produto das confiabilidades dos nós)
+                    # Se um nó falhar (R=0), a SFC vai a 0.
+                    sfc_reliability = 1.0
+                    for node in unique_nodes:
+                        # get_node_reliability já considera Stress Factor e status Ativo/Inativo
+                        sfc_reliability *= substrate_network.get_node_reliability(node)
+                    
+                    total_reliability += sfc_reliability
+                    active_sfc_count += 1
+        
+        # Média do sistema (se vazio, assume 1.0 ou 0.0 conforme sua preferência, aqui 1.0 = sistema íntegro sem carga)
+        avg_sfc_reliability = total_reliability / active_sfc_count if active_sfc_count > 0 else 1.0
+
         # ATUALIZE A STRING 'line' com os novos campos
         line = (
             f"{counter},"
@@ -293,7 +325,8 @@ class OutputWritter:
             f"{jain_bw},"
             f"{total_energy_consumption},"
             f"{server_energy_consumption},"
-            f"{mobile_energy_consumption}\n"
+            f"{mobile_energy_consumption},"
+            f"{avg_sfc_reliability}\n"
         )
 
         with open(self.flows_file, "a") as file:

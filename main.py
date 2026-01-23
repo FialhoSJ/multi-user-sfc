@@ -62,15 +62,22 @@ def main():
 
     # 2. Configuração MICRO (Define a Confiabilidade Base por Nível)
     # Valores entre 0.0 e 1.0 (Ex: 0.99 = 99% confiável)
-    parser.add_argument('--rel_high', type=float, default=0.99, help='Confiabilidade base para Nível Alto (Tier C)')
-    parser.add_argument('--rel_normal', type=float, default=0.95, help='Confiabilidade base para Nível Normal (Tier B)')
-    parser.add_argument('--rel_low', type=float, default=0.90, help='Confiabilidade base para Nível Baixo (Tier A)')
+    parser.add_argument('--rel_high', type=float, default=0.9999, help='Confiabilidade base para Nível Alto (Tier C)')
+    parser.add_argument('--rel_normal', type=float, default=0.99, help='Confiabilidade base para Nível Normal (Tier B)')
+    parser.add_argument('--rel_low', type=float, default=0.95, help='Confiabilidade base para Nível Baixo (Tier A)')
     
     # Fator de Estresse (NOVO)
     # Define o quanto a carga da CPU penaliza a confiabilidade.
     # Ex: 0.05 significa que 100% de uso reduz a confiabilidade em 5%.
-    parser.add_argument('--stress_factor', type=float, default=0.20, help='Penalidade na confiabilidade por estresse (0.0 a 1.0)')
+# Fator de Estresse por Tier (Deltas de Penalidade)
+    # Tier C (High): 0.9999 -> 0.9990 (Delta 0.0009)
+    parser.add_argument('--stress_high', type=float, default=0.0009, help='Penalidade por estresse para Tier C (High)')
     
+    # Tier B (Normal): 0.99 -> 0.95 (Delta 0.04)
+    parser.add_argument('--stress_normal', type=float, default=0.04, help='Penalidade por estresse para Tier B (Normal)')
+    
+    # Tier A (Low): 0.95 -> 0.80 (Delta 0.15)
+    parser.add_argument('--stress_low', type=float, default=0.15, help='Penalidade por estresse para Tier A (Low)')    
     # Falhas de LINKS
     parser.add_argument('--link_ava', type=str, default='0.95', help='Link availability (0.0 to 1.0)')
     parser.add_argument('--number_of_link_fails', type=str, default='0', help='Number of link failures')
