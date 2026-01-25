@@ -486,8 +486,7 @@ class SubstrateNetworkController():
 
     def server_fail_operation(self) -> Tuple[List[str], list]:
         """
-        Dispara a falha e tenta recuperar via réplicas. 
-        LOGA EXPLICITAMENTE SE A RECUPERAÇÃO FALHAR.
+        Dispara a falha, contabiliza riscos e tenta recuperar.
         """
         # 1. Executa a roleta do Crasher
         servers_failed = self.fail_manager.activate_crasher(
@@ -499,9 +498,63 @@ class SubstrateNetworkController():
         if not servers_failed:
             return [], []
 
-        print(f"\n>>> [CRASH] Servidores derrubados: {servers_failed}")
+        print(f"\n>>> [CRASH] Servidores a serem derrubados: {servers_failed}")
+
+        # =================================================================
+        # NOVA LÓGICA DE AUDITORIA DE RISCO (ANTES DE DERRUBAR)
+        # =================================================================
+        high_risk = 0
+        med_risk = 0
+        low_risk = 0
+        total_affected = 0
         
-        # 2. Atualiza o estado da rede (físico)
+        # Set para não contar a mesma SFC duas vezes se ela passar por 2 nós que caíram
+        affected_sfc_ids_audit = set()
+
+        for server in servers_failed:
+            # Pega as SFCs que estão nesse servidor
+            sfcs_in_node = self.substrate_network.get_node_sfcs(server)
+            for sfc_id in sfcs_in_node:
+                if sfc_id in affected_sfc_ids_audit:
+                    continue
+                affected_sfc_ids_audit.add(sfc_id)
+
+                # Calcula Confiabilidade da SFC (Cópia da lógica do OutputWritter)
+                if sfc_id in self.substrate_network.sfc_route_info:
+                    route_info = self.substrate_network.sfc_route_info[sfc_id]
+                    unique_nodes = set()
+                    for vnf_id, path in route_info.items():
+                        if vnf_id not in ['src', 'dst'] and path:
+                            unique_nodes.add(path[0])
+                    
+                    sfc_r = 1.0
+                    for node in unique_nodes:
+                        # O servidor ainda está UP aqui, então retorna a confiabilidade real
+                        sfc_r *= self.substrate_network.get_node_reliability(node)
+                    
+                    # Classifica
+                    if sfc_r < 0.933:
+                        high_risk += 1
+                    elif 0.933 <= sfc_r <= 0.963:
+                        med_risk += 1
+                    else:
+                        low_risk += 1
+
+        total_affected = len(affected_sfc_ids_audit)
+
+        # Salva no arquivo CSV separado
+        self.output_writter.output_crash_impact(
+            self.crashs_trials, 
+            len(servers_failed), 
+            total_affected, 
+            high_risk, 
+            med_risk, 
+            low_risk
+        )
+        # =================================================================
+
+        
+        # 2. AGORA SIM, Atualiza o estado da rede (físico) - Derruba os nós
         for server in servers_failed:
             self.substrate_network.set_node_down(server)
 

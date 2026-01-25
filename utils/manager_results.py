@@ -76,6 +76,8 @@ def create_output_dir(args,topology):
 
     flows_path = os.path.join(directory_path, f'{timestamp}.csv')
     res_path = os.path.join(res_directory_path, f'{timestamp}.csv')
+    
+    crash_impact_path = os.path.join(res_directory_path, f'crash_impact_{timestamp}.csv')
 
     # ADICIONE OS CAMPOS DE GPU AQUI
     header_fields = [
@@ -124,23 +126,37 @@ def create_output_dir(args,topology):
         "server_energy_consumption",
         "mobile_energy_consumption",
         "total_energy_consumption",
-        "avg_sfc_reliability"
+        "avg_sfc_reliability",
+        "high_risk_sfcs",    # <--- NOVO
+        "medium_risk_sfcs",  # <--- NOVO
+        "low_risk_sfcs"      # <--- NOVO
     ]
+    
+    crash_header_fields = [
+        "crash_trial",
+        "timestamp",
+        "nodes_crashed_count",
+        "total_affected_sfcs",
+        "high_risk_count",    # < 93.3%
+        "medium_risk_count",  # 93.3% - 96.3%
+        "low_risk_count"      # > 96.3%
+    ]
+    crash_header = ",".join(crash_header_fields) + "\n"
 
-    res_fields = ["crash_trial","sfc_id","vnf_id","recover_success","backup_success","backup_efficient","latency_diff","latency_deg","resource_deg","time_to_recover"]
+    with open(crash_impact_path, "a") as f:
+        f.write(crash_header)
+
             
     header = ",".join(header_fields) + "\n"
-    res_header = ",".join(res_fields) + "\n"
 
     with open(flows_path, "a") as f:
         f.write(header)
 
-    with open(res_path, "a") as f:
-        f.write(res_header)
-    return file_paths,flows_path,res_path
+   
+    return file_paths,flows_path,res_path, crash_impact_path
 
 class OutputWritter:
-    def __init__(self,topology,file_paths,flows_file,res_file):
+    def __init__(self,topology,file_paths,flows_file,res_file, crash_impact_file):
         
         self.processing_nodes = topology.get_topology_info()['ec_servers']
         self.nodes = topology.get_topology_info()['nodes']
@@ -157,6 +173,21 @@ class OutputWritter:
         self.first_time = 0
         self.sfcs_latency_dict = {}
         self.counter_users = 0
+        self.crash_impact_file = crash_impact_file
+        
+    def output_crash_impact(self, crash_trial, nodes_count, affected_count, high, medium, low):
+        current_time = time.time()
+        line = (
+            f"{crash_trial},"
+            f"{current_time},"
+            f"{nodes_count},"
+            f"{affected_count},"
+            f"{high},"
+            f"{medium},"
+            f"{low}\n"
+        )
+        with open(self.crash_impact_file, "a") as file:
+            file.write(line)
 
     def resilient_output(self,sfc_id,info,crash_trial):
         is_success = info["recover_success"]
@@ -252,6 +283,11 @@ class OutputWritter:
         total_reliability = 0.0
         active_sfc_count = 0
         
+        # --- Inicializa contadores de risco (NOVO) ---
+        count_high_risk = 0
+        count_medium_risk = 0
+        count_low_risk = 0
+        
         # Verifica se há SFCs rodando
         if substrate_network.sfc_dict:
             for s_id, sfc in substrate_network.sfc_dict.items():
@@ -275,6 +311,14 @@ class OutputWritter:
                     
                     total_reliability += sfc_reliability
                     active_sfc_count += 1
+
+                    # --- Lógica de Classificação de Risco (NOVO) ---
+                    if sfc_reliability < 0.933:
+                        count_high_risk += 1
+                    elif 0.933 <= sfc_reliability <= 0.966:
+                        count_medium_risk += 1
+                    else: # Acima de 0.963
+                        count_low_risk += 1
         
         # Média do sistema (se vazio, assume 1.0 ou 0.0 conforme sua preferência, aqui 1.0 = sistema íntegro sem carga)
         avg_sfc_reliability = total_reliability / active_sfc_count if active_sfc_count > 0 else 1.0
@@ -326,7 +370,10 @@ class OutputWritter:
             f"{total_energy_consumption},"
             f"{server_energy_consumption},"
             f"{mobile_energy_consumption},"
-            f"{avg_sfc_reliability}\n"
+            f"{avg_sfc_reliability},"
+            f"{count_high_risk},"     # NOVO
+            f"{count_medium_risk},"   # NOVO
+            f"{count_low_risk}\n"     # NOVO
         )
 
         with open(self.flows_file, "a") as file:
