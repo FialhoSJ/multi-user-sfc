@@ -146,9 +146,9 @@ def main():
     # Ordenação Cronológica (Crucial)
     full_failure_schedule.sort(key=lambda x: x['start'])
 
-    # ==============================================================================
+    # =============================================================================
     # 4. CONFIGURAÇÃO DO CONTROLADOR (NETWORK CONTROLLER)
-    # ==============================================================================
+    # =============================================================================
     
     network = topology.generate_substrate_network()
     network.verbose = 'y'
