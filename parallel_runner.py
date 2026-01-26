@@ -60,7 +60,7 @@ if __name__ == '__main__':
     # Parâmetros alinhados com o padrão do main.py
     # ava='0.99', number_of_fails='50'
     avas = ['0.99']
-    number_of_fails = ['50']
+    number_of_fails = ['40']
 
     # =========================================================================
     # LÓGICA DE GERAÇÃO DE COMANDOS

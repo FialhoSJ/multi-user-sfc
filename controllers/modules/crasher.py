@@ -21,6 +21,7 @@ class Crasher:
         
         # Passo de simulação
         self.simulation_step = 1.0 
+        self.fail_target = args.fail_target
 
     def calculate_node_probabilities(self, network: Net2) -> Dict:
         """
@@ -79,7 +80,7 @@ class Crasher:
         }
 
         # Pega o argumento definido no main (default 'all')
-        user_target = getattr(self.args, 'fail_target', 'all')
+        user_target = getattr(self, 'fail_target', 'all')
         target_level = target_map.get(user_target, 'all')
 
         server_groups = self.calculate_node_probabilities(network)
