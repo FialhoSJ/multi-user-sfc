@@ -47,8 +47,8 @@ if __name__ == '__main__':
     RUN_MODE = 'batch'
     
     # 1. Algoritmos solicitados
-    # BATCH_ALGS = ['kuririnMaskablePPO', 'ga', 'greedyb']
-    BATCH_ALGS = ['greedyb']
+    BATCH_ALGS = ['kuririnMaskablePPO', 'ga', 'greedyb']
+    # BATCH_ALGS = ['greedyb']
 
     
     # 2. Número de vezes que CADA algoritmo vai rodar

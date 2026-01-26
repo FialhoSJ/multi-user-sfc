@@ -287,7 +287,7 @@ class OutputWritter:
         count_high_risk = 0
         count_medium_risk = 0
         count_low_risk = 0
-        
+
         # Verifica se há SFCs rodando
         if substrate_network.sfc_dict:
             for s_id, sfc in substrate_network.sfc_dict.items():
@@ -295,33 +295,34 @@ class OutputWritter:
                 if s_id in substrate_network.sfc_route_info:
                     route_info = substrate_network.sfc_route_info[s_id]
                     
-                    # Identifica os nós físicos únicos usados por esta SFC
                     unique_nodes = set()
                     for vnf_id, path in route_info.items():
-                        # Ignora src/dst virtuais e pega apenas o nó de hospedagem (índice 0)
                         if vnf_id not in ['src', 'dst'] and path:
                             unique_nodes.add(path[0])
                     
-                    # Calcula confiabilidade desta SFC (Produto das confiabilidades dos nós)
-                    # Se um nó falhar (R=0), a SFC vai a 0.
                     sfc_reliability = 1.0
                     for node in unique_nodes:
-                        # get_node_reliability já considera Stress Factor e status Ativo/Inativo
                         sfc_reliability *= substrate_network.get_node_reliability(node)
                     
-                    total_reliability += sfc_reliability
-                    active_sfc_count += 1
-
-                    # --- Lógica de Classificação de Risco (NOVO) ---
-                    if sfc_reliability < 0.933:
-                        count_high_risk += 1
-                    elif 0.933 <= sfc_reliability <= 0.966:
-                        count_medium_risk += 1
-                    else: # Acima de 0.963
-                        count_low_risk += 1
+                    # --- ALTERAÇÃO AQUI ---
+                    # Só contabiliza na média se a SFC estiver 'viva' (reliability > 0)
+                    if sfc_reliability > 0.0001: 
+                        total_reliability += sfc_reliability
+                        active_sfc_count += 1 # Conta apenas as funcionais
+                        
+                        # A classificação de risco também deve ficar dentro deste IF
+                        # para não contar SFCs mortas como "High Risk"
+                        if sfc_reliability < 0.933:
+                            count_high_risk += 1
+                        elif 0.933 <= sfc_reliability <= 0.966:
+                            count_medium_risk += 1
+                        else:
+                            count_low_risk += 1
+                    # ----------------------
         
-        # Média do sistema (se vazio, assume 1.0 ou 0.0 conforme sua preferência, aqui 1.0 = sistema íntegro sem carga)
-        avg_sfc_reliability = total_reliability / active_sfc_count if active_sfc_count > 0 else 1.0
+        # Média do sistema considerando apenas as VIVAS
+        # Se todas morrerem (active_sfc_count == 0), definimos como 0.0 ou 1.0 (decisão de design)
+        avg_sfc_reliability = total_reliability / active_sfc_count if active_sfc_count > 0 else 0.0
 
         # ATUALIZE A STRING 'line' com os novos campos
         line = (

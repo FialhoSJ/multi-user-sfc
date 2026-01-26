@@ -63,9 +63,24 @@ class Crasher:
         return aggregated_probs
 
     def activate_crasher(self, network, sfc_manager=None, alg_name=None) -> List:
-        """Executa a roleta usando as probabilidades reais da rede."""
+        """Executa a roleta usando as probabilidades reais da rede, filtrando pelo Alvo."""
         if not self.activated:
             return []
+        
+        # Mapeamento do argumento do usuário para o 'level_server' do net_v2.py
+        # Tier A (Low Rel) = High Risk
+        # Tier B (Norm Rel) = Medium Risk
+        # Tier C (High Rel) = Low Risk
+        target_map = {
+            'high_risk': 'a',
+            'med_risk':  'b',
+            'low_risk':  'c',
+            'all':       'all'
+        }
+
+        # Pega o argumento definido no main (default 'all')
+        user_target = getattr(self.args, 'fail_target', 'all')
+        target_level = target_map.get(user_target, 'all')
 
         server_groups = self.calculate_node_probabilities(network)
         
@@ -81,6 +96,25 @@ class Crasher:
                         any(m not in self.nodes_crashed for m in info['members'])
 
             if is_valid and is_active:
+                # --- NOVO FILTRO DE NIVEL ---
+                # Acessa o nó no grafo para ver qual o seu tier ('a', 'b', ou 'c')
+                # Precisamos converter base_id para o tipo correto (int ou str) conforme usado no grafo
+                try:
+                    node_data = network.graph.nodes[base_id]
+                except KeyError:
+                    # Tenta converter para int se string falhar (depende da sua topologia)
+                    try:
+                        node_data = network.graph.nodes[int(base_id)]
+                    except:
+                        continue # Se não achar o nó, pula
+                
+                node_tier = str(node_data.get('level_server', 'default')).lower()
+
+                # Se o usuário não escolheu 'all' e o tier do nó não for o alvo, IGNORE
+                if target_level != 'all' and node_tier != target_level:
+                    continue
+                # -----------------------------
+
                 candidates.append(base_id)
                 weights.append(info['prob'])
 
@@ -94,6 +128,11 @@ class Crasher:
             for node in nodes_affected:
                 if node not in self.nodes_crashed:
                     self.nodes_crashed.append(node)
+        else:
+            # Debug opcional: avisar se não achou candidatos para o nível
+            if target_level != 'all' and self.activated:
+                # print(f"[CRASHER] Nenhum nó do nível '{target_level}' disponível para falhar.")
+                pass
         
         return nodes_affected
 
