@@ -50,11 +50,13 @@ if __name__ == '__main__':
     BATCH_ALGS = ['kuririnMaskablePPO', 'ga', 'greedyb']
     # BATCH_ALGS = ['greedyb']
 
+    # 2. Cenários de Risco (Alvos de Falha) - NOVO
+    BATCH_FAIL_TARGETS = ['high_risk', 'med_risk', 'low_risk']
     
-    # 2. Número de vezes que CADA algoritmo vai rodar
+    # 3. Número de vezes que CADA algoritmo vai rodar
     BATCH_TOTAL_RUNS = 5  
     
-    # 3. Quantos processos rodam ao mesmo tempo (Threads)
+    # 4. Quantos processos rodam ao mesmo tempo (Threads)
     BATCH_PARALLEL_RUNS = 5 
     
     # Parâmetros alinhados com o padrão do main.py
@@ -72,27 +74,30 @@ if __name__ == '__main__':
 
     print(f"[INFO] Modo: {RUN_MODE}")
     print(f"[INFO] Algoritmos: {BATCH_ALGS}")
-    print(f"[INFO] Repetições por Algoritmo: {BATCH_TOTAL_RUNS}")
+    print(f"[INFO] Cenários (Fail Targets): {BATCH_FAIL_TARGETS}")
+    print(f"[INFO] Repetições por Algoritmo/Cenário: {BATCH_TOTAL_RUNS}")
     print(f"[INFO] Processos em Paralelo: {BATCH_PARALLEL_RUNS}")
 
     # Loop principal para gerar os comandos
     for alg_name in BATCH_ALGS:
-        for i in range(BATCH_TOTAL_RUNS):
-            for a in avas: 
-                for n in number_of_fails:
-                    # Constrói o comando garantindo verbose='n' e argumentos do main
-                    command = 'main.py' + \
-                        ' --n_sessions ' + str(args.n_sessions) + \
-                        ' --alg ' + alg_name + \
-                        ' --sfc ' + str(args.sfc) + \
-                        ' --ava ' + str(a) + \
-                        ' --number_of_fails ' + str(n) + \
-                        ' --n_players ' + str(args.n_players) + \
-                        ' --time ' + str(args.time) + \
-                        ' --eco_effi_ratio ' + str(args.eco_effi_ratio) + \
-                        ' --verbose n'  # Forçando não verboso
-                    
-                    cmd.append(command)
+        for fail_target in BATCH_FAIL_TARGETS: # Loop iterando pelos cenários de risco
+            for i in range(BATCH_TOTAL_RUNS):
+                for a in avas: 
+                    for n in number_of_fails:
+                        # Constrói o comando garantindo verbose='n' e argumentos do main
+                        command = 'main.py' + \
+                            ' --n_sessions ' + str(args.n_sessions) + \
+                            ' --alg ' + alg_name + \
+                            ' --fail_target ' + fail_target + \
+                            ' --sfc ' + str(args.sfc) + \
+                            ' --ava ' + str(a) + \
+                            ' --number_of_fails ' + str(n) + \
+                            ' --n_players ' + str(args.n_players) + \
+                            ' --time ' + str(args.time) + \
+                            ' --eco_effi_ratio ' + str(args.eco_effi_ratio) + \
+                            ' --verbose n'  # Forçando não verboso
+                        
+                        cmd.append(command)
 
     # =========================================================================
     # EXECUÇÃO DO POOL
