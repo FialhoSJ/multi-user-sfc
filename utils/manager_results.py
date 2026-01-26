@@ -75,7 +75,6 @@ def create_output_dir(args,topology):
     create_directory_if_not_exists(res_directory_path)
 
     flows_path = os.path.join(directory_path, f'{timestamp}.csv')
-    res_path = os.path.join(res_directory_path, f'{timestamp}.csv')
     
     crash_impact_path = os.path.join(res_directory_path, f'crash_impact_{timestamp}.csv')
 
@@ -153,10 +152,11 @@ def create_output_dir(args,topology):
         f.write(header)
 
    
-    return file_paths,flows_path,res_path, crash_impact_path
+    return file_paths, flows_path, crash_impact_path
+
 
 class OutputWritter:
-    def __init__(self,topology,file_paths,flows_file,res_file, crash_impact_file):
+    def __init__(self,topology,file_paths,flows_file, crash_impact_file):
         
         self.processing_nodes = topology.get_topology_info()['ec_servers']
         self.nodes = topology.get_topology_info()['nodes']
@@ -169,7 +169,6 @@ class OutputWritter:
         self.sf_utilization_file = file_paths['sf']
         
         self.flows_file = flows_file
-        self.resilient_file = res_file
         self.first_time = 0
         self.sfcs_latency_dict = {}
         self.counter_users = 0
@@ -189,29 +188,6 @@ class OutputWritter:
         with open(self.crash_impact_file, "a") as file:
             file.write(line)
 
-    def resilient_output(self,sfc_id,info,crash_trial):
-        is_success = info["recover_success"]
-        backup_success = info["backup_success"]
-        backup_efficient = info['backup_efficient']
-        latency_diff = info["latency_diff"]
-        time_to_recover = info["time_to_recover"]
-        vnf_id = info["vnf_id"]
-        latency_deg = info["latency_degrad"]
-        resource_deg = info["resource_degrad"] 
-             
-
-        with open(self.resilient_file, "a") as file:
-            line = str(crash_trial) + ',' + \
-                str(sfc_id) + ',' + \
-                str(vnf_id) + ',' + \
-                str(is_success) + ',' + \
-                str(backup_success) + ',' + \
-                str(backup_efficient) + ',' + \
-                str(latency_diff) + ',' + \
-                str(latency_deg) + ',' + \
-                str(resource_deg) + ',' + \
-                str(time_to_recover) + "\n"
-            file.write(line)
 
     def output_flows(self,substrate_network: Net2,wait_time,running_players_sessions,counter,remaining_time,current_time, sfc_id, 
                      latency, comp_latency, comm_latency, run_duration, is_success,fail_reason,bw_transcode,acceptance_rate, total_energy_consumption,
