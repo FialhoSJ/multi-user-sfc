@@ -66,6 +66,7 @@ class SubstrateNetworkController():
         self.is_stopped = True
         self.start_time = 0
         self.iteration_counter = 0
+        self.players = 6
         
         # --- Timers & Intervals ---
         self.timer = None
@@ -731,12 +732,21 @@ class SubstrateNetworkController():
         pass
 
     def check_simulation_end(self, sfc_list):
-        last_sf_mono = 'sfc_unique_p4_' + str(self.flows)
-        last_sf_dec = 'sfc_mono_p4_' + str(self.flows)
-        for sfc_id  in sfc_list:
-            if sfc_id in (last_sf_mono, last_sf_dec):
-                print('Last SFC released')
-                print('Max queue size:', self.max_queue_size )
+        """
+        Verifica se a ÚLTIMA SFC da ÚLTIMA SESSÃO foi processada.
+        """
+        # [FIX 2] Constrói a ID baseada no ÚLTIMO player (ex: p6) e não hardcoded p4
+        last_sf_mono = f'sfc_unique_p{self.players}_{self.flows}'
+        last_sf_dec = f'sfc_mono_p{self.players}_{self.flows}'
+        
+        for sfc_id in sfc_list:
+            # Verifica se a ID atual é exatamente a última esperada
+            if sfc_id == last_sf_mono or sfc_id == last_sf_dec:
+                print(f'[INFO] Last SFC released detected: {sfc_id}')
+                print('Max queue size:', self.max_queue_size)
+                
+                # Pequeno sleep de segurança para garantir I/O de disco
+                time.sleep(1) 
                 return True
         return False
 
