@@ -5,15 +5,16 @@ from core.net_v2 import Net2
 
 class Crasher:
     """
-    Gerencia a simulação de falhas baseada em Níveis de Confiabilidade (Reliability).
-    A lógica de cálculo de estresse e Tiers é delegada para a classe Net2.
+    Gerencia a simulação de falhas.
+    MODIFICAÇÃO: Filtra os alvos baseado no valor real da confiabilidade, 
+    não mais na etiqueta (Tier) do servidor.
     """
 
     def __init__(self, topology, args, interval=200, time=30):
         # Controle de Ativação (Macro)
         self.activated = (float(args.ava) != 1.0 or float(args.link_ava) != 1.0)
         
-        # Obtém informações da topologia (assumindo que o objeto topology possui este método)
+        # Obtém informações da topologia
         self.ec_servers = topology.get_topology_info()['ec_servers']
         
         self.nodes_crashed = []
@@ -25,8 +26,7 @@ class Crasher:
 
     def calculate_node_probabilities(self, network: Net2) -> Dict:
         """
-        Calcula a probabilidade de falha consultando a confiabilidade dinâmica
-        do nó na rede (Net2).
+        Calcula a probabilidade de falha consultando a confiabilidade dinâmica.
         P(Falha) = 1 - Confiabilidade
         """
         physical_servers = {}
@@ -34,7 +34,7 @@ class Crasher:
         # 1. Agregação por Servidor Físico (Assume IDs de nó como '33' e '33.1')
         for node in network.graph.nodes():
             node_data = network.graph.nodes[node]
-            # Considera apenas servidores (ignora switches/roteadores para este cálculo)
+            # Considera apenas servidores
             if 'server' not in str(node_data.get('type', '')):
                 continue
 
@@ -49,39 +49,26 @@ class Crasher:
         
         for base_id, members in physical_servers.items():
             # Consulta a confiabilidade diretamente da rede
-            # O Net2 já sabe lidar com Tiers e Estresse
             reliability = network.get_node_reliability(base_id)
             
             # Probabilidade de falha é o inverso da confiabilidade
-            # max(0, ...) garante que não haja valores negativos por erro de arredondamento
             prob_failure = max(0.0, 1.0 - reliability)
             
             aggregated_probs[base_id] = {
                 'prob': prob_failure,
+                'reliability': reliability, # Guardamos o valor bruto para filtrar depois
                 'members': members
             }
             
         return aggregated_probs
 
     def activate_crasher(self, network, sfc_manager=None, alg_name=None) -> List:
-        """Executa a roleta usando as probabilidades reais da rede, filtrando pelo Alvo."""
+        """Executa a roleta filtrando candidatos pelos intervalos numéricos de confiabilidade."""
         if not self.activated:
             return []
         
-        # Mapeamento do argumento do usuário para o 'level_server' do net_v2.py
-        # Tier A (Low Rel) = High Risk
-        # Tier B (Norm Rel) = Medium Risk
-        # Tier C (High Rel) = Low Risk
-        target_map = {
-            'high_risk': 'a',
-            'med_risk':  'b',
-            'low_risk':  'c',
-            'all':       'all'
-        }
-
         # Pega o argumento definido no main (default 'all')
         user_target = getattr(self, 'fail_target', 'all')
-        target_level = target_map.get(user_target, 'all')
 
         server_groups = self.calculate_node_probabilities(network)
         
@@ -92,36 +79,44 @@ class Crasher:
             # Filtra válidos (é servidor de borda?) e ativos (não caiu ainda?)
             is_valid = any(m in self.ec_servers for m in info['members'])
             
-            # Verifica se o servidor físico (ou seus componentes) já está na lista de caídos
+            # Verifica se o servidor físico já está na lista de caídos
             is_active = base_id not in self.nodes_crashed and \
                         any(m not in self.nodes_crashed for m in info['members'])
 
             if is_valid and is_active:
-                # --- NOVO FILTRO DE NIVEL ---
-                # Acessa o nó no grafo para ver qual o seu tier ('a', 'b', ou 'c')
-                # Precisamos converter base_id para o tipo correto (int ou str) conforme usado no grafo
-                try:
-                    node_data = network.graph.nodes[base_id]
-                except KeyError:
-                    # Tenta converter para int se string falhar (depende da sua topologia)
-                    try:
-                        node_data = network.graph.nodes[int(base_id)]
-                    except:
-                        continue # Se não achar o nó, pula
                 
-                node_tier = str(node_data.get('level_server', 'default')).lower()
+                # --- NOVA LÓGICA DE FILTRO POR VALOR DE CONFIABILIDADE ---
+                reliability = info['reliability'] # Valor entre 0.0 e 1.0
+                should_include = False
 
-                # Se o usuário não escolheu 'all' e o tier do nó não for o alvo, IGNORE
-                if target_level != 'all' and node_tier != target_level:
+                if user_target == 'all':
+                    should_include = True
+                
+                # Intervalo 1: High Risk (Nós ruins) -> Abaixo de 93.3%
+                elif user_target == 'high_risk':
+                    if reliability < 0.933:
+                        should_include = True
+                
+                # Intervalo 2: Medium Risk (Nós medianos) -> Entre 93.3% e 96.6%
+                elif user_target == 'med_risk':
+                    if 0.933 <= reliability <= 0.966:
+                        should_include = True
+                
+                # Intervalo 3: Low Risk (Nós robustos) -> Acima de 96.6%
+                elif user_target == 'low_risk':
+                    if reliability > 0.966:
+                        should_include = True
+                
+                if not should_include:
                     continue
-                # -----------------------------
+                # ---------------------------------------------------------
 
                 candidates.append(base_id)
                 weights.append(info['prob'])
 
         nodes_affected = []
         
-        # Gira a Roleta se houver candidatos e risco real > 0
+        # Gira a Roleta se houver candidatos
         if candidates and sum(weights) > 0:
             chosen_key = random.choices(candidates, weights=weights, k=1)[0]
             nodes_affected = server_groups[chosen_key]['members']
@@ -129,11 +124,6 @@ class Crasher:
             for node in nodes_affected:
                 if node not in self.nodes_crashed:
                     self.nodes_crashed.append(node)
-        else:
-            # Debug opcional: avisar se não achou candidatos para o nível
-            if target_level != 'all' and self.activated:
-                # print(f"[CRASHER] Nenhum nó do nível '{target_level}' disponível para falhar.")
-                pass
         
         return nodes_affected
 
@@ -146,5 +136,4 @@ class Crasher:
         return False
 
     def activate_link_crasher(self, network):
-        # Implementação opcional de links (não solicitada alteração, retorna None para segurança)
         return None
