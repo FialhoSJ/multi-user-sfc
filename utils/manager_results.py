@@ -141,7 +141,8 @@ def create_output_dir(args,topology):
         "low_risk_count",
         "avg_latency_before",   # <--- NOVO
         "avg_latency_after",    # <--- NOVO
-        "affected_percentage"   # <--- NOVO
+        "affected_percentage",   # <--- NOVO
+        "avg_latency_diff"
     ]  
 
     crash_header = ",".join(crash_header_fields) + "\n"
@@ -177,9 +178,48 @@ class OutputWritter:
         self.sfcs_latency_dict = {}
         self.counter_users = 0
         self.crash_impact_file = crash_impact_file
+
+
+    def resilient_output(self, sfc_id, info_log, crash_trials):
+        """
+        Salva os logs de resiliência/falha em um arquivo CSV.
+        """
+        # CORREÇÃO: Pegamos o diretório base a partir do arquivo de crash já existente
+        base_dir = os.path.dirname(self.crash_impact_file)
+        file_path = os.path.join(base_dir, "resilient_results.csv")
+        
+        # As chaves são baseadas no dicionário 'info_log' que você criou no controller
+        keys = [
+            "crash_trial", "sfc_id", "recover_success", "backup_success", 
+            "backup_efficient", "latency_diff", "time_to_recover", 
+            "vnf_id", "latency_degrad", "resource_degrad"
+        ]
+        
+        # Verifica se precisa criar o cabeçalho
+        write_header = not os.path.exists(file_path)
+
+        with open(file_path, 'a') as f:
+            if write_header:
+                f.write(",".join(keys) + "\n")
+            
+            # Monta a linha de dados
+            data = [
+                str(crash_trials),
+                str(sfc_id),
+                str(info_log.get("recover_success", "")),
+                str(info_log.get("backup_success", "")),
+                str(info_log.get("backup_efficient", "")),
+                str(info_log.get("latency_diff", "")),
+                str(info_log.get("time_to_recover", "")),
+                str(info_log.get("vnf_id", "")),
+                str(info_log.get("latency_degrad", "")),
+                str(info_log.get("resource_degrad", ""))
+            ]
+            
+            f.write(",".join(data) + "\n")
         
     def output_crash_impact(self, crash_trial, nodes_count, affected_count, high, medium, low,
-                            lat_before, lat_after, affected_pct):
+                            lat_before, lat_after, affected_pct,avg_lat_diff):
         current_time = time.time()
         line = (
             f"{crash_trial},"
@@ -191,7 +231,8 @@ class OutputWritter:
             f"{low},"
             f"{lat_before:.4f},"    # <--- NOVO
             f"{lat_after:.4f},"     # <--- NOVO
-            f"{affected_pct:.2f}\n" # <--- NOVO
+            f"{affected_pct:.2f}," # <--- NOVO
+            f"{avg_lat_diff:.4f}\n"
         )
         
         with open(self.crash_impact_file, "a") as file:
