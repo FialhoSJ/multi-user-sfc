@@ -138,8 +138,12 @@ def create_output_dir(args,topology):
         "total_affected_sfcs",
         "high_risk_count",    # < 93.3%
         "medium_risk_count",  # 93.3% - 96.3%
-        "low_risk_count"      # > 96.3%
-    ]
+        "low_risk_count",
+        "avg_latency_before",   # <--- NOVO
+        "avg_latency_after",    # <--- NOVO
+        "affected_percentage"   # <--- NOVO
+    ]  
+
     crash_header = ",".join(crash_header_fields) + "\n"
 
     with open(crash_impact_path, "a") as f:
@@ -174,7 +178,8 @@ class OutputWritter:
         self.counter_users = 0
         self.crash_impact_file = crash_impact_file
         
-    def output_crash_impact(self, crash_trial, nodes_count, affected_count, high, medium, low):
+    def output_crash_impact(self, crash_trial, nodes_count, affected_count, high, medium, low,
+                            lat_before, lat_after, affected_pct):
         current_time = time.time()
         line = (
             f"{crash_trial},"
@@ -183,8 +188,12 @@ class OutputWritter:
             f"{affected_count},"
             f"{high},"
             f"{medium},"
-            f"{low}\n"
+            f"{low},"
+            f"{lat_before:.4f},"    # <--- NOVO
+            f"{lat_after:.4f},"     # <--- NOVO
+            f"{affected_pct:.2f}\n" # <--- NOVO
         )
+        
         with open(self.crash_impact_file, "a") as file:
             file.write(line)
 
