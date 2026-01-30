@@ -161,7 +161,7 @@ class SFCInstatiator:
                 try:
                     route_info = algorithm.get_route_info()
                     # Se submit_solution for bem-sucedido, ele modifica 'graph'
-                    total_latency, comp_latency, comm_latency = self.submit_solution(graph, sfc, route_info)
+                    total_latency, comp_latency, comm_latency, res_info = self.submit_solution(graph, sfc, route_info)
                 except ValueError as ve:
                     logging.error(f"Falha na submissão da solução para SFC {sfc.id}: {ve}")
                     algorithm.handle_failure()
@@ -197,7 +197,7 @@ class SFCInstatiator:
                         fallback_route_info[last_vnf_name] = path_list[0]
                         
                         # Tenta submeter no grafo temporário
-                        total_latency, comp_latency, comm_latency = self.submit_solution(fallback_graph, sfc, fallback_route_info)
+                        total_latency, comp_latency, comm_latency, res_info = self.submit_solution(fallback_graph, sfc, fallback_route_info)
                         
                         logging.info(f"Fallback {sfc.id} BEM SUCEDIDO (Latência: {total_latency}).")
                         algorithm.route_info = fallback_route_info
@@ -216,7 +216,8 @@ class SFCInstatiator:
                 'latency': total_latency,
                 'comp_latency': comp_latency,
                 'comm_latency': comm_latency,
-                'run_duration': s2 - s
+                'run_duration': s2 - s,
+                'resource_info': res_info if alg_success else 0 # <--- AQUI ESTÁ O VALOR REAL
             }
 
             if not alg_success:
@@ -263,7 +264,10 @@ class SFCInstatiator:
         )
 
     def submit_solution(self, graph, sfc, route_info):
-        
+
+        # ============================================================
+        # ALOCAÇÃO DE MICROSSERVIÇOS (RETORNA LATÊNCIA + RECURSOS GASTOS)
+        # ============================================================
         def allocate_microservice(vnf, node_id, session_id):
             service_id = vnf.id
             service_key = (service_id, session_id)
@@ -272,46 +276,66 @@ class SFCInstatiator:
             node = graph.nodes[node_id]
             latency = calculate_computational_latency(graph, node_id, vnf)
 
+            allocated_resources = 0.0  # rastreia o custo real de recursos
+
+            # Nó especial (ex: cloud/origem)
             if node_id == 0:
-                return 0
+                return 0, 0.0
 
             if node['type'] not in ['server', 'mobile_device']:
-                raise ValueError(f"Serviços só podem ser alocados em servidores ou usuários, não em '{node['type']}'.")
+                raise ValueError("Serviços só podem ser alocados em servidores ou usuários.")
 
-            # 1. Verifica se o serviço já existe no nó
+            # ------------------------------------------------------------
+            # 1) Serviço já existe no nó
+            # ------------------------------------------------------------
             if service_key in node['services']:
                 node['services'][service_key]['copys'] += 1
-                
-                # 2. Se não for compartilhável, verifica e consome novos recursos
+
+                # Se NÃO for compartilhável, consome novos recursos
                 if not self.is_shareable(service_id):
+
                     if node['cpu_used'] + cpu_required > node['cpu_capacity']:
                         node['services'][service_key]['copys'] -= 1
-                        raise ValueError(f"CPU excedida no nó {node_id} para {service_id}")
-                    
+                        raise ValueError(f"CPU excedida no nó {node_id}")
+
                     if node['cache_used'] + cache_required > node['cache_capacity']:
                         node['services'][service_key]['copys'] -= 1
-                        raise ValueError(f"Cache excedido no nó {node_id} para {service_id}")
+                        raise ValueError(f"Cache excedido no nó {node_id}")
 
                     node['cpu_used'] += cpu_required
                     node['cache_used'] += cache_required
-            
-            # 3. Serviço novo no nó
+                    allocated_resources = cpu_required  # gastou recurso
+
+                # Se for compartilhável → allocated_resources permanece 0 (reuso)
+
+            # ------------------------------------------------------------
+            # 2) Serviço novo no nó
+            # ------------------------------------------------------------
             else:
                 if node['cpu_used'] + cpu_required > node['cpu_capacity']:
-                    raise ValueError(f"CPU excedida no nó {node_id} para novo serviço {service_id}")
-                
-                if node['cache_used'] + cache_required > node['cache_capacity']:
-                    raise ValueError(f"Cache excedido no nó {node_id} para novo serviço {service_id}")
+                    raise ValueError(f"CPU excedida no nó {node_id}")
 
-                node['services'][service_key] = {'cpu': cpu_required, 'cache': cache_required, 'copys': 1}
+                if node['cache_used'] + cache_required > node['cache_capacity']:
+                    raise ValueError(f"Cache excedido no nó {node_id}")
+
+                node['services'][service_key] = {
+                    'cpu': cpu_required,
+                    'cache': cache_required,
+                    'copys': 1
+                }
+
                 node['cpu_used'] += cpu_required
                 node['cache_used'] += cache_required
+                allocated_resources = cpu_required  # gastou recurso
 
                 if self.is_shareable(service_id):
                     node['reuse'].append(vnf)
 
-            return latency
+            return latency, allocated_resources
 
+        # ============================================================
+        # ALOCAÇÃO DE BANDA (MANTIDA COMO ORIGINAL)
+        # ============================================================
         def allocate_bandwidth(node1, node2, vnf, ms_name):
             bw_required = vnf.get_outcome_interface_bandwidth()
             latency = calculate_latency_betwen_nodes(graph, node1, node2, vnf)
@@ -324,14 +348,22 @@ class SFCInstatiator:
                 edge['services_in_transit'][ms_name]['copys'] += 1
                 edge['bandwidth_used'] += bw_required
             else:
-                edge['services_in_transit'][ms_name] = {'copys': 1, 'bw_used': bw_required}
+                edge['services_in_transit'][ms_name] = {
+                    'copys': 1,
+                    'bw_used': bw_required
+                }
                 edge['bandwidth_used'] += bw_required
+
             return latency
 
+        # ============================================================
+        # EXECUÇÃO DA SFC
+        # ============================================================
         session = sfc.id.split("_")[-1]
         total_latency = 0
+        total_resources_consumed = 0.0  # acumulador global de recursos
 
-        # Estrutura de debug para latências
+        # Estrutura de debug de latências
         tsaber = {
             'computacao': {},
             'comunicacao': {}
@@ -343,14 +375,20 @@ class SFCInstatiator:
 
             vnf = sfc.get_vnf_by_id(ms_name)
             node_allocated = path[0]
-            comp_latency = allocate_microservice(vnf, node_allocated, session)
+
+            # Captura retorno duplo
+            comp_latency, res_consumed = allocate_microservice(vnf, node_allocated, session)
+
             total_latency += comp_latency
+            total_resources_consumed += res_consumed
 
             tsaber['computacao'][ms_name] = {
                 'node': node_allocated,
-                'latencia_comp': comp_latency
+                'latencia_comp': comp_latency,
+                'recursos_consumidos': res_consumed
             }
-            
+
+            # Comunicação (links)
             if len(path) > 1:
                 for u, v in zip(path[:-1], path[1:]):
                     comm_latency = allocate_bandwidth(u, v, vnf, ms_name)
@@ -358,18 +396,30 @@ class SFCInstatiator:
 
                     if ms_name not in tsaber['comunicacao']:
                         tsaber['comunicacao'][ms_name] = []
+
                     tsaber['comunicacao'][ms_name].append({
                         'de': u,
                         'para': v,
                         'latencia_comm': comm_latency
                     })
 
+        # ============================================================
+        # CÁLCULOS FINAIS
+        # ============================================================
         total_comp_latency = sum(d['latencia_comp'] for d in tsaber['computacao'].values())
-        total_comm_latency = sum(item['latencia_comm'] 
-                                 for items in tsaber['comunicacao'].values() 
-                                 for item in items)
+        total_comm_latency = sum(
+            item['latencia_comm']
+            for items in tsaber['comunicacao'].values()
+            for item in items
+        )
 
-        return round(total_latency, 2), round(total_comp_latency, 2), round(total_comm_latency, 2)
+        return (
+            round(total_latency, 2),
+            round(total_comp_latency, 2),
+            round(total_comm_latency, 2),
+            round(total_resources_consumed, 4)
+        )
+
 
     # ==========================================
     # Helper Methods & Calculations
