@@ -13,56 +13,44 @@ def run_process(process):
 
 def process_callback(process_name):
     """Função chamada quando um processo termina."""
-    print(f"Processo finalizado: {process_name}")
+    pass
 
 if __name__ == '__main__':
     # =========================================================================
-    # ARGUMENTOS (Mantidos para compatibilidade, mas ignorados no modo BATCH)
+    # ARGUMENTOS (Ignorados no modo BATCH, mas mantidos para não quebrar)
     # =========================================================================
     parser = argparse.ArgumentParser(description='Select MUAR arguments')
-    parser.add_argument('--n_sessions', type=int, help='(int) number of sessions', default=50)
-    parser.add_argument('--n_players', type=int, help='(int) number of players', default=6)
-    parser.add_argument('--threads', type=int, help='(int) number of cores to use', default=17)
-    parser.add_argument('--repetition', type=int, help='(int) repetitions', default=5)
-    parser.add_argument('--sfc', type=str, help='(str) on or off', default='on')
-    parser.add_argument('--alg', type=str, help='(str algorithm name', default='ga')
-    parser.add_argument('--share', type=str, help='(str) whether to share sfs or not', default='y')
-    parser.add_argument('--shareband', type=str, help='(str) whether to share sfs or not', default='y')
-    parser.add_argument('--verbose', type=str, help='verbose log', default='n')
-    parser.add_argument('--time', type=int, help='(int) the total time for the simulation in seconds', default=120)
-    parser.add_argument(
-        '--eco_effi_ratio',
-        type=float,
-        default=0.7,
-        help='Define a proporção para slots econômicos.'
-    )
-    args = parser.parse_args()
+    parser.add_argument('--n_sessions', type=int, default=50)
+    parser.add_argument('--n_players', type=int, default=6)
+    parser.add_argument('--time', type=int, default=120)
+    parser.add_argument('--eco_effi_ratio', type=float, default=0.7)
+    parser.add_argument('--sfc', type=str, default='on')
+    args, unknown = parser.parse_known_args()
 
     # =========================================================================
-    # CONFIGURAÇÃO DE EXECUÇÃO (CUSTOMIZADA)
+    # CONFIGURAÇÃO DE EXECUÇÃO (ATUALIZADA)
     # =========================================================================
     
-    # Define o modo de execução para 'batch' para ignorar argumentos de linha de comando
-    # e usar as listas definidas abaixo.
     RUN_MODE = 'batch'
     
-    # 1. Algoritmos solicitados
+    # 1. Lista de Algoritmos (Adicionados GA e GreedyB)
     BATCH_ALGS = ['kuririnMaskablePPO', 'ga', 'greedyb']
-    # BATCH_ALGS = ['greedyb']
 
-    # 2. Cenários de Risco (Alvos de Falha) - NOVO
-    BATCH_FAIL_TARGETS = ['high_risk', 'med_risk', 'low_risk']
+    # 2. Cenários de Risco
+    BATCH_FAIL_TARGETS = ['low_risk', 'med_risk', 'high_risk']
     
-    # 3. Número de vezes que CADA algoritmo vai rodar
-    BATCH_TOTAL_RUNS = 5  
+    # 3. Número de repetições por cenário
+    BATCH_TOTAL_RUNS = 3  
     
-    # 4. Quantos processos rodam ao mesmo tempo (Threads)
-    BATCH_PARALLEL_RUNS = 5 
+    # 4. Processos em Paralelo (3 algs * 3 cenários * 3 repetições = 27 jobs)
+    # ATENÇÃO: Isso vai disparar 27 processos Python pesados simultaneamente.
+    # Certifique-se de que sua máquina aguenta (CPU/RAM).
+    BATCH_PARALLEL_RUNS = 27
     
-    # Parâmetros alinhados com o padrão do main.py
-    # ava='0.99', number_of_fails='50'
+    # --- Configurações de Falha ---
+    number_of_fails = ['1'] 
+    CRASH_AT_TIME = 300 
     avas = ['0.99']
-    number_of_fails = ['40']
 
     # =========================================================================
     # LÓGICA DE GERAÇÃO DE COMANDOS
@@ -70,21 +58,19 @@ if __name__ == '__main__':
     
     begin = dt.now()
     cmd = []
-    num_parallel_processes = BATCH_PARALLEL_RUNS
 
     print(f"[INFO] Modo: {RUN_MODE}")
     print(f"[INFO] Algoritmos: {BATCH_ALGS}")
-    print(f"[INFO] Cenários (Fail Targets): {BATCH_FAIL_TARGETS}")
-    print(f"[INFO] Repetições por Algoritmo/Cenário: {BATCH_TOTAL_RUNS}")
-    print(f"[INFO] Processos em Paralelo: {BATCH_PARALLEL_RUNS}")
+    print(f"[INFO] Cenários: {BATCH_FAIL_TARGETS}")
+    print(f"[INFO] Configuração: 1 falha em T={CRASH_AT_TIME}s")
+    print(f"[INFO] Total de Jobs: {len(BATCH_ALGS) * len(BATCH_FAIL_TARGETS) * BATCH_TOTAL_RUNS}")
 
-    # Loop principal para gerar os comandos
+    # Loop para gerar os comandos
     for alg_name in BATCH_ALGS:
-        for fail_target in BATCH_FAIL_TARGETS: # Loop iterando pelos cenários de risco
+        for fail_target in BATCH_FAIL_TARGETS:
             for i in range(BATCH_TOTAL_RUNS):
                 for a in avas: 
                     for n in number_of_fails:
-                        # Constrói o comando garantindo verbose='n' e argumentos do main
                         command = 'main.py' + \
                             ' --n_sessions ' + str(args.n_sessions) + \
                             ' --alg ' + alg_name + \
@@ -92,10 +78,11 @@ if __name__ == '__main__':
                             ' --sfc ' + str(args.sfc) + \
                             ' --ava ' + str(a) + \
                             ' --number_of_fails ' + str(n) + \
+                            ' --crash_at ' + str(CRASH_AT_TIME) + \
                             ' --n_players ' + str(args.n_players) + \
                             ' --time ' + str(args.time) + \
                             ' --eco_effi_ratio ' + str(args.eco_effi_ratio) + \
-                            ' --verbose n'  # Forçando não verboso
+                            ' --verbose n'
                         
                         cmd.append(command)
 
@@ -103,19 +90,19 @@ if __name__ == '__main__':
     # EXECUÇÃO DO POOL
     # =========================================================================
 
-    print(f"[INFO] Total de comandos gerados: {len(cmd)}")
-    print(f"[INFO] Iniciando pool com {num_parallel_processes} processos...")
+    print(f"[INFO] Iniciando pool com {BATCH_PARALLEL_RUNS} processos...")
+    print(f"[AVISO] Rodando tudo simultaneamente. Monitore o uso de CPU/RAM.")
     
-    pool = Pool(processes=num_parallel_processes)
+    pool = Pool(processes=BATCH_PARALLEL_RUNS)
 
-    for command in cmd:
+    for i, command in enumerate(cmd):
         pool.apply_async(run_process, (command,), callback=lambda c=command: process_callback(c))
-        # Pequeno delay para evitar conflito na criação de pastas de log iniciais
-        time.sleep(2.0)
+        time.sleep(1.0) # Pequeno delay para evitar conflito de I/O na criação de logs
 
     pool.close()
     pool.join()
 
     duration = dt.now() - begin
-    print('Tempo total de processamento:', duration)
-    print('Execução finalizada.')
+    print('\n==================================================')
+    print(f'Execução finalizada em: {duration}')
+    print('==================================================')

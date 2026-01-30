@@ -92,19 +92,19 @@ class Crasher:
                 if user_target == 'all':
                     should_include = True
                 
-                # Intervalo 1: High Risk (Nós ruins) -> Abaixo de 93.3%
+                # Intervalo 1: High Risk (Nós ruins) -> Abaixo de 90%
                 elif user_target == 'high_risk':
-                    if reliability < 0.933:
+                    if reliability < 0.89:
                         should_include = True
                 
-                # Intervalo 2: Medium Risk (Nós medianos) -> Entre 93.3% e 96.6%
+                # Intervalo 2: Medium Risk (Nós medianos) -> Entre 90% e 95%
                 elif user_target == 'med_risk':
-                    if 0.933 <= reliability <= 0.966:
+                    if 0.89 <= reliability <= 0.95:
                         should_include = True
                 
-                # Intervalo 3: Low Risk (Nós robustos) -> Acima de 96.6%
+                # Intervalo 3: Low Risk (Nós robustos) -> Acima de 95%
                 elif user_target == 'low_risk':
-                    if reliability > 0.966:
+                    if reliability > 0.94:
                         should_include = True
                 
                 if not should_include:
@@ -121,9 +121,16 @@ class Crasher:
             chosen_key = random.choices(candidates, weights=weights, k=1)[0]
             nodes_affected = server_groups[chosen_key]['members']
             
+            # Captura a confiabilidade do grupo sorteado para o print
+            confiabilidade_atual = server_groups[chosen_key]['reliability']
+
             for node in nodes_affected:
                 if node not in self.nodes_crashed:
                     self.nodes_crashed.append(node)
+                    
+                    # --- SEU PRINT AQUI ---
+                    print(f"Node {node} CRASHED! Reliability: {confiabilidade_atual:.3f}")
+                    # ----------------------
         
         return nodes_affected
 

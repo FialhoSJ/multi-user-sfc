@@ -57,9 +57,9 @@ def main():
     
     # 1. Configuração MACRO (Gera o Cronograma)
     parser.add_argument('--ava', type=str, default='0.99', help='Meta Global de Disponibilidade')
-    parser.add_argument('--number_of_fails', type=str, default='3', help='Number of node failures')
+    parser.add_argument('--number_of_fails', type=str, default='25', help='Number of node failures')
     parser.add_argument('--min_fail_duration', type=float, default=20, help='Min duration of node failure')
-    parser.add_argument('--crash_at', type=float, default=[60, 60, 60], help='Forcar falha em X segundos (Ex: [300, 400, 500]). Use -1 para aleatorio. Respeite o numero de falhas.')
+    parser.add_argument('--crash_at', type=float, default=-1, help='Forcar falha em X segundos (Ex: [300, 400, 500]). Use -1 para aleatorio. Respeite o numero de falhas.')
 
     # 2. Configuração MICRO (Define a Confiabilidade Base por Nível)
     # Valores entre 0.0 e 1.0 (Ex: 0.99 = 99% confiável)
@@ -81,7 +81,7 @@ def main():
     parser.add_argument('--stress_low', type=float, default=0.1, help='Penalidade por estresse para Tier A (Low)')
     
     # Opções: 'all' (qualquer um), 'high_risk' (Tier A), 'med_risk' (Tier B), 'low_risk' (Tier C)
-    parser.add_argument('--fail_target', type=str, default='high_risk', help='Alvo das falhas: all, high_risk (Nivel A), med_risk (Nivel B), low_risk (Nivel C)')
+    parser.add_argument('--fail_target', type=str, default='med_risk', help='Alvo das falhas: all, high_risk (Nivel A), med_risk (Nivel B), low_risk (Nivel C)')
     
     # Falhas de LINKS
     parser.add_argument('--link_ava', type=str, default='0.95', help='Link availability (0.0 to 1.0)')
@@ -116,7 +116,22 @@ def main():
     simulation_duration = float(args.n_sessions) * official
 
     # Define se usa tempo fixo ou aleatório
-    fixed_time = args.crash_at if args.crash_at != -1 else None
+    fixed_time = args.crash_at
+    
+    if fixed_time == -1:
+        fixed_time = None
+    # Se veio um número único do argparse, envelopa numa lista para ter len()
+    elif isinstance(fixed_time, (float, int)):
+        fixed_time = [fixed_time]
+
+    # Gera cronograma para NÓS
+    raw_node_schedule = calcular_janelas_falha(
+        duracao_simulacao=simulation_duration,
+        num_falhas=int(args.number_of_fails),
+        duracao_minima_falha=args.min_fail_duration,
+        confiabilidade=float(args.ava),
+        start_times=fixed_time # <--- Agora isso será uma lista [300.0] ou None
+    )
 
     # Gera cronograma para NÓS
     raw_node_schedule = calcular_janelas_falha(
