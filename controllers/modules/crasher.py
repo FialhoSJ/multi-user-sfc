@@ -94,17 +94,17 @@ class Crasher:
                 
                 # Intervalo 1: High Risk (Nós ruins) -> Abaixo de 90%
                 elif user_target == 'high_risk':
-                    if reliability < 0.89:
+                    if reliability < 0.80:
                         should_include = True
                 
                 # Intervalo 2: Medium Risk (Nós medianos) -> Entre 90% e 95%
                 elif user_target == 'med_risk':
-                    if 0.89 <= reliability <= 0.95:
+                    if 0.80 <= reliability <= 0.90:
                         should_include = True
                 
                 # Intervalo 3: Low Risk (Nós robustos) -> Acima de 95%
                 elif user_target == 'low_risk':
-                    if reliability > 0.94:
+                    if reliability > 0.90:
                         should_include = True
                 
                 if not should_include:

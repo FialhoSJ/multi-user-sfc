@@ -34,21 +34,20 @@ if __name__ == '__main__':
     RUN_MODE = 'batch'
     
     # 1. Lista de Algoritmos (Adicionados GA e GreedyB)
-    BATCH_ALGS = ['kuririnMaskablePPO','greedyb']
+    BATCH_ALGS = ['ga']
 
     # 2. Cenários de Risco
     BATCH_FAIL_TARGETS = ['low_risk', 'med_risk', 'high_risk']
     
     # 3. Número de repetições por cenário
-    BATCH_TOTAL_RUNS = 3  
+    BATCH_TOTAL_RUNS = 7
     
-    # 4. Processos em Paralelo (3 algs * 3 cenários * 3 repetições = 27 jobs)
     # ATENÇÃO: Isso vai disparar 27 processos Python pesados simultaneamente.
     # Certifique-se de que sua máquina aguenta (CPU/RAM).
-    BATCH_PARALLEL_RUNS = 27
+    BATCH_PARALLEL_RUNS = 20
     
     # --- Configurações de Falha ---
-    number_of_fails = ['1'] 
+    number_of_fails = ['20'] 
     CRASH_AT_TIME = 300 
     avas = ['0.99']
 
