@@ -570,9 +570,9 @@ class SubstrateNetworkController():
                 for node in unique_nodes:
                     sfc_r *= self.substrate_network.get_node_reliability(node)
                 
-                if sfc_r < 0.933:
+                if sfc_r < 0.8:
                     high_risk += 1
-                elif 0.933 <= sfc_r <= 0.963:
+                elif 0.8 <= sfc_r <= 0.9:
                     med_risk += 1
                 else:
                     low_risk += 1

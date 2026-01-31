@@ -57,7 +57,7 @@ def main():
     
     # 1. Configuração MACRO (Gera o Cronograma)
     parser.add_argument('--ava', type=str, default='0.99', help='Meta Global de Disponibilidade')
-    parser.add_argument('--number_of_fails', type=str, default='25', help='Number of node failures')
+    parser.add_argument('--number_of_fails', type=str, default='20', help='Number of node failures')
     parser.add_argument('--min_fail_duration', type=float, default=20, help='Min duration of node failure')
     parser.add_argument('--crash_at', type=float, default=-1, help='Forcar falha em X segundos (Ex: [300, 400, 500]). Use -1 para aleatorio. Respeite o numero de falhas.')
 
@@ -81,7 +81,7 @@ def main():
     parser.add_argument('--stress_low', type=float, default=0.1, help='Penalidade por estresse para Tier A (Low)')
     
     # Opções: 'all' (qualquer um), 'high_risk' (Tier A), 'med_risk' (Tier B), 'low_risk' (Tier C)
-    parser.add_argument('--fail_target', type=str, default='all', help='Alvo das falhas: all, high_risk (Nivel A), med_risk (Nivel B), low_risk (Nivel C)')
+    parser.add_argument('--fail_target', type=str, default='low_risk', help='Alvo das falhas: all, high_risk (Nivel A), med_risk (Nivel B), low_risk (Nivel C)')
     
     # Falhas de LINKS
     parser.add_argument('--link_ava', type=str, default='0.95', help='Link availability (0.0 to 1.0)')

@@ -83,10 +83,10 @@ def calcular_janelas_falha(
     custo_minimo_necessario = num_falhas * duracao_minima_falha
 
     if tempo_total_downtime < custo_minimo_necessario:
-        logger.warning(
-            "Downtime insuficiente para o número de falhas. "
-            "Ajustando para o mínimo necessário."
-        )
+        # logger.warning(
+        #     "Downtime insuficiente para o número de falhas. "
+        #     "Ajustando para o mínimo necessário."
+        # )
         tempo_total_downtime = custo_minimo_necessario
 
     excedente = tempo_total_downtime - custo_minimo_necessario
