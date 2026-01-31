@@ -513,199 +513,203 @@ class SubstrateNetworkController():
 
     def server_fail_operation(self) -> Tuple[List[str], list]:
         """
-        Dispara a falha, contabiliza riscos REAIS e tenta recuperar.
+        Orquestra o processo completo de crash de servidores e análise de impacto.
         """
-        # 1. Executa a roleta do Crasher
-        servers_failed = self.fail_manager.activate_crasher(
-            self.substrate_network, 
-            self.sfc_manager, 
-            self.alg
-        )
-        
+
+        servers_failed = self._trigger_crash()
         if not servers_failed:
             return [], []
 
-        print(f"\n>>> [CRASH] Servidores a serem derrubados: {servers_failed}")
+        affected_sfc_ids, sfc_failed_nodes_map = self._map_affected_sfcs(servers_failed)
 
-        # =================================================================
-        # FASE 1: AUDITORIA PRÉ-CRASH (Calcula Latência 'Before')
-        # =================================================================
-        high_risk = 0
-        med_risk = 0
-        low_risk = 0
-        
+        high_risk, med_risk, low_risk = self._classify_crash_risk(
+            servers_failed, affected_sfc_ids
+        )
+
+        pre_crash_latencies, sfc_owners_map = self._audit_pre_crash(affected_sfc_ids)
+
+        self._crash_servers(servers_failed)
+
+        fallen_sfcs_list, post_crash_latencies = self._recover_sfcs(
+            affected_sfc_ids,
+            sfc_failed_nodes_map,
+            pre_crash_latencies,
+            sfc_owners_map
+        )
+
+        self._compute_crash_metrics(
+            servers_failed,
+            affected_sfc_ids,
+            high_risk,
+            med_risk,
+            low_risk,
+            pre_crash_latencies,
+            post_crash_latencies
+        )
+
+        self.sfc_manager.crashed_servers = self.fail_manager.nodes_crashed
+        self.crashs_trials += 1
+
+        return servers_failed, fallen_sfcs_list
+    
+    def _trigger_crash(self) -> List[str]:
+        servers_failed = self.fail_manager.activate_crasher(
+            self.substrate_network,
+            self.sfc_manager,
+            self.alg
+        )
+
+        if servers_failed:
+            print(f"\n>>> [CRASH] Servidores a serem derrubados: {servers_failed}")
+
+        return servers_failed
+    
+    def _map_affected_sfcs(self, servers_failed):
         affected_sfc_ids = set()
-        pre_crash_latencies = {} # Guarda latência antes de cair: {sfc_id: float}
-        sfc_owners_map = {}
+        sfc_failed_nodes_map = {}
 
-        # Identifica todas as SFCs que serão afetadas
         for server in servers_failed:
             sfcs_in_node = self.substrate_network.get_node_sfcs(server)
             for sfc_id in sfcs_in_node:
                 affected_sfc_ids.add(sfc_id)
+                sfc_failed_nodes_map.setdefault(sfc_id, []).append(server)
 
-        # Analisa cada SFC afetada
+        return affected_sfc_ids, sfc_failed_nodes_map
+    
+    def _classify_crash_risk(self, servers_failed, affected_sfc_ids):
+        high_risk = med_risk = low_risk = 0
+
+        if not servers_failed:
+            return high_risk, med_risk, low_risk
+
+        target_node = servers_failed[0]
+        base_id = str(target_node).split('.')[0]
+
+        server_reliability = self.substrate_network.get_node_reliability(base_id)
+        total_victims = len(affected_sfc_ids)
+
+        if server_reliability < 0.9:
+            high_risk = total_victims
+        elif 0.90 <= server_reliability <= 0.95:
+            med_risk = total_victims
+        else:
+            low_risk = total_victims
+
+        print(f"   -> Crash Source Reliability: {server_reliability:.4f}")
+        print(f"   -> Impact bucket: {'High' if high_risk else 'Med' if med_risk else 'Low'} Risk Node")
+
+        return high_risk, med_risk, low_risk
+    
+    def _audit_pre_crash(self, affected_sfc_ids):
+        pre_crash_latencies = {}
+        sfc_owners_map = {}
+
         for sfc_id in affected_sfc_ids:
-
-            # --- ADICIONE ESTE BLOCO ---
             try:
-                # Salva quem é o dono da SFC antes dela ser deletada pelo crash
                 sfc_obj_temp = self.substrate_network.get_sfc_by_id(sfc_id)
                 sfc_owners_map[sfc_id] = sfc_obj_temp.dst_node
-            except:
+            except Exception:
                 pass
-            # 1. Calcula Latência Atual (BEFORE)
-            lat_val = self._calculate_sfc_path_latency(sfc_id)
-            pre_crash_latencies[sfc_id] = lat_val
 
-            # 2. Calcula Risco (Confiabilidade)
-            if sfc_id in self.substrate_network.sfc_route_info:
-                route_info = self.substrate_network.sfc_route_info[sfc_id]
-                unique_nodes = set()
-                for vnf_id, path in route_info.items():
-                    if vnf_id not in ['src', 'dst'] and path:
-                        unique_nodes.add(path[0])
-                
-                sfc_r = 1.0
-                for node in unique_nodes:
-                    sfc_r *= self.substrate_network.get_node_reliability(node)
-                
-                if sfc_r < 0.8:
-                    high_risk += 1
-                elif 0.8 <= sfc_r <= 0.9:
-                    med_risk += 1
-                else:
-                    low_risk += 1
+            pre_crash_latencies[sfc_id] = self._calculate_sfc_path_latency(sfc_id)
 
-        total_affected = len(affected_sfc_ids)
-        total_active_sfcs = len(self.substrate_network.sfc_dict)
-
-        # =================================================================
-        # FASE 2: CRASH FÍSICO
-        # =================================================================
+        return pre_crash_latencies, sfc_owners_map
+    
+    def _crash_servers(self, servers_failed):
         for server in servers_failed:
             self.substrate_network.set_node_down(server)
-
-        # =================================================================
-        # FASE 3: RECUPERAÇÃO E CÁLCULO PÓS-CRASH
-        # =================================================================
-        fallen_sfcs_list = []
-        post_crash_latencies = {} # Guarda latência das que sobreviveram
-        recovered_count = 0
-
-        # Ordena para processamento determinístico
-        sorted_affected_ids = sorted(list(affected_sfc_ids))
-
-        for sfc_id in sorted_affected_ids:
-            # Tenta encontrar onde a SFC estava falhando (pode ser mais de um nó, pega o primeiro achado)
-            # Precisamos saber qual servidor caiu especificamente para essa SFC para chamar o recovery
-            # Como a SFC pode passar por múltiplos nós que caíram, simplificamos:
             
-            # Busca qual servidor falho hospedava VNFs dessa SFC
-            relevant_server_down = None
-            for server in servers_failed:
-                # Verificação simplificada: Se estava na lista do servidor antes do crash
-                # Nota: get_node_sfcs pode não funcionar se o nó já está DOWN e limpou a lista.
-                # O ideal seria ter mapeado isso na Fase 1. 
-                # Vamos assumir que o `attempt_recovery_by_replica` sabe lidar com isso 
-                # ou passamos qualquer nó falho da lista, já que o método valida internamente.
-                relevant_server_down = server 
-                break 
+    def _recover_sfcs(self, affected_sfc_ids, sfc_failed_nodes_map, pre_crash_latencies, sfc_owners_map):
+        fallen_sfcs_list = []
+        post_crash_latencies = {}
 
-            # Tenta Recuperar
+        for sfc_id in sorted(affected_sfc_ids):
+
+            failed_nodes = sfc_failed_nodes_map.get(sfc_id, [])
+            relevant_server_down = failed_nodes[0] if failed_nodes else None
+
             recovered = False
             if relevant_server_down:
                 recovered = self.sfc_manager.attempt_recovery_by_replica(
-                    sfc_id, 
-                    relevant_server_down, # Passamos um dos nós caídos como gatilho
+                    sfc_id,
+                    relevant_server_down,
                     self.substrate_network
                 )
 
             if recovered:
-                # SE RECUPEROU: Calcula NOVA latência (AFTER)
                 new_lat = self._calculate_sfc_path_latency(sfc_id)
                 post_crash_latencies[sfc_id] = new_lat
-                recovered_count += 1
-                
-                # Registra sucesso para métricas futuras
+
                 self.sfcs_crash_affected[sfc_id] = {
                     "fall_time": time.time(),
                     "old_latency": pre_crash_latencies.get(sfc_id, 0),
                     "resource_info": 0,
                     "backup_success": True
                 }
+
             else:
-                # SE FALHOU: Prepara para redeploy
-                # Loga o insucesso resiliente
                 self.sfcs_crash_affected[sfc_id] = {
-                "fall_time": time.time(),
-                "old_latency": pre_crash_latencies.get(sfc_id, 0),
-                "resource_info": 0,
-                "backup_success": False, # Importante: indica que não foi salvo por réplica imediata
-                "crash_trial": self.crashs_trials # Salva qual crash causou isso (para não misturar se houver outro crash depois)
+                    "fall_time": time.time(),
+                    "old_latency": pre_crash_latencies.get(sfc_id, 0),
+                    "resource_info": 0,
+                    "backup_success": False,
+                    "crash_trial": self.crashs_trials
                 }
-                
-                # Lógica de Redeploy
+
                 try:
-                    # Em vez de buscar o objeto na rede (que pode não existir mais),
-                    # usamos o mapa que criamos antes do crash.
-                    tracker_id = sfc_owners_map.get(sfc_id) # <--- MUDANÇA AQUI
-                    
+                    tracker_id = sfc_owners_map.get(sfc_id)
                     if tracker_id and tracker_id in self.sfc_manager.sfcs_tracker:
                         self.mobility_manager.mark_vehicle_as_redeploying(tracker_id)
                         sfc_list = self.sfc_manager.sfcs_tracker[tracker_id]['sfc_list']
-                        
-                        # Verifica se a lista principal não está vazia e se não duplicamos o processamento
+
                         if sfc_list and sfc_list[0] not in fallen_sfcs_list:
                             self.send_back_to_qeue(sfc_list, changed_location=False)
                             fallen_sfcs_list.extend(sfc_list)
-                            
+
                 except Exception as e:
                     print(f"Erro ao processar falha irreversível da SFC {sfc_id}: {e}")
 
-        # =================================================================
-        # FASE 4: CÁLCULO DE MÉTRICAS E LOG FINAL
-        # =================================================================
-        
-        # 1. Média Before (de todas afetadas, para ter base de comparação global)
+        return fallen_sfcs_list, post_crash_latencies
+    
+    def _compute_crash_metrics(
+        self,
+        servers_failed,
+        affected_sfc_ids,
+        high_risk,
+        med_risk,
+        low_risk,
+        pre_crash_latencies,
+        post_crash_latencies
+    ):
+        total_affected = len(affected_sfc_ids)
+        total_active_sfcs = len(self.substrate_network.sfc_dict)
+
         avg_lat_before = np.mean(list(pre_crash_latencies.values())) if pre_crash_latencies else 0.0
-        
-        # 2. Média After (apenas das recuperadas)
         avg_lat_after = np.mean(list(post_crash_latencies.values())) if post_crash_latencies else 0.0
-        
-        # 3. Média das Diferenças (Pairwise: Latência Nova - Latência Antiga da MESMA SFC)
-        # Importante: Só calculamos para as que sobreviveram (estão em post e pre)
-        lat_diffs = []
-        for sfc_id, new_lat in post_crash_latencies.items():
-            if sfc_id in pre_crash_latencies:
-                old_lat = pre_crash_latencies[sfc_id]
-                diff = new_lat - old_lat
-                lat_diffs.append(diff)
-        
+
+        lat_diffs = [
+            post_crash_latencies[sfc_id] - pre_crash_latencies[sfc_id]
+            for sfc_id in post_crash_latencies
+            if sfc_id in pre_crash_latencies
+        ]
+
         avg_lat_diff = np.mean(lat_diffs) if lat_diffs else 0.0
 
-        # 4. Porcentagem afetada
         affected_pct = (total_affected / total_active_sfcs * 100) if total_active_sfcs > 0 else 0.0
 
-        # Grava no CSV (Passando o novo argumento avg_lat_diff no final)
         self.output_writter.output_crash_impact(
-            self.crashs_trials, 
-            len(servers_failed), 
-            total_affected, 
-            high_risk, 
-            med_risk, 
+            self.crashs_trials,
+            len(servers_failed),
+            total_affected,
+            high_risk,
+            med_risk,
             low_risk,
             avg_lat_before,
             avg_lat_after,
             affected_pct,
-            avg_lat_diff   # <--- Passando o novo valor
+            avg_lat_diff
         )
 
-        # Atualiza variáveis de controle
-        self.sfc_manager.crashed_servers = self.fail_manager.nodes_crashed
-        self.crashs_trials += 1 
-        
-        return servers_failed, fallen_sfcs_list
 
     def server_recovery_operation(self, nodes_to_recover: List[str]):
         """Recupera nós específicos delegando ao Crasher."""

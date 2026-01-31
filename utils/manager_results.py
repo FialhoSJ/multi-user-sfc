@@ -136,14 +136,14 @@ def create_output_dir(args,topology):
         "timestamp",
         "nodes_crashed_count",
         "total_affected_sfcs",
-        "high_risk_count",    # < 93.3%
-        "medium_risk_count",  # 93.3% - 96.3%
-        "low_risk_count",
-        "avg_latency_before",   # <--- NOVO
-        "avg_latency_after",    # <--- NOVO
-        "affected_percentage",   # <--- NOVO
+        "affected_by_high_risk_node",    # <--- RENOMEADO: SFCs afetadas por queda de nó ruim 
+        "affected_by_med_risk_node",     # <--- RENOMEADO: SFCs afetadas por queda de nó médio 
+        "affected_by_low_risk_node",     # <--- RENOMEADO: SFCs afetadas por queda de nó bom 
+        "avg_latency_before",
+        "avg_latency_after",
+        "affected_percentage",
         "avg_latency_diff"
-    ]  
+    ]
 
     crash_header = ",".join(crash_header_fields) + "\n"
 
