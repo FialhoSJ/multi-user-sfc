@@ -149,6 +149,9 @@ class Net2:
 
         # Itera sobre os microserviços (VNFs) da SFC
         for ms_name, path in route_info.items():
+            # for i in ['src', 'dst']:
+            #     if i in ms_name:
+            #         continue
             if ms_name in ['src', 'dst']:
                 continue
             vnf = sfc.get_vnf_by_id(ms_name)

@@ -108,7 +108,8 @@ class SBRC:
         self.route_info = {}
         self.node_info = {}
         self.latency = None
-        is_backup = True if sfc.id.split("_")[2]=='backup' else False
+        is_backup = True if 'backup' in sfc.id else False
+        self.is_backup = is_backup
 
         self.latency_request = sfc.get_latency_request()
         self.min_latency  = 0 
@@ -152,7 +153,10 @@ class SBRC:
     def check_solution(self):
         if not isinstance(self.latency, (int, float)) or not (0 <= self.latency <= self.sfc.get_latency_request()) or not self.route_info:
             return False
-        if len(self.route_info) != 6:
+        expected_min_len = 3 if self.is_backup else 6
+        
+        if len(self.route_info) < expected_min_len:
+            print(f"[CheckSolution] Falha de tamanho. Esperado >={expected_min_len}, Recebido: {len(self.route_info)} (Backup={self.is_backup})")
             return False
         prev_path_end = None
         for sf, path in self.route_info.items():

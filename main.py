@@ -33,7 +33,7 @@ def main():
     
     # --- Parâmetros Gerais e de Log ---
     parser.add_argument('--application', type=str, default='muar', help='Type of application')
-    parser.add_argument('--alg', type=str, default='SBRCKMASKABLEPPO', help='Algorithm name')
+    parser.add_argument('--alg', type=str, default='SBRCMASKABLEPPO', help='Algorithm name')
     parser.add_argument('--time', type=int, default=120, help='Total simulation time in seconds')
     parser.add_argument('--verbose', type=str, default='y', help='Verbose log (y/n)')
     
@@ -44,7 +44,7 @@ def main():
     
     # --- Parâmetros de Tráfego (Sessões/Jogadores) ---
     parser.add_argument('--n_sessions', type=int, default=50, help='Number of sessions')
-    parser.add_argument('--n_players', type=int, default=5, help='Number of players')
+    parser.add_argument('--n_players', type=int, default=4, help='Number of players')
     
     # --- Parâmetros SFC ---
     parser.add_argument('--sfc', type=str, default='on', help='SFC enabled (on/off)')
@@ -56,7 +56,7 @@ def main():
     parser.add_argument('--backup', type=str, default='y', help='Backup enabled (y/n). Active only for specific algorithms.')
     
     # 1. Configuração MACRO (Gera o Cronograma)
-    parser.add_argument('--ava', type=str, default='0.99', help='Meta Global de Disponibilidade')
+    parser.add_argument('--ava', type=str, default='0.97', help='Meta Global de Disponibilidade')
     parser.add_argument('--number_of_fails', type=str, default='20', help='Number of node failures')
     parser.add_argument('--min_fail_duration', type=float, default=20, help='Min duration of node failure')
     parser.add_argument('--crash_at', type=float, default=-1, help='Forcar falha em X segundos (Ex: [300, 400, 500]). Use -1 para aleatorio. Respeite o numero de falhas.')

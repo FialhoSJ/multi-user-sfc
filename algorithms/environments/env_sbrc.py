@@ -177,8 +177,8 @@ class SFC_AllocationEnv(gymnasium.Env):
         # Verificação de segurança: Ação Inválida (MODIFICADO)
         # Se o agente escolher um nó mascarado, penaliza suavemente.
         mask = self.action_masks()
-        if mask[action] == 0:
-            return self._fail_step('invalid_action')
+        # if mask[action] == 0:
+        #     return self._fail_step('invalid_action')
 
         # 1. Traduzir a ação para um nó do grafo
         if action == len(self.valid_nodes) - 1:

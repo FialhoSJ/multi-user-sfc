@@ -10,7 +10,7 @@ class BackupManager:
         self.backups_activated = []
         
         # --- [MODIFICAÇÃO 1] TRAVA DE ALGORITMO ---
-        target_algorithm = 'SBRCKMASKABLEPPO'  # Nome exato do algoritmo
+        target_algorithm = 'SBRCMASKABLEPPO'  # Nome exato do algoritmo
         
         is_target_alg = (args.alg == target_algorithm)
         user_wants_backup = (args.backup == 'y') and (args.ava != '1.0')
@@ -187,7 +187,7 @@ class BackupManager:
 
                 # Configuração da VNF de Backup
                 src_name = "source"
-                backup_vnf_name = vnf_id + "_b"
+                backup_vnf_name = vnf_id
                 dst_name = "destiny"
                 reduction_factor = self.standard_reduction_factor
 
@@ -246,7 +246,7 @@ class BackupManager:
             }
 
         # Se for SBRC ou Vegeta, usa estratégia seletiva como base
-        if self.alg in ['vegeta', 'ga', 'SBRCKMASKABLEPPO']:
+        if self.alg in ['vegeta', 'ga', 'SBRCMASKABLEPPO']:
             backups_mount = self.seletive_strategy(network, sfc_id_duration)
             return backups_mount, 'seletive'
         else:
@@ -321,9 +321,11 @@ class BackupManager:
         # Herda o requisito original. O Agente tentará minimizar a latência para caber neste teto.
         # Se disponível, pegamos request, senão um padrão seguro (ex: 10ms)
         latency_constraint = getattr(original_sfc, 'latency_request', 10)
+        
+        
 
         mini_sfc_dict = {
-            "name": f"{sfc_id}_rep_{vnf_to_replicate_id}",
+            "name": f"{sfc_id}_backup",
             "vnf_list": mini_sfc_vnfs,
             "bandwidth": original_sfc.input_throughput,
             "src_node": prev_node,

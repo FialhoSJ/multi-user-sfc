@@ -263,7 +263,7 @@ class SubstrateNetworkController():
             current_r, weak_vnf, weak_node = self.sfc_manager.calculate_sfc_reliability(sfc.id, self.substrate_network)
             
             attempts = 0
-            max_replicas = 2 
+            max_replicas = 1 
             
             while current_r < target_reliability and attempts < max_replicas:
                 if not weak_vnf: break
@@ -291,6 +291,7 @@ class SubstrateNetworkController():
                 
                 env.set_forbidden_nodes(forbidden)
                 agent = self.sfc_instantiator.alg
+                agent.install_SFC(mini_sfc)
                 success = agent.start_algorithm(env)
 
                 if success:
@@ -354,7 +355,7 @@ class SubstrateNetworkController():
         solution, is_success = self.sfc_instantiator.search_solution(sfc_list, self.substrate_network)
         if is_success:
             self.sfc_manager.submit_solution(sfc_list, solution, self.substrate_network)
-            target_r = 0.99 
+            target_r = 0.90
             self.ensure_reliability_target(sfc_list, target_reliability=target_r)
         else:
             self.remove_mobile_user(mob_player_id)
