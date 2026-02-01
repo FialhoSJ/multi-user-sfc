@@ -126,9 +126,9 @@ class SFCInstatiator:
 
             s = time.time()
 
-            # --- DEBUG / SALVAMENTO DE VARIÁVEIS ---
-            self.list_graph.append(copy.deepcopy(graph))
-            self.lists_sfcs.append(copy.deepcopy(sfc))
+            # # --- DEBUG / SALVAMENTO DE VARIÁVEIS ---
+            # self.list_graph.append(copy.deepcopy(graph))
+            # self.lists_sfcs.append(copy.deepcopy(sfc))
             
             # if "unique_p6_50" in sfc.id:
             #     lista_listas_grafos = dividir_em_n_grupos(self.list_graph, 5)

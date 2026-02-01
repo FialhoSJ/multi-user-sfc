@@ -35,7 +35,7 @@ if __name__ == '__main__':
     cmd = []
     # avas = ['1.0', '0.99', '0.97', '0.95']
     avas = ['0.99']
-    number_of_fails = ['40']
+    number_of_fails = ['20']
     for a in avas:
         for n in number_of_fails:
             for _ in range(args.repetition):

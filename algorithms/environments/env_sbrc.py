@@ -27,10 +27,9 @@ NON_REUSABLE_PENALTY = 4
 
 # --- Normalização de custos ---
 LAT_MAX = 50.0     # ajuste conforme seu cenário
-BW_MAX = 50.0       # ajuste conforme seu cenário
+BW_MAX = 12.5       # ajuste conforme seu cenário
 CPU_PENALTY_NORM = 0.3
 CACHE_PENALTY_NORM = 0.3
-
 
 
 class SFC_AllocationEnv(gymnasium.Env):
@@ -69,18 +68,30 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         # --- Configuração de Pesos e Recompensas ---
         self.pesos_fatores = pesos_fatores if pesos_fatores is not None else {
-        "cpu": 1.0,
-        "cache": 1.0,
-        "band": 5.0,
-        "lat": 7.5,
-        "mobile": 0.0,
-        "rel": 2   # confiabilidade dominante
-         }
+        # 3º Prioridade: Recursos (Baixo impacto, apenas desempate)
+        "cpu": 0.5,
+        "cache": 0.5,
 
-        
+        # 1º Prioridade: Banda (O "Dono" da decisão)
+        "band": 15.0,   
+
+        # 2º Prioridade: Confiabilidade (O "Guarda-Costas")
+        # O peso precisa ser alto (10 a 12) para compensar o fato de que 
+        # a penalidade base (1 - reliability) é um número muito pequeno (0.01 a 0.1).
+        "rel": 5.0,   
+
+        # Outros (Baixa prioridade)
+        "lat": 10.0,     
+        "mobile": 0.0,
+        }
+
+        # --- NOVA CONFIGURAÇÃO DE RECOMPENSAS (MODIFICADO) ---
         self.reward_config = reward_config if reward_config is not None else {
-            "success_bonus": 100.0, 
-            "failure_penalty": -100.0
+            "success_bonus": 40.0,            # Reduzido de 100 para 40
+            "step_reward": 5.0,               # Recompensa por progresso
+            "invalid_action_penalty": -20.0,  # Penalidade leve
+            "failure_penalty": -80.0,         # Penalidade forte (recurso/banda)
+            "severe_failure_penalty": -100.0  # Fallback
         }
 
         # --- Inicialização de Snapshots (Training) ---
@@ -163,6 +174,12 @@ class SFC_AllocationEnv(gymnasium.Env):
         """
         Executa um passo no ambiente a partir de uma ação do agente.
         """
+        # Verificação de segurança: Ação Inválida (MODIFICADO)
+        # Se o agente escolher um nó mascarado, penaliza suavemente.
+        mask = self.action_masks()
+        if mask[action] == 0:
+            return self._fail_step('invalid_action')
+
         # 1. Traduzir a ação para um nó do grafo
         if action == len(self.valid_nodes) - 1:
             chosen_server = self.current_sfc.dst_node
@@ -191,8 +208,26 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         self.servers_used.append(chosen_server)
         
-        # 4. Calcular Recompensa
-        reward = -total_cost
+        # --- 4. Calcular Recompensa (MODIFICADO) ---
+        
+        # Obter confiabilidade do nó escolhido
+        node_data = self.graph.nodes[chosen_server]
+        reliability = node_data.get('reliability', 1.0)
+
+        # Normalizar o custo total (evita gradientes explosivos)
+        # Assumindo que o custo total geralmente fica entre 0 e ~10 dependendo dos pesos
+        normalized_cost = total_cost / 5.0
+        
+        # Base: Custo normalizado negativo
+        reward = -normalized_cost
+        
+        # Adicionar recompensa por progresso (passo bem sucedido)
+        reward += self.reward_config['step_reward']
+        
+        # Adicionar incentivo extra de confiabilidade
+        reward += 4.0 * reliability
+
+        # Debug de recompensa (mantido)
         if math.isnan(reward) or math.isinf(reward):
             print(f"--- DEBUG: Recompensa inválida detectada! Valor: {reward} ---")
             print(f"Custo total calculado: {total_cost}")
@@ -214,6 +249,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         if self.current_vnf == self.reverse_vnf_list[-1]:
             done = True
             self.success = True
+            # Adiciona o bônus de sucesso (reduzido para priorizar qualidade)
             reward += self.reward_config['success_bonus']
             self.current_vnf = None
         else:
@@ -345,7 +381,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         cache_in_id = "cache" in self.current_sfc.id
         valid_node = not features[-1, 6]
 
-        if ((is_1_vnf or is_2_vnf) and valid_node and cache_in_id and self.ratio_cpu_used > 50):
+        if ((is_1_vnf or is_2_vnf) and valid_node and cache_in_id and self.ratio_cpu_used > 70):
             u = self.current_sfc.dst_node
             v = self.current_sfc.closer_router
             edge = self.graph.edges.get((u, v), {})
@@ -353,15 +389,16 @@ class SFC_AllocationEnv(gymnasium.Env):
             if (bd_capacity / bw_required > 4):
                 features[:-1, 6] = 1
 
-        if ((is_1_vnf) and valid_node and unique_in_id and self.ratio_cpu_used >= 60):
+        elif ((is_1_vnf) and valid_node and unique_in_id and self.ratio_cpu_used >= 70):
             u = self.current_sfc.dst_node
             v = self.current_sfc.closer_router
             edge = self.graph.edges.get((u, v), {})
             bd_capacity = edge.get('bandwidth_capacity', None)
             if bd_capacity / bw_required > 4:
                 features[:-1, 6] = 1
+                
 
-        if not (is_1_vnf or is_2_vnf):
+        else:
             features[-1, 6] = 1            
 
         return features
@@ -496,7 +533,7 @@ class SFC_AllocationEnv(gymnasium.Env):
             edge = self.graph.edges.get((u, v), {})
             bd_capacity = edge.get('bandwidth_capacity', None)
             bd_used = edge.get('bandwidth_used', 0)
-           
+            
             latency_cost += calculate_latency_betwen_nodes(self.graph, u, v, vnf)
 
             if bd_capacity is None or bd_capacity == 0 or bw_required + bd_used > bd_capacity:
@@ -513,7 +550,14 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.fail_reason = reason
         self.success = False
         
-        reward = self.reward_config['failure_penalty']
+        # --- Lógica de Falha Diferenciada (MODIFICADO) ---
+        if reason == "invalid_action":
+            reward = self.reward_config.get('invalid_action_penalty', -20.0)
+        elif reason in ["resource", "bandwidth"]:
+            reward = self.reward_config.get('failure_penalty', -80.0)
+        else:
+            reward = self.reward_config.get('severe_failure_penalty', -100.0)
+        
         done = True
         
         bw_required = self.service_requirements[self.current_vnf.id]['out_bw']

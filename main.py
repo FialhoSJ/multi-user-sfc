@@ -81,7 +81,7 @@ def main():
     parser.add_argument('--stress_low', type=float, default=0.1, help='Penalidade por estresse para Tier A (Low)')
     
     # Opções: 'all' (qualquer um), 'high_risk' (Tier A), 'med_risk' (Tier B), 'low_risk' (Tier C)
-    parser.add_argument('--fail_target', type=str, default='low_risk', help='Alvo das falhas: all, high_risk (Nivel A), med_risk (Nivel B), low_risk (Nivel C)')
+    parser.add_argument('--fail_target', type=str, default='all', help='Alvo das falhas: all, high_risk (Nivel A), med_risk (Nivel B), low_risk (Nivel C)')
     
     # Falhas de LINKS
     parser.add_argument('--link_ava', type=str, default='0.95', help='Link availability (0.0 to 1.0)')
