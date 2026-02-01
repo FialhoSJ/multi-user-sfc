@@ -63,6 +63,14 @@ class SFCManager:
         """Remove a SFC group based on the destination node ID (sfc_list_id)."""
         if sfc_list_id in self.sfcs_tracker:
             for sfc in self.sfcs_tracker[sfc_list_id]['sfc_list']:
+                
+                # --- [MODIFICAÇÃO] Limpeza de Backups ---
+                # Verifica se existem backups registrados para esta SFC específica
+                if take_out_backup and sfc.id in self.backup_manager.sfcs_backups_instatiated:
+                    # Chama o método que já existe na classe para remover backups
+                    self.undeploy_sfc_backups(sfc.id, substrate_network)
+                # ----------------------------------------
+
                 substrate_network.undeploy_sfc(sfc.id)
             del self.sfcs_tracker[sfc_list_id]
 
@@ -159,13 +167,27 @@ class SFCManager:
 
     def undeploy_sfc_backups(self, sfc_id, substrate_network):
         """Retira os backups da SFC, inclusive os ativos."""
-        backups_removed = self.backup_manager.sfcs_backups_instatiated.pop(sfc_id)
-        for backup in backups_removed:
-            backup_id = backup["sfc_backup_id"]
-            del self.backup_manager.backups_sfc_instantiated[backup_id]
-            if backup_id in self.backup_manager.backups_activated:
-                self.backup_manager.backups_activated.remove(backup_id)
-            substrate_network.undeploy_sfc(backup_id)
+        # Proteção: só tenta remover se a chave existir
+        if sfc_id in self.backup_manager.sfcs_backups_instatiated:
+            backups_removed = self.backup_manager.sfcs_backups_instatiated.pop(sfc_id)
+            
+            for backup in backups_removed:
+                backup_id = backup["sfc_backup_id"]
+                
+                # Limpa do registro reverso (backup -> original)
+                if backup_id in self.backup_manager.backups_sfc_instantiated:
+                    del self.backup_manager.backups_sfc_instantiated[backup_id]
+                
+                # Remove da lista de ativados se estiver lá
+                if backup_id in self.backup_manager.backups_activated:
+                    self.backup_manager.backups_activated.remove(backup_id)
+                
+                # Remove fisicamente da rede
+                try:
+                    substrate_network.undeploy_sfc(backup_id)
+                except ValueError:
+                    # Caso já tenha sido removido por outro processo
+                    pass
 
     def remove_backup_by_id(self, backup_id, substrate_network):
         """Remove todos os backups (menos os ativos)."""
@@ -493,15 +515,17 @@ class SFCManager:
 
         # 5. COSTURA DA ROTA (Stitching)
         if self.verbose:
-            print(f">>> [RECOVERY] Costurando rota da SFC {sfc_id}: VNF {affected_vnf_id} movida de {crashed_node_id} para {backup_node_id} (Backup Ativado com {original_vnf_bw}Mbps)")
+            print(f">>> [RECOVERY] Costurando rota da SFC {sfc_id}: VNF {affected_vnf_id} movida de {crashed_node_id} para {backup_node_id}")
 
-        # Atualiza o routing_info da SFC original para apontar para o nó da réplica
-        # A rota lógica agora passa pelo nó de backup
+        # Atualiza o routing_info LOCAL do Manager
         self.sfcs_routing_info[sfc_id][affected_vnf_id][0] = backup_node_id
         
-        # (Opcional) Atualiza também o caminho completo se o backup tiver múltiplos saltos, 
-        # mas geralmente o stitching simples basta se o controlador usar apenas o nó host.
-        # self.sfcs_routing_info[sfc_id][affected_vnf_id] = path_to_activate
+        # --- [CORREÇÃO IMPORTANTE] ---
+        # Atualiza também o routing_info da REDE (Topology)
+        # Sem isso, o cálculo de latência continuará achando que passa pelo nó morto
+        if sfc_id in substrate_network.sfc_route_info:
+            substrate_network.sfc_route_info[sfc_id][affected_vnf_id][0] = backup_node_id
+        # -----------------------------
 
         # Registra o backup como ativado
         if target_backup['sfc_backup_id'] not in self.backup_manager.backups_activated:
