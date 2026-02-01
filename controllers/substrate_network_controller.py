@@ -32,7 +32,7 @@ from controllers.modules.mobility_manager import MobilityManager
 from controllers.modules.crasher import Crasher
 from utils.manager_results import OutputWritter
 from utils.network_utils import EnergyCalculator
-from algorithms.environments.environment import SFC_AllocationEnv
+from algorithms.environments.env_sbrc import SFC_AllocationEnv
 
 # --- Logging Setup ---
 logger = logging.getLogger(__name__)
@@ -274,15 +274,22 @@ class SubstrateNetworkController():
                 )
                 
                 if not mini_sfc: break
+                
+                all_servers = [n for n, d in self.substrate_network.graph.nodes(data=True) 
+                               if d.get('type') != 'router']
+                all_servers.append(getattr(mini_sfc, 'mobile_node', None))
 
                 # Configura Ambiente DRL e Executa Agente
                 env = SFC_AllocationEnv(
-                    valid_nodes=[n for n in self.substrate_network.graph.nodes if self.substrate_network.graph.nodes[n]['type'] != 'router'],
+                    valid_nodes=all_servers,  # Passa TUDO para manter o shape (25, X)
                     list_graph=[self.substrate_network.graph],
                     list_sfc=[mini_sfc],
                     is_training=False
                 )
-                env.set_forbidden_nodes([weak_node])
+                
+                forbidden = [weak_node]
+                
+                env.set_forbidden_nodes(forbidden)
                 agent = self.sfc_instantiator.alg
                 success = agent.start_algorithm(env)
 

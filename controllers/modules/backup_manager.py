@@ -330,7 +330,8 @@ class BackupManager:
             "dst_node": next_node,
             "duration": remaining_duration, 
             "latency": latency_constraint, # <--- Valor Corrigido
-            "closer_router": getattr(original_sfc, 'closer_router', None)
+            "closer_router": getattr(original_sfc, 'closer_router', None),
+            "mobile_node": getattr(original_sfc, 'dst_node', None)
         }
 
         return SFCGenerator(mini_sfc_dict).generate()

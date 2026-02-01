@@ -39,6 +39,7 @@ class SFCGenerator():
         self.dst_substrate_node = sfc_dict["dst_node"]
         self.latency = sfc_dict["latency"]
         self.duration = sfc_dict["duration"]
+        self.mobile_node = sfc_dict["mobile_node"] if "mobile_node" in sfc_dict else None
 
     def generate(self):
         vnfs_list = []
@@ -68,6 +69,7 @@ class SFCGenerator():
         sfc.update()
         sfc.set_latency_request(self.latency)
         sfc.arrival_time = time.time()
+        sfc.mobile_node = self.mobile_node if self.mobile_node else None
         return sfc
 
 
