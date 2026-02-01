@@ -69,8 +69,14 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         # --- Configuração de Pesos e Recompensas ---
         self.pesos_fatores = pesos_fatores if pesos_fatores is not None else {
-            "cpu": 1, "cache": 1, "lat": 5, "band": 5, "mobile": 0, "rel": 10
-        }
+        "cpu": 1.0,
+        "cache": 1.0,
+        "band": 2.0,
+        "lat": 2.0,
+        "mobile": 0.0,
+        "rel": 3.0   # confiabilidade dominante
+         }
+
         
         self.reward_config = reward_config if reward_config is not None else {
             "success_bonus": 100.0, 
@@ -428,46 +434,56 @@ class SFC_AllocationEnv(gymnasium.Env):
         node_data = self.graph.nodes[server_id]
         factor_weights = self.pesos_fatores
 
+        # --- Verificar reutilização ---
         is_reusable = self.is_reusable_at_node(self.current_sfc, self.graph, server_id, vnf)
 
+        # --- Capacidades ---
         cpu_capacity = node_data.get("cpu_capacity", 1.0) or 1.0
         cache_capacity = node_data.get("cache_capacity", 1.0) or 1.0
 
         cpu_request = vnf.get_cpu_request()
         cache_request = vnf.get_cache_request()
-        
+
+        # --- Custo de CPU e Cache (já normalizados em [0,1]) ---
         cpu_cost = (node_data["cpu_used"] + cpu_request) / cpu_capacity
         cache_cost = (node_data["cache_used"] + cache_request) / cache_capacity
-        
+
+        # --- Penalidade normalizada para não reutilização ---
         if not is_reusable:
-            cpu_cost += NON_REUSABLE_PENALTY
-            cache_cost += NON_REUSABLE_PENALTY
+            cpu_cost = min(cpu_cost + CPU_PENALTY_NORM, 1.0)
+            cache_cost = min(cache_cost + CACHE_PENALTY_NORM, 1.0)
 
-        weighted_node_cost = (cpu_cost * factor_weights['cpu'] +
-                              cache_cost * factor_weights['cache'])
+        # --- Banda e Latência (normalizadas) ---
+        bw_cost_raw, lat_cost_raw = self.calculate_bw_lat_cost(vnf, server_id, path, bw_required)
 
-        bw_cost, lat_cost = self.calculate_bw_lat_cost(vnf, server_id, path, bw_required)
-        
-        base_band_weight = factor_weights['band']
-        weighted_network_cost = (bw_cost * base_band_weight +
-                                 lat_cost * factor_weights['lat'])
+        lat_cost = min(lat_cost_raw / LAT_MAX, 1.0)
+        bw_cost = min(bw_cost_raw / BW_MAX, 1.0)
 
+        # --- Confiabilidade (normalizada em [0,1]) ---
+        reliability = node_data.get('reliability', 1.0)
+        reliability_cost = (1.0 - reliability)
+
+        # --- Incentivo para nós móveis ---
         incentive_cost = 0.0
         if server_id == self.current_sfc.dst_node:
             network_stress_ratio = max(self.ratio_cpu_used, self.ratio_cache_used) / 100.0
-            stress_factor = (network_stress_ratio * factor_weights['mobile']) 
-            dynamic_reward = stress_factor ** 3 
+            stress_factor = (network_stress_ratio * factor_weights['mobile'])
+            dynamic_reward = stress_factor ** 3
             incentive_cost = -dynamic_reward
 
-        reliability = node_data.get('reliability', 1.0)
-        reliability_cost = (1.0 - reliability) * factor_weights['rel']
+        # --- Custo total normalizado ---
+        total_cost = (
+            factor_weights['cpu']   * cpu_cost +
+            factor_weights['cache'] * cache_cost +
+            factor_weights['band']  * bw_cost +
+            factor_weights['lat']   * lat_cost +
+            factor_weights['rel']   * reliability_cost
+        )
 
-        total_cost = (weighted_node_cost +
-                      weighted_network_cost +
-                      reliability_cost +
-                      incentive_cost)
+        total_cost += incentive_cost
 
         return total_cost
+
 
     def calculate_bw_lat_cost(self, vnf: VNF, server_id, path: List, bw_required: float):
         latency_cost = calculate_computational_latency(self.graph, server_id, vnf)
