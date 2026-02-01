@@ -588,7 +588,7 @@ class SubstrateNetworkController():
         server_reliability = self.substrate_network.get_node_reliability(base_id)
         total_victims = len(affected_sfc_ids)
 
-        if server_reliability < 0.9:
+        if server_reliability < 0.90:
             high_risk = total_victims
         elif 0.90 <= server_reliability <= 0.95:
             med_risk = total_victims

@@ -16,11 +16,13 @@ from utils.salvar_var import salvar_lista, dividir_em_n_grupos
 from core.net_v2 import Net2
 from core.sfc import SFC
 from algorithms.kuririn import Kuririn
+from algorithms.sbrc import SBRC
 from algorithms.darsppo import DARSPPO
 from algorithms.hephaestus import hephaestus
 
 # Environments
 from algorithms.environments.environment import SFC_AllocationEnv
+from algorithms.environments.env_sbrc import SFC_AllocationEnv as SFC_AllocationEnv_SCRC
 from algorithms.environments.env_da_rsppo import SFC_AllocationEnv_DARSPPO
 from algorithms.environments.hephaestus_env import SFC_AllocationEnv_hephaestus
 
@@ -91,6 +93,14 @@ class SFCInstatiator:
                 list_sfc=[sfc_list[0]],
                 is_training=False
             )
+            
+        elif isinstance(algorithm, SBRC):
+            self.env = SFC_AllocationEnv_SCRC(
+                valid_nodes=valid_nodes,
+                list_graph=[graph],
+                list_sfc=[sfc_list[0]],
+                is_training=False
+            )
 
         sequential_sub = True
         is_success = False
@@ -141,7 +151,7 @@ class SFCInstatiator:
             # Executa o algoritmo dependendo do tipo
             alg_success = False
             
-            if isinstance(algorithm, (Kuririn, DARSPPO, hephaestus)):
+            if isinstance(algorithm, (Kuririn, DARSPPO, hephaestus, SBRC)):
                 if self.env:
                     alg_success = algorithm.start_algorithm(self.env)
                 else:

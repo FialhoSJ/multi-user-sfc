@@ -190,38 +190,55 @@ class SFC_AllocationEnv_DARSPPO(gymnasium.Env):
     def _get_nodes_features(self, vnf: VNF, bw_required, current_location: any) -> np.ndarray:
         """
         Calcula o vetor de features para cada nó candidato.
-        Inclui lógicas especiais com a seguinte prioridade:
-        1. Prioriza "nós dourados" (reuso com baixo custo), se existirem.
-        2. Se não houver "nó dourado", aplica regras para VNF de cache ou "unique".
+        Inclui tratamento para evitar divisão por zero em nós sem capacidade definida.
         """
 
-        # Features: []
+        # Features: [latency_cost, bw_cost, is_reusable, cpu_norm, cache_norm, is_invalid]
         num_valid_nodes = len(self.valid_nodes)
         features = np.zeros((num_valid_nodes, 6))
 
         if not vnf:
-            # Se não houver VNF para alocar, retorna features zeradas, marcando todos como inválidos
+            # Se não houver VNF para alocar, marca todos como inválidos
             features[:, 5] = 1 
             return features
 
-        # --- 1. Loop principal para calcular as features de cada nó (sem alterações) ---
         for i, node_id in enumerate(self.valid_nodes):
-            # ... (código do loop, sem alterações) ...
             if i == num_valid_nodes - 1:
                 node_id = self.current_sfc.dst_node
                 
             node_data = self.graph.nodes[node_id]
             is_reusable = self.is_reusable_at_node(self.current_sfc, self.graph, node_id, vnf)
             features[i, 2] = float(is_reusable)
+            
             cpu_req = vnf.get_cpu_request() if not is_reusable else 0
             cache_req = vnf.get_cache_request() if not is_reusable else 0
 
-            features[i, 3] = (node_data["cpu_capacity"] - node_data["cpu_used"]) / node_data["cpu_capacity"]
-            features[i, 4] = (node_data["cache_capacity"] - node_data["cache_used"]) / node_data["cache_capacity"]
-            if (node_data["cpu_used"] + cpu_req) > node_data["cpu_capacity"] or \
-               (node_data["cache_used"] + cache_req) > node_data["cache_capacity"]:
-                features[i, 5] = 1
+            # --- TRATAMENTO DE DIVISÃO POR ZERO (CPU) ---
+            if node_data["cpu_capacity"] > 0:
+                features[i, 3] = (node_data["cpu_capacity"] - node_data["cpu_used"]) / node_data["cpu_capacity"]
+            else:
+                features[i, 3] = 0.0
+                features[i, 5] = 1.0 # Marca nó como inválido se não tem capacidade de CPU
+
+            # --- TRATAMENTO DE DIVISÃO POR ZERO (CACHE) ---
+            if node_data["cache_capacity"] > 0:
+                features[i, 4] = (node_data["cache_capacity"] - node_data["cache_used"]) / node_data["cache_capacity"]
+            else:
+                features[i, 4] = 0.0
+                features[i, 5] = 1.0 # Marca nó como inválido se não tem capacidade de Cache
+
+            # Verificação de Capacidade (Sobrecarga)
+            # Só verifica se o nó ainda é considerado válido (features[i, 5] == 0)
+            if features[i, 5] == 0:
+                if (node_data["cpu_used"] + cpu_req) > node_data["cpu_capacity"] or \
+                   (node_data["cache_used"] + cache_req) > node_data["cache_capacity"]:
+                    features[i, 5] = 1.0
+
+            # Verificação de Caminho e Banda
+            # Se o nó já estiver inválido, ainda calculamos o caminho para preencher features[0] e [1], 
+            # mas mantemos o features[5] = 1.
             path = get_available_shortest_path_fast(self.graph, current_location, node_id, bw_required)
+            
             if not path:
                 features[i, 0] = 1.0
                 features[i, 1] = 1.0
@@ -230,6 +247,11 @@ class SFC_AllocationEnv_DARSPPO(gymnasium.Env):
                 bw_cost, latency_cost = self.calculate_bw_lat_cost(vnf, node_id, path, bw_required)
                 features[i, 0] = latency_cost
                 features[i, 1] = bw_cost
+                
+                # O calculate_bw_lat_cost retorna 999 se não tiver banda, 
+                # podemos reforçar a invalidade aqui se quiser:
+                if bw_cost >= 999:
+                    features[i, 5] = 1.0
 
         return features
 

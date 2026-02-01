@@ -17,6 +17,7 @@ from algorithms.vegeta import Vegeta
 from algorithms.kuririn import Kuririn
 from algorithms.darsppo import DARSPPO
 from algorithms.hephaestus import hephaestus
+from algorithms.sbrc import SBRC
 
 class AlgorithmInstantiator:
     def instantiate_algorithm(self, type):
@@ -51,7 +52,7 @@ class AlgorithmInstantiator:
         elif type ==  'vegeta':
             alg = Vegeta()
         elif 'kuririn' in type:
-            if "MaskablePPO":
+            if "MaskablePPO" in type:
                 alg = Kuririn('MASKABLEPPO')
             elif "PPO" in type:
                 alg = Kuririn('PPO')
@@ -59,7 +60,7 @@ class AlgorithmInstantiator:
             if "DQN" in type:
                 alg = Kuririn('DQN')    
         elif 'darsppo' in type:
-            if "MaskablePPO":
+            if "MaskablePPO" in type:
                 alg = DARSPPO('MASKABLEPPO')
             elif "PPO" in type:
                 alg = DARSPPO('PPO')
@@ -67,13 +68,21 @@ class AlgorithmInstantiator:
             if "DQN" in type:
                 alg = DARSPPO('DQN')    
         elif 'hephaestus' in type:
-            if "MaskablePPO":
+            if "MaskablePPO" in type:
                 alg = hephaestus('MASKABLEPPO')
             elif "PPO" in type:
                 alg = hephaestus('PPO')
             
             if "DQN" in type:
-                alg = hephaestus('DQN')    
+                alg = hephaestus('DQN')
+        elif 'sbrc' in type:
+            if "MaskablePPO" in type:
+                alg = SBRC('MASKABLEPPO')
+            elif "PPO" in type:
+                alg = SBRC('PPO')
+            
+            if "DQN" in type:
+                alg = SBRC('DQN')        
     
         else:
             raise ValueError('algorithm not found')

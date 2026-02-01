@@ -221,46 +221,71 @@ class SFC_AllocationEnv_hephaestus(gymnasium.Env):
     def _get_nodes_features(self, vnf: VNF, bw_required, current_location: any) -> np.ndarray:
         """
         Calcula o vetor de features para cada nó candidato.
-        Inclui lógicas especiais com a seguinte prioridade:
-        1. Prioriza "nós dourados" (reuso com baixo custo), se existirem.
-        2. Se não houver "nó dourado", aplica regras para VNF de cache ou "unique".
+        CORRIGIDO: Tratamento de divisão por zero.
         """
 
-        # Features: [0:cpu_used, 1:cache_used, 2:reusable, 3:N/A, 4:band_cost, 5:latency_cost, 6:is_invalid, 7:is_dst]
+        # Features Mapping:
+        # 0: cpu_utilization (normalized)
+        # 1: cache_utilization (normalized)
+        # 2: is_reusable (binary)
+        # 3: bandwidth_cost (ratio)
+        # 4: latency_cost (raw value)
+        # 5: is_invalid (binary mask)
+        
         num_valid_nodes = len(self.valid_nodes)
         features = np.zeros((num_valid_nodes, 6))
 
         if not vnf:
-            # Se não houver VNF para alocar, retorna features zeradas, marcando todos como inválidos
             features[:, 5] = 1 
             return features
 
-        # --- 1. Loop principal para calcular as features de cada nó (sem alterações) ---
         for i, node_id in enumerate(self.valid_nodes):
             if i == num_valid_nodes - 1:
                 node_id = self.current_sfc.dst_node
+            
             node_data = self.graph.nodes[node_id]
             is_reusable = self.is_reusable_at_node(self.current_sfc, self.graph, node_id, vnf)
             features[i, 2] = float(is_reusable)
+            
             cpu_req = vnf.get_cpu_request()
             cache_req = vnf.get_cache_request()
             if is_reusable:
                 cpu_req, cache_req = 0, 0
-            features[i, 0] = (node_data["cpu_used"] + cpu_req) / node_data["cpu_capacity"]
-            features[i, 1] = (node_data["cache_used"] + cache_req) / node_data["cache_capacity"]
-            if (node_data["cpu_used"] + cpu_req) > node_data["cpu_capacity"] or \
-               (node_data["cache_used"] + cache_req) > node_data["cache_capacity"]:
-                features[i, 5] = 1
+            
+            # --- PROTEÇÃO CONTRA DIVISÃO POR ZERO (CPU) ---
+            if node_data["cpu_capacity"] > 0:
+                features[i, 0] = (node_data["cpu_used"] + cpu_req) / node_data["cpu_capacity"]
+            else:
+                features[i, 0] = 0.0
+                features[i, 5] = 1.0 # Marca inválido imediatamente
+
+            # --- PROTEÇÃO CONTRA DIVISÃO POR ZERO (CACHE) ---
+            if node_data["cache_capacity"] > 0:
+                features[i, 1] = (node_data["cache_used"] + cache_req) / node_data["cache_capacity"]
+            else:
+                features[i, 1] = 0.0
+                features[i, 5] = 1.0 # Marca inválido imediatamente
+
+            # Verifica Sobrecarga (Apenas se o nó ainda for válido)
+            if features[i, 5] == 0:
+                if (node_data["cpu_used"] + cpu_req) > node_data["cpu_capacity"] or \
+                   (node_data["cache_used"] + cache_req) > node_data["cache_capacity"]:
+                    features[i, 5] = 1.0
+
+            # Verifica Caminho e Banda
             path = get_available_shortest_path_fast(self.graph, current_location, node_id, bw_required)
             if not path:
                 features[i, 5] = 1.0
-                features[i, 3] = 1.0
-                features[i, 4] = 1
+                features[i, 3] = 1.0 # Penalidade máx de banda
+                features[i, 4] = 100.0 # Penalidade alta de latência (valor arbitrário alto)
             else:
                 bd_cost, latency_cost = self.calculate_bw_lat_cost(vnf, node_id, path, bw_required)
                 features[i, 3] = bd_cost
                 features[i, 4] = latency_cost
-
+                
+                # Se o custo de banda for o sinalizador de erro (999), marca inválido
+                if bd_cost >= 999:
+                    features[i, 5] = 1.0
 
         return features
 
@@ -565,35 +590,42 @@ class SFC_AllocationEnv_hephaestus(gymnasium.Env):
     # Em environment.py, adicione este método à classe SFC_AllocationEnv
     def _calculate_deployment_cost(self) -> float:
         """
-        Calcula o custo de implantação normalizado, análogo ao do HephaestusForge.
-        Nós com maior capacidade de CPU são considerados mais caros.
+        Calcula o custo de implantação normalizado.
+        CORRIGIDO: Proteção contra max_cpu_capacity igual a zero.
         """
         if not self.servers_used:
-            return 1.0 # Custo máximo se nenhum servidor foi usado
+            return 1.0 
 
-        # Mapeamento simples de custo: 1 a 10 baseado na capacidade de CPU
-        # Você pode tornar isso mais sofisticado
         aux = []
         for n in self.valid_nodes:
             if n == "M":
                 n = self.current_sfc.dst_node
-            aux.append(self.graph.nodes[n]['cpu_capacity'])
-        max_cpu_capacity = max(aux)
+            # Garante que lê 0 se a chave não existir
+            aux.append(self.graph.nodes[n].get('cpu_capacity', 0))
+        
+        # Proteção se a lista estiver vazia ou só tiver zeros
+        if not aux:
+            max_cpu_capacity = 1.0
+        else:
+            max_cpu_capacity = max(aux)
+            
+        # Evita divisão por zero se todos os nós tiverem capacidade 0
+        if max_cpu_capacity == 0:
+            max_cpu_capacity = 1.0
         
         total_cost = 0
         for server_id in self.servers_used:
-            cpu_cap = self.graph.nodes[server_id]['cpu_capacity']
-            # Custo proporcional à capacidade. Ex: nó com 100% da capacidade máx. custa 10.
+            cpu_cap = self.graph.nodes[server_id].get('cpu_capacity', 0)
+            
+            # Custo proporcional à capacidade
             node_cost = 1 + 9 * (cpu_cap / max_cpu_capacity)
             total_cost += node_cost
             
-        # O artigo calcula a média do custo por réplica[cite: 350, 351]. Faremos a média por VNF alocada.
         avg_cost = total_cost / len(self.servers_used)
         
-        # Normaliza o custo no intervalo [0, 1] (assumindo que o custo máximo é 10)
         normalized_cost = avg_cost / 10.0 
         
-        return min(normalized_cost, 1.0) # Garante que não passe de 1.0
+        return min(normalized_cost, 1.0)
     
 
     # Em environment.py, adicione este método à classe SFC_AllocationEnv

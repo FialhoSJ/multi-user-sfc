@@ -33,7 +33,7 @@ def main():
     
     # --- Parâmetros Gerais e de Log ---
     parser.add_argument('--application', type=str, default='muar', help='Type of application')
-    parser.add_argument('--alg', type=str, default='kuririnMaskablePPO', help='Algorithm name')
+    parser.add_argument('--alg', type=str, default='sbrcMaskablePPO', help='Algorithm name')
     parser.add_argument('--time', type=int, default=120, help='Total simulation time in seconds')
     parser.add_argument('--verbose', type=str, default='y', help='Verbose log (y/n)')
     
@@ -63,8 +63,8 @@ def main():
 
     # 2. Configuração MICRO (Define a Confiabilidade Base por Nível)
     # Valores entre 0.0 e 1.0 (Ex: 0.99 = 99% confiável)
-    parser.add_argument('--rel_high', type=float, default=0.9999, help='Confiabilidade base para Nível Alto (Tier C)')
-    parser.add_argument('--rel_normal', type=float, default=0.9900, help='Confiabilidade base para Nível Normal (Tier B)')
+    parser.add_argument('--rel_high', type=float, default=0.99, help='Confiabilidade base para Nível Alto (Tier C)')
+    parser.add_argument('--rel_normal', type=float, default=0.98, help='Confiabilidade base para Nível Normal (Tier B)')
     parser.add_argument('--rel_low', type=float, default=0.95, help='Confiabilidade base para Nível Baixo (Tier A)')
     
     # Fator de Estresse (NOVO)
