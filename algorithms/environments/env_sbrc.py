@@ -26,7 +26,7 @@ SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 NON_REUSABLE_PENALTY = 4
 
 # --- Normalização de custos ---
-LAT_MAX = 200.0     # ajuste conforme seu cenário
+LAT_MAX = 50.0     # ajuste conforme seu cenário
 BW_MAX = 50.0       # ajuste conforme seu cenário
 CPU_PENALTY_NORM = 0.3
 CACHE_PENALTY_NORM = 0.3
@@ -71,10 +71,10 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.pesos_fatores = pesos_fatores if pesos_fatores is not None else {
         "cpu": 1.0,
         "cache": 1.0,
-        "band": 2.0,
-        "lat": 2.0,
+        "band": 5.0,
+        "lat": 7.5,
         "mobile": 0.0,
-        "rel": 3.0   # confiabilidade dominante
+        "rel": 2   # confiabilidade dominante
          }
 
         
