@@ -141,62 +141,7 @@ class Genetic(Algorithm):
         
         self.service_requirements = service_requirements
         self.services = services
-        #################################################################################################################################################
-        #server_resources = self.graph._node
-        #self.edge_computing_servers = list(set(self.edge_computing_servers) - set(crashed_servers))
-
-        # shareable_sfs = {node_id: [] for node_id in server_resources.keys()}
-        # # Adicionando o campo 'reuse' no node_table
-        # for node_id, node_info in server_resources.items():
-        #     #if node_id in crashed_servers:
-        #     #    continue
-        #     node_info['reuse'] = []
-        #     if node_id in shareable_sfs:
-        #         for vnf in shareable_sfs[node_id]:
-        #             node_info['reuse'].append(vnf.id)  # Acessando o atributo 'id' da VNF
-
-        # self.shareable_sfs = shareable_sfs      
-        # self.server_resources = server_resources  
-
-        # for node in self.graph.nodes():
-        #     self.node_info[node] = {}
-        #     cpu_capacity = server_resources[node]['cpu_capacity']
-        #     cache_capacity = server_resources[node]['cache_capacity']
-
-        #     cpu_used = server_resources[node]['cpu_used']
-        #     cache_used = server_resources[node]['cache_used']
-
-        #     cpu_free = cpu_capacity - cpu_used
-        #     cache_free = cache_capacity - cache_used
-
-        #     reuse_list = server_resources[node]['reuse']  # Obter lista de VNFs reutilizáveis para o nó atual
-
-        #     for vnf_id, vnf in list(self.sfc.vnfs.items()):
-        #         if cpu_capacity == 0:
-        #             continue
-        #         is_reusable = vnf_id in reuse_list
-        #         cpu_request = 0 if is_reusable else vnf.get_cpu_request() 
-        #         cache_request = 0 if is_reusable else vnf.get_cache_request()
-                
-        #         # Verificar se os recursos estão disponíveis e se o VNF pode ser reutilizado
-        #         resources_sufficient = (cpu_free >= cpu_request) and (cache_free >= cache_request)
-                
-        #         # Adicionar a informação de reuso na estrutura self.node_info
-        #         # if node in crashed_servers:
-        #         #     resources_sufficient = False
-        #         #     is_reusable = False
-        #         self.node_info[node][vnf_id] = {
-        #             'resources_sufficient': resources_sufficient,
-        #             'is_reusable': is_reusable}
-    
-        # # Construir o dicionário de alocação de SFs
-        # sf_allocation = {vnf_id: [] for vnf_id in self.sfc.vnfs.keys()}
-        # for node, vnfs in self.node_info.items():
-        #     for vnf_id, info in vnfs.items():
-        #         if info['resources_sufficient']:
-        #             sf_allocation[vnf_id].append(node)
-        # self.can_alocate_sf_in_node = sf_allocation
-
+        
         return self.sfc
 
     def get_latency(self):
@@ -260,19 +205,36 @@ class Genetic(Algorithm):
         if hasattr(creator, "Individual"):
             del creator.Individual
 
-        #self.valid_nodes.remove(dst) # TODO pode deletar essa condicional depois
-        if dst in self.valid_nodes: 
-            self.valid_nodes.remove(dst)
+        # --- ALTERAÇÃO 1: FILTRAGEM SEGURA ---
+        # Em vez de modificar self.valid_nodes diretamente (que pode causar problemas em execuções futuras),
+        # criamos uma lista local apenas para essa execução que GARANTE que o dst não está presente.
+        available_nodes = [node for node in self.valid_nodes if node != dst]
+        
+        # Verificação de segurança: se não houver nós suficientes (excluindo o mobile) para alocar
+        if len(available_nodes) < 4:
+            # Retorna falha ou ajusta o tamanho da amostra conforme necessário
+            logger.error("Não há nós suficientes para alocar a SFC excluindo o nó mobile.")
+            return False, float('inf')
+        # -------------------------------------
         
         # DEAP setup para minimizar o fitness
         creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
         creator.create("Individual", list, fitness=creator.FitnessMin)
 
         toolbox = base.Toolbox()
-        toolbox.register("individual", tools.initIterate, creator.Individual, lambda: random.sample(self.valid_nodes, 4))
+        # --- ALTERAÇÃO 2: USO DA LISTA FILTRADA ---
+        # Usamos 'available_nodes' em vez de 'self.valid_nodes'
+        toolbox.register("individual", tools.initIterate, creator.Individual, lambda: random.sample(available_nodes, 4))
         toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 
         def evaluate(individual):
+            # --- ALTERAÇÃO 3: PROTEÇÃO DEFENSIVA ---
+            # Se por algum motivo (mutação futura, erro lógico) o dst aparecer no gene,
+            # retornamos custo infinito imediatamente.
+            if dst in individual:
+                return float('inf'),
+            # ---------------------------------------
+
             individual_w_dst = individual + [dst]
             node_cost = 0
             band_cost = 0
@@ -324,8 +286,8 @@ class Genetic(Algorithm):
 
                 total_latency =  comp_latency       +  edge_latency
 
-                band_cost     += self.band_weight      *  link_band_cost
-                latency_cost  += self.latency_weight *  total_latency
+                band_cost     += self.band_weight      * link_band_cost
+                latency_cost  += self.latency_weight * total_latency
                 
             total_cost =  node_cost + band_cost + latency_cost
             return total_cost,
@@ -469,248 +431,3 @@ class Genetic(Algorithm):
             prev_path_end = path[0]
             prev_sf = sf
         return True
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    # def cut_topology(self,G_complex, complex_network_topology, server_resources_complex, node_reference, hops_cuff):
-    #     self.edge_computing_servers.append(node_reference)
-    #     edge_computing_servers = set(self.edge_computing_servers)
-    #     sub_graph_complex = G_complex.subgraph(edge_computing_servers)
-
-    #     #nodes_within_hops_complex = nx.single_source_shortest_path_length(G_complex, node_reference, cutoff=hops_cuff)
-    #     #sub_graph_complex = G_complex.subgraph(nodes_within_hops_complex.keys())
-    #     server_resources = {node: server_resources_complex[node] for node in sub_graph_complex.nodes if node != 0}
-
-    #     new_network_topology = {}
-    #     for node in sub_graph_complex.nodes:
-    #         if node ==  0:  # Pula o nó '0' se presente
-    #             continue
-    #         new_network_topology[node] = {}
-    #         for neighbor in sub_graph_complex.neighbors(node):
-    #             if neighbor == 0:  # Pula o vizinho '0' se presente
-    #                 continue
-    #             if neighbor in sub_graph_complex.nodes:
-    #                 new_network_topology[node][neighbor] = complex_network_topology[node][neighbor]
-
-    #     G_non_complex = nx.Graph()
-        
-    #     for node, edges in new_network_topology.items():
-    #         for target, edge_attr in edges.items():
-    #             bandwidth_free = edge_attr['bandwidth_capacity'] - edge_attr['bandwidth_used']
-    #             G_non_complex.add_edge(node, target, bandwidth=bandwidth_free, weight=1)
-
-    #     # Removendo a chave '0' após a criação para garantir que não esteja presente
-    #     if 0 in G_non_complex:
-    #         G_non_complex.remove_node(0)
-    #     del server_resources[node_reference]
-    #     return G_non_complex, server_resources
-
-
-
-
-
-
-
-
-
-            
-    # def backup_algorithm(self,substrate_network, sfc, shareable_sfs=None):
-    #     vnf_info = sfc.vnfs_dict
-    #     vnf_id = vnf_info[1]['name']
-
-    #     # Get substrate network nodes that src and dst are assigned in advanced
-    #     src = sfc.get_substrate_node(sfc.get_src_vnf())
-    #     dst = sfc.get_substrate_node(sfc.get_dst_vnf())
-
-    #     net_info = substrate_network
-    #     network_topology = net_info._adj
-
-    #     service_requirements = self.service_requirements
-    #     services = self.services
-
-    #     # Criação do grafo representando a rede com capacidade de banda
-    #     A = nx.Graph()
-    #     for node, edges in network_topology.items():
-    #         for target, edge_attr in edges.items():
-    #             bandwidth_free = edge_attr['bandwidth_capacity'] - edge_attr['bandwidth_used']
-
-    #             A.add_edge(node, target, bandwidth=bandwidth_free, weight=1)
-
-    #     G,server_resources = self.cut_topology(G_complex=A,
-    #                       complex_network_topology=network_topology,
-    #                       server_resources_complex=self.server_resources,
-    #                       node_reference=dst,hops_cuff=5)
-
-    #     #server_resources = self.server_resources        
-    #     all_pairs_shortest_path = dict(nx.all_pairs_dijkstra_path(A, weight='weight'))
-
-    #     # Removing the restriction from the structures
-    #     restriction = vnf_info[1]['original_loc']
-    #     if restriction in list(self.can_alocate_sf_in_node[vnf_id]):
-    #         self.can_alocate_sf_in_node[vnf_id].remove(restriction)
-    #     if restriction in self.edge_computing_servers:        #del self.node_info[restriction]
-    #         self.edge_computing_servers.remove(restriction)
-    #     #del self.server_resources[restriction]
-
-    #     a = time.time()
-    #     route_info, latency = self.genetic_backup(G,A,service_requirements,services,src,dst,all_pairs_shortest_path)
-    #     b = time.time()
-    #     self.elapsed_time = (b-a)
-        
-    #     if latency > self.latency_request or route_info == False:
-    #         self.latency = None
-    #         self.route_info = False
-    #         return False
-    #     else:
-    #         self.latency = latency
-    #         self.route_info = route_info
-    #         return True
-
-    # def genetic_backup(self, G,G_old, service_requirements, services,src,dst,all_pairs_shortest_path):
-    #     available_servers = self.can_alocate_sf_in_node[services[1]]
-    #     def evaluate(individual):
-    #         reuse = services[1] in self.server_resources[individual[0]]['reuse']
-    #         node_resource_cost = 0.2 if reuse else 1
-            
-    #         src_to_vnf = (len(all_pairs_shortest_path[src][individual[0]]) - 1) 
-    #         vnf_to_dst = (len(all_pairs_shortest_path[individual[0]][dst]) - 1) 
-            
-    #         total_cost = (self.cpu_weight * node_resource_cost) + (self.cache_weight * node_resource_cost) + (src_to_vnf+vnf_to_dst) * 2
-    #         return total_cost,
-
-    #     def custom_mutation(individual):
-    #         """ Muda o gene do indivíduo para outro dentro do intervalo permitido. """
-    #         new_gene = random.choice(available_servers)
-    #         while new_gene == individual[0]:  # Garante que o valor mude
-    #             new_gene = random.choice(available_servers)
-    #         individual[0] = new_gene
-    #         return individual,
-
-    #     def custom_crossover(ind1, ind2):
-    #         """ Crossover desativado (probabilidade 0), mas a função existe por compatibilidade. """
-    #         pass
-        
-    #     a = time.time()
-    #     service_requirements_local = service_requirements
-
-    #     # Verifica se a classe já existe e, em caso afirmativo, exclui-a
-    #     if hasattr(creator, "FitnessMin"):
-    #         del creator.FitnessMin
-    #     if hasattr(creator, "Individual"):
-    #         del creator.Individual
-
-    #     # DEAP setup para minimizar o fitness
-    #     creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
-    #     creator.create("Individual", list, fitness=creator.FitnessMin)
-
-    #     toolbox = base.Toolbox()
-    #     toolbox.register("individual", tools.initIterate, creator.Individual, lambda: random.sample(available_servers, 1))
-    #     toolbox.register("population", tools.initRepeat, list, toolbox.individual)
-    #     toolbox.register("mate",custom_crossover)
-    #     toolbox.register("mutate",custom_mutation)
-    #     toolbox.register("select", tools.selTournament, tournsize=3)
-    #     toolbox.register("evaluate", evaluate)
-    #     # Registrar o método de paralelização
-    
-    #     # Parâmetros do algoritmo genético
-    #     population_size = 20
-    #     crossover_probability = 0
-    #     mutation_probability = 0.2
-    #     number_of_generations = 20
-
-    #     # Inicialização da população
-    #     pop = toolbox.population(n=population_size)
-
-    #     # Algoritmo genético
-    #     algorithms.eaSimple(pop, toolbox, crossover_probability, mutation_probability, ngen=number_of_generations,verbose=False)
-
-    #     def display_paths_and_create_service_dict(best_individual):
-    #         paths = []  # Lista para armazenar os caminhos ótimos
-    #         service_to_server_dict = {}
-    #         service_names = list(service_requirements_local.keys())  # Assumindo que você tem os nomes dos serviços
-            
-    #         for i, server_id in enumerate(best_individual):
-    #             service_name = service_names[i]
-    #             if i < len(best_individual) - 1:
-    #                 next_server_id = best_individual[i + 1]
-    #                 if server_id == next_server_id:
-    #                     service_to_server_dict[service_name] = [server_id]
-    #                 else:
-    #                     path = nx.shortest_path(G_old, source=server_id, target=next_server_id, weight='weight')
-    #                     service_to_server_dict[service_name] = path
-    #             else:
-    #                 service_to_server_dict[service_name] = [server_id]
-    #         return service_to_server_dict
-
-    #     # Após a execução do algoritmo genético
-    #     best_ind = tools.selBest(pop, 1)[0]
-        
-    #     if best_ind.fitness.values[0] != float('inf'):
-    #         best_ind = [src] + best_ind + [dst]
-    #         service_to_server_dict = display_paths_and_create_service_dict(best_ind)
-
-    #         #service_to_server_dict.popitem()
-    #         # Inverter a ordem dos itens no dicionário
-    #         route_info = dict(reversed(list(service_to_server_dict.items())))
-    #         #src_node = next(reversed(route_info.values()))[0]
-
-    #         #path_to_src = list(reversed(nx.dijkstra_path(G_old, src_node, 0, weight='weight')))
-            
-    #         total_latency = sum(len(path) - 1 for path in route_info.values() if path) 
-
-    #         #route_info['src'] = path_to_src
-    #         #route_info['dst'] = []
-    #         b = time.time()
-    #         elapsed_time_ms = (b - a) * 1000  # Convertendo para milissegundos
-
-    #         # print(f"Tempo total de avaliação: {self.evaluation_time:.2f} ms")
-    #         # print(f"Tempo total de crossover: {self.crossover_time:.2f} ms")
-    #         # print(f"Tempo total de mutação: {self.mutation_time:.2f} ms")
-    #         print(f"Tempo de execução: {elapsed_time_ms:.2f} ms")
-    #         return route_info, total_latency            
-    #     else:
-    #         return False, 100
-

@@ -75,8 +75,8 @@ class AlgorithmInstantiator:
             
             if "DQN" in type:
                 alg = hephaestus('DQN')
-        elif 'sbrc' in type:
-            if "MaskablePPO" in type:
+        elif 'SBRC' in type:
+            if "MASKABLEPPO" in type:
                 alg = SBRC('MASKABLEPPO')
             elif "PPO" in type:
                 alg = SBRC('PPO')

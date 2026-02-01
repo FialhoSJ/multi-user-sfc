@@ -381,25 +381,26 @@ class SFC_AllocationEnv(gymnasium.Env):
         cache_in_id = "cache" in self.current_sfc.id
         valid_node = not features[-1, 6]
 
-        if ((is_1_vnf or is_2_vnf) and valid_node and cache_in_id and self.ratio_cpu_used > 70):
-            u = self.current_sfc.dst_node
-            v = self.current_sfc.closer_router
-            edge = self.graph.edges.get((u, v), {})
-            bd_capacity = edge.get('bandwidth_capacity', None)
-            if (bd_capacity / bw_required > 4):
-                features[:-1, 6] = 1
+        # if ((is_1_vnf or is_2_vnf) and valid_node and cache_in_id and self.ratio_cpu_used > 70):
+        #     u = self.current_sfc.dst_node
+        #     v = self.current_sfc.closer_router
+        #     edge = self.graph.edges.get((u, v), {})
+        #     bd_capacity = edge.get('bandwidth_capacity', None)
+        #     if (bd_capacity / bw_required > 4):
+        #         features[:-1, 6] = 1
 
-        elif ((is_1_vnf) and valid_node and unique_in_id and self.ratio_cpu_used >= 70):
-            u = self.current_sfc.dst_node
-            v = self.current_sfc.closer_router
-            edge = self.graph.edges.get((u, v), {})
-            bd_capacity = edge.get('bandwidth_capacity', None)
-            if bd_capacity / bw_required > 4:
-                features[:-1, 6] = 1
+        # elif ((is_1_vnf) and valid_node and unique_in_id and self.ratio_cpu_used >= 70):
+        #     u = self.current_sfc.dst_node
+        #     v = self.current_sfc.closer_router
+        #     edge = self.graph.edges.get((u, v), {})
+        #     bd_capacity = edge.get('bandwidth_capacity', None)
+        #     if bd_capacity / bw_required > 4:
+        #         features[:-1, 6] = 1
                 
 
-        else:
-            features[-1, 6] = 1            
+        # else:
+        #     features[-1, 6] = 1    
+        features[-1,6] = 1        
 
         return features
 

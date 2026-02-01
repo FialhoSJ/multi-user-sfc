@@ -203,9 +203,17 @@ class SFC_AllocationEnv_DARSPPO(gymnasium.Env):
             return features
 
         for i, node_id in enumerate(self.valid_nodes):
+            # Resolve o ID do nó (se for o último da lista, é o destino/mobile)
             if i == num_valid_nodes - 1:
                 node_id = self.current_sfc.dst_node
-                
+
+            # --- NOVA LÓGICA: BLOQUEAR MOBILE ---
+            # Se o nó for o destino (dispositivo do usuário), marca como inválido (índice 5)
+            if node_id == self.current_sfc.dst_node:
+                features[i, 5] = 1.0 
+                continue # Pula o resto dos cálculos para este nó
+            # ------------------------------------
+            
             node_data = self.graph.nodes[node_id]
             is_reusable = self.is_reusable_at_node(self.current_sfc, self.graph, node_id, vnf)
             features[i, 2] = float(is_reusable)

@@ -172,9 +172,10 @@ class SubstrateNetworkController():
                 self.last_mobility_time = time.time()
 
     def handle_backups(self):
-        """Gerencia a criação de backups."""
+        """Gerencia a criação de backups reativos."""
         if self.sfc_manager.backup_manager.backup_activated:
             if time.time() - self.last_backup_time >= self.backup_interval_creation:
+                # [CORREÇÃO] Chamada limpa sem argumentos extras
                 self.sfc_manager.create_backups(self.substrate_network)
                 self.last_backup_time = time.time()
 
@@ -233,65 +234,62 @@ class SubstrateNetworkController():
     ###########################################################################
     
     # Na classe SubstrateNetworkController
+    
+    
+    def check_network_health(self):
+        """Verifica se a carga da rede está abaixo de 80%."""
+        utilization = self.substrate_network.get_total_system_processing_utilization_rate()
+        return utilization < 0.80
 
     def ensure_reliability_target(self, sfc_list, target_reliability=0.99):
         """
-        Loop Proativo: Verifica confiabilidade e implanta réplicas usando DRL se necessário.
+        Loop Proativo: Verifica confiabilidade e implanta réplicas.
+        Exclusivo do SBRC e condicionado à saúde da rede.
         """
+        # 1. Trava de Algoritmo
+        if self.alg != 'SBRCMASKABLEPPO':
+            return
+
+        # 2. Trava de Configuração (Backup ativado?)
         if not self.sfc_manager.backup_manager.backup_activated:
             return
 
+        # 3. [MODIFICAÇÃO 3] Trava de Recursos (< 80%)
+        if not self.check_network_health():
+            return
+
+        # --- Lógica Original Continua Abaixo ---
         for sfc in sfc_list:
-            # 1. Verifica confiabilidade atual
             current_r, weak_vnf, weak_node = self.sfc_manager.calculate_sfc_reliability(sfc.id, self.substrate_network)
             
-            # Controle de Loop
             attempts = 0
-            max_replicas = 2 # Evita loops infinitos
+            max_replicas = 2 
             
             while current_r < target_reliability and attempts < max_replicas:
-                if not weak_vnf: break # Não deve acontecer se R < 1.0
+                if not weak_vnf: break
 
-                print(f"--- [PROACTIVE] SFC {sfc.id} Reliability: {current_r:.4f} < {target_reliability}. Replicating {weak_vnf}...")
-
-                # 2. Cria Mini-SFC Contextual
+                # Cria Mini-SFC Contextual
                 mini_sfc = self.sfc_manager.backup_manager.create_contextual_mini_sfc(
                     self.substrate_network, sfc, weak_vnf, weak_node
                 )
                 
-                if not mini_sfc:
-                    break
+                if not mini_sfc: break
 
-                # 3. Configura Ambiente DRL para esta tarefa específica
-                # Reutilizamos o grafo mas criamos uma instância temporária de env
-                # Importante: Nós válidos devem corresponder à visão do controlador principal
+                # Configura Ambiente DRL e Executa Agente
                 env = SFC_AllocationEnv(
                     valid_nodes=[n for n in self.substrate_network.graph.nodes if self.substrate_network.graph.nodes[n]['type'] != 'router'],
                     list_graph=[self.substrate_network.graph],
                     list_sfc=[mini_sfc],
                     is_training=False
                 )
-                
-                # 4. Aplica Mascaramento (Nó Proibido = Nó Primário)
                 env.set_forbidden_nodes([weak_node])
-                
-                # 5. Executa Agente DRL (Kuririn)
-                # Assumindo que self.sfc_instantiator.alg é a instância do Kuririn
                 agent = self.sfc_instantiator.alg
-                
-                # Executa alocação (chama start_algorithm internamente que faz o loop de predição)
-                # Precisamos adaptar já que start_algorithm geralmente recebe a configuração completa do env.
-                # Aqui chamamos a lógica de decisão do agente diretamente usando o env que preparamos.
                 success = agent.start_algorithm(env)
 
                 if success:
-                    # 6. Efetiva a Réplica
                     route_info = agent.get_route_info()
-                    
-                    # Converte para formato padrão esperado por deploy_sfc
                     self.substrate_network.deploy_sfc(mini_sfc, route_info)
                     
-                    # Registra no BackupManager
                     if sfc.id not in self.sfc_manager.backup_manager.sfcs_backups_instatiated:
                          self.sfc_manager.backup_manager.sfcs_backups_instatiated[sfc.id] = []
                     
@@ -300,14 +298,9 @@ class SubstrateNetworkController():
                         "vnf_id": weak_vnf,
                         "route_info": route_info
                     })
-                    
-                    print(f"--- [PROACTIVE] Success! Replica for {weak_vnf} deployed at {route_info[weak_vnf+'_b'][0]}.")
-                    
-                    # Recalcula para próxima iteração
                     current_r, weak_vnf, weak_node = self.sfc_manager.calculate_sfc_reliability(sfc.id, self.substrate_network)
                     attempts += 1
                 else:
-                    print(f"--- [PROACTIVE] Failed to place replica for {weak_vnf}. Agent could not find solution.")
                     break
 
     def submit_sfcs(self):
@@ -619,6 +612,8 @@ class SubstrateNetworkController():
         for server in servers_failed:
             self.substrate_network.set_node_down(server)
             
+    # Em controllers/substrate_network_controller.py
+
     def _recover_sfcs(self, affected_sfc_ids, sfc_failed_nodes_map, pre_crash_latencies, sfc_owners_map):
         fallen_sfcs_list = []
         post_crash_latencies = {}
@@ -628,6 +623,9 @@ class SubstrateNetworkController():
             failed_nodes = sfc_failed_nodes_map.get(sfc_id, [])
             relevant_server_down = failed_nodes[0] if failed_nodes else None
 
+            # Marca o tempo inicial da tentativa
+            recovery_start_time = time.time()
+            
             recovered = False
             if relevant_server_down:
                 recovered = self.sfc_manager.attempt_recovery_by_replica(
@@ -637,17 +635,32 @@ class SubstrateNetworkController():
                 )
 
             if recovered:
+                # --- [CORREÇÃO] CÁLCULO DE MÉTRICAS PARA BACKUP ---
                 new_lat = self._calculate_sfc_path_latency(sfc_id)
                 post_crash_latencies[sfc_id] = new_lat
+                
+                old_lat = pre_crash_latencies.get(sfc_id, 0)
+                latency_diff = new_lat - old_lat
+                
+                # Tempo de recuperação é o delta de processamento (muito baixo para Hot Standby)
+                time_to_recover = time.time() - recovery_start_time
 
+                # Preenchemos o dicionário COMPLETO para o OutputWritter
                 self.sfcs_crash_affected[sfc_id] = {
-                    "fall_time": time.time(),
-                    "old_latency": pre_crash_latencies.get(sfc_id, 0),
-                    "resource_info": 0,
-                    "backup_success": True
+                    "fall_time": time.time(), # Momento do crash
+                    "old_latency": old_lat,
+                    "latency_diff": latency_diff,       # <--- Adicionado
+                    "latency_degrad": latency_diff,     # <--- Adicionado (Bruto)
+                    "time_to_recover": time_to_recover, # <--- Adicionado
+                    "resource_info": 0,                 # Mantido 0 pois o custo já existia (standby)
+                    "resource_degrad": 0,               # Assumimos custo similar
+                    "backup_success": True,
+                    "recover_success": True             # Para garantir que o writer pegue
                 }
+                # --------------------------------------------------
 
             else:
+                # (Lógica de falha mantém-se igual)
                 self.sfcs_crash_affected[sfc_id] = {
                     "fall_time": time.time(),
                     "old_latency": pre_crash_latencies.get(sfc_id, 0),
@@ -655,7 +668,7 @@ class SubstrateNetworkController():
                     "backup_success": False,
                     "crash_trial": self.crashs_trials
                 }
-
+                
                 try:
                     tracker_id = sfc_owners_map.get(sfc_id)
                     if tracker_id and tracker_id in self.sfc_manager.sfcs_tracker:

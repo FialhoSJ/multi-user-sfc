@@ -8,12 +8,20 @@ class BackupManager:
         self.sfcs_backups_instatiated = {}
         self.backups_sfc_instantiated = {}
         self.backups_activated = []
-        self.backup_activated = (args.backup == 'y') and (args.ava != '1.0')
+        
+        # --- [MODIFICAÇÃO 1] TRAVA DE ALGORITMO ---
+        target_algorithm = 'SBRCKMASKABLEPPO'  # Nome exato do algoritmo
+        
+        is_target_alg = (args.alg == target_algorithm)
+        user_wants_backup = (args.backup == 'y') and (args.ava != '1.0')
+        
+        # Só ativa se o usuário quis E se for o algoritmo SBRC
+        self.backup_activated = user_wants_backup and is_target_alg
         self.alg = args.alg
         
-        # 1.0 = Réplica exata (Hot Standby robusto)
-        # 0.5 = Réplica otimizada (Cold/Warm Standby)
-        # O importante é ser IGUAL para Greedy, Seletive e AI.
+        if user_wants_backup and not is_target_alg:
+            print(f"[BackupManager] INFO: Backup proativo desativado. '{args.alg}' não suporta essa estratégia.")
+
         self.standard_reduction_factor = 1.0
 
     def greedy_strategy(self, network, sfc_id_duration, threshold=0):
@@ -223,17 +231,27 @@ class BackupManager:
 
         return backups_mount
 
-    # def create_backups(self, nodes_fail_p, network, backups_data, sfc_manager):
-    #     sfc_id_duration = copy.deepcopy(sfc_manager.sfc_id_duration)
+    def create_backups(self, network):
+        """Método corrigido para gerar backups reativos/base."""
+        if not self.backup_activated:
+            return [], None
 
-    #     if self.alg in ['vegeta', 'ga']:
-    #         # Nota: A ordem dos argumentos aqui parece diferir da definição da função seletive_strategy.
-    #         # Mantido conforme original para preservar funcionamento.
-    #         backups_mount = self.seletive_strategy(nodes_fail_p, network, sfc_id_duration, backups_data)
-    #         return backups_mount, 'seletive'
-    #     else:
-    #         backups_mount = self.greedy_strategy(nodes_fail_p, network, sfc_id_duration, backups_data)
-    #         return backups_mount, 'greedy'
+        # Cria dicionário auxiliar necessário para as estratégias
+        sfc_id_duration = {}
+        for sfc_id, sfc in network.sfc_dict.items():
+            start_t = getattr(sfc, 'arrival_time', time.time())
+            sfc_id_duration[sfc_id] = {
+                "timer": start_t,
+                "duration": sfc.duration
+            }
+
+        # Se for SBRC ou Vegeta, usa estratégia seletiva como base
+        if self.alg in ['vegeta', 'ga', 'SBRCKMASKABLEPPO']:
+            backups_mount = self.seletive_strategy(network, sfc_id_duration)
+            return backups_mount, 'seletive'
+        else:
+            backups_mount = self.greedy_strategy(network, sfc_id_duration)
+            return backups_mount, 'greedy'
         
     def create_contextual_mini_sfc(self, network, original_sfc, vnf_to_replicate_id, primary_node_id):
         """
@@ -277,21 +295,20 @@ class BackupManager:
         backup_vnf_name = vnf_to_replicate_id + "_b"
         
         mini_sfc_vnfs = [
-        # O nó virtual de origem não gasta banda real
-        {"type": 2, "name": "src_virt", "CPU": 0, "cache": 0, "in_bw": 0, 
-        "out_bw": 0, "latency": 0, "location": prev_node}, # MUDOU PARA 0
-        
-        # A VNF de Backup reserva CPU/Cache, mas pede 0 de banda por enquanto
-        {"type": 2, "name": vnf_to_replicate_id + "_b", 
-        "CPU": target_vnf_info['CPU'] * factor, 
-        "cache": target_vnf_info['cache'] * factor, 
-        "in_bw": 0,  # MUDOU PARA 0
-        "out_bw": 0, # MUDOU PARA 0
-        "latency": 0, "original_sfc": sfc_id},
-        
-        # O nó virtual de destino
-        {"type": 2, "name": "dst_virt", "CPU": 0, "cache": 0, 
-        "in_bw": 0, "out_bw": 0, "latency": 0, "location": next_node} # MUDOU PARA 0
+            {"type": 2, "name": "src_virt", "CPU": 0, "cache": 0, "in_bw": 0, 
+            "out_bw": 0, "latency": 0, "location": prev_node},
+            
+            # --- [MODIFICAÇÃO 2] BANDA ZERO (Cold Standby) ---
+            {"type": 2, "name": vnf_to_replicate_id + "_b", 
+            "CPU": target_vnf_info['CPU'] * factor, 
+            "cache": target_vnf_info['cache'] * factor, 
+            "in_bw": 0,   # Define 0 para não gastar link agora
+            "out_bw": 0,  # Define 0 para não gastar link agora
+            "latency": 0, "original_sfc": sfc_id},
+            # -------------------------------------------------
+            
+            {"type": 2, "name": "dst_virt", "CPU": 0, "cache": 0, 
+            "in_bw": 0, "out_bw": 0, "latency": 0, "location": next_node}
         ]
         
         # --- CORREÇÃO 1: DURAÇÃO DINÂMICA ---
@@ -312,7 +329,8 @@ class BackupManager:
             "src_node": prev_node,
             "dst_node": next_node,
             "duration": remaining_duration, 
-            "latency": latency_constraint # <--- Valor Corrigido
+            "latency": latency_constraint, # <--- Valor Corrigido
+            "closer_router": getattr(original_sfc, 'closer_router', None)
         }
 
         return SFCGenerator(mini_sfc_dict).generate()

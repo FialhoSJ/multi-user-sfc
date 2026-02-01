@@ -221,7 +221,6 @@ class SFC_AllocationEnv_hephaestus(gymnasium.Env):
     def _get_nodes_features(self, vnf: VNF, bw_required, current_location: any) -> np.ndarray:
         """
         Calcula o vetor de features para cada nó candidato.
-        CORRIGIDO: Tratamento de divisão por zero.
         """
 
         # Features Mapping:
@@ -240,9 +239,17 @@ class SFC_AllocationEnv_hephaestus(gymnasium.Env):
             return features
 
         for i, node_id in enumerate(self.valid_nodes):
+            # Mapeia o último nó da lista como o nó de destino (Mobile/User)
             if i == num_valid_nodes - 1:
                 node_id = self.current_sfc.dst_node
             
+            # --- NOVA LÓGICA: BLOQUEAR MOBILE ---
+            # Se o nó for o destino (dispositivo do usuário), marca como inválido
+            if node_id == self.current_sfc.dst_node:
+                features[i, 5] = 1.0  # Máscara de inválido
+                continue # Pula o resto dos cálculos para economizar processamento
+            # ------------------------------------
+
             node_data = self.graph.nodes[node_id]
             is_reusable = self.is_reusable_at_node(self.current_sfc, self.graph, node_id, vnf)
             features[i, 2] = float(is_reusable)
@@ -273,19 +280,21 @@ class SFC_AllocationEnv_hephaestus(gymnasium.Env):
                     features[i, 5] = 1.0
 
             # Verifica Caminho e Banda
-            path = get_available_shortest_path_fast(self.graph, current_location, node_id, bw_required)
-            if not path:
-                features[i, 5] = 1.0
-                features[i, 3] = 1.0 # Penalidade máx de banda
-                features[i, 4] = 100.0 # Penalidade alta de latência (valor arbitrário alto)
-            else:
-                bd_cost, latency_cost = self.calculate_bw_lat_cost(vnf, node_id, path, bw_required)
-                features[i, 3] = bd_cost
-                features[i, 4] = latency_cost
-                
-                # Se o custo de banda for o sinalizador de erro (999), marca inválido
-                if bd_cost >= 999:
+            # (Só calcula se o nó ainda for considerado válido para economizar tempo)
+            if features[i, 5] == 0:
+                path = get_available_shortest_path_fast(self.graph, current_location, node_id, bw_required)
+                if not path:
                     features[i, 5] = 1.0
+                    features[i, 3] = 1.0 
+                    features[i, 4] = 100.0 
+                else:
+                    bd_cost, latency_cost = self.calculate_bw_lat_cost(vnf, node_id, path, bw_required)
+                    features[i, 3] = bd_cost
+                    features[i, 4] = latency_cost
+                    
+                    if bd_cost >= 999:
+                        features[i, 5] = 1.0
+                    
 
         return features
 
