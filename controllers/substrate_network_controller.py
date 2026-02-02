@@ -1,9 +1,3 @@
-"""
-Substrate Network Controller
-Summary: Manages the simulation lifecycle, including SFC deployment, mobility, 
-failures, backups, and results output.
-"""
-
 # --- Standard Library Imports ---
 import sys
 import re
@@ -233,11 +227,8 @@ class SubstrateNetworkController():
     #                   QUEUE & DEPLOYMENT MANAGEMENT                         #
     ###########################################################################
     
-    # Na classe SubstrateNetworkController
-    
-    
     def check_network_health(self):
-        """Verifica se a carga da rede está abaixo de 80%."""
+        """Verifica se a carga da rede está abaixo de 75%."""
         utilization = self.substrate_network.get_total_system_processing_utilization_rate()
         return utilization < 0.75
 
@@ -254,11 +245,11 @@ class SubstrateNetworkController():
         if not self.sfc_manager.backup_manager.backup_activated:
             return
 
-        # 3. [MODIFICAÇÃO 3] Trava de Recursos (< 80%)
+        # 3. [CORREÇÃO] Trava de Recursos (< 75%)
+        # Evita criar backups se a rede já estiver estressada, o que causaria mais falhas
         if not self.check_network_health():
             return
 
-        # --- Lógica Original Continua Abaixo ---
         for sfc in sfc_list:
             current_r, weak_vnf, weak_node = self.sfc_manager.calculate_sfc_reliability(sfc.id, self.substrate_network)
             
@@ -363,7 +354,12 @@ class SubstrateNetworkController():
 
     def send_back_to_qeue(self, sfc_list, changed_location=False, new_location=False, punishment=10):
         # A duração deve ser a mesma para as duas 
-        sfcs_tracker_info = self.sfc_manager.sfcs_tracker[sfc_list[0].dst_node]
+        sfcs_tracker_info = self.sfc_manager.sfcs_tracker.get(sfc_list[0].dst_node)
+        
+        # Proteção caso a SFC já tenha sido limpa do tracker
+        if not sfcs_tracker_info:
+            return
+
         duration = sfcs_tracker_info["duration"] - (time.time() - sfcs_tracker_info["timer"]) 
         new_sfc_list = []
         
@@ -643,32 +639,32 @@ class SubstrateNetworkController():
                 )
 
             if recovered:
-                # --- [CORREÇÃO] CÁLCULO DE MÉTRICAS PARA BACKUP ---
+                # --- [CORREÇÃO 1] CÁLCULO DE MÉTRICAS PARA BACKUP ---
                 new_lat = self._calculate_sfc_path_latency(sfc_id)
                 post_crash_latencies[sfc_id] = new_lat
                 
                 old_lat = pre_crash_latencies.get(sfc_id, 0)
                 latency_diff = new_lat - old_lat
                 
-                # Tempo de recuperação é o delta de processamento (muito baixo para Hot Standby)
+                # Tempo de recuperação (delta de processamento)
                 time_to_recover = time.time() - recovery_start_time
 
                 # Preenchemos o dicionário COMPLETO para o OutputWritter
                 self.sfcs_crash_affected[sfc_id] = {
-                    "fall_time": time.time(), # Momento do crash
+                    "fall_time": time.time(),
                     "old_latency": old_lat,
-                    "latency_diff": latency_diff,       # <--- Adicionado
-                    "latency_degrad": latency_diff,     # <--- Adicionado (Bruto)
-                    "time_to_recover": time_to_recover, # <--- Adicionado
-                    "resource_info": 0,                 # Mantido 0 pois o custo já existia (standby)
-                    "resource_degrad": 0,               # Assumimos custo similar
+                    "latency_diff": latency_diff,       # <--- Correção
+                    "latency_degrad": latency_diff,     # <--- Correção
+                    "time_to_recover": time_to_recover, # <--- Correção
+                    "resource_info": 0,                 
+                    "resource_degrad": 0,               
                     "backup_success": True,
-                    "recover_success": True             # Para garantir que o writer pegue
+                    "recover_success": True             
                 }
                 # --------------------------------------------------
 
             else:
-                # (Lógica de falha mantém-se igual)
+                # --- [CORREÇÃO 2] FALHA NO BACKUP -> MIGRAÇÃO DE EMERGÊNCIA ---
                 self.sfcs_crash_affected[sfc_id] = {
                     "fall_time": time.time(),
                     "old_latency": pre_crash_latencies.get(sfc_id, 0),
@@ -683,6 +679,8 @@ class SubstrateNetworkController():
                         self.mobility_manager.mark_vehicle_as_redeploying(tracker_id)
                         sfc_list = self.sfc_manager.sfcs_tracker[tracker_id]['sfc_list']
 
+                        # Se não foi recuperado pelo backup, mandamos para o início da fila (put_begin)
+                        # Isso age como uma "migração forçada"
                         if sfc_list and sfc_list[0] not in fallen_sfcs_list:
                             self.send_back_to_qeue(sfc_list, changed_location=False)
                             fallen_sfcs_list.extend(sfc_list)

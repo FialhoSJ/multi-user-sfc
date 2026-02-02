@@ -36,28 +36,60 @@ class SFCManager:
     # Core Lifecycle Methods (Deploy/Undeploy)
     # ==========================================
 
-    def submit_solution(self, sfc_list, solution, substrate_network, is_backup=False) -> bool:
+    def submit_solution(self, sfc_list, solution, substrate_network, is_backup=False) -> dict:
+        """
+        Implanta a solução na rede e registra no tracker.
+        Retorna um dicionário com status de sucesso e informações da rota.
+        """
+        deployment_success = True
+        route_info_export = None
+
         for sfc in sfc_list:
+            if sfc.id not in solution:
+                deployment_success = False
+                continue
+
             rf = solution[sfc.id]['route_info']
-            substrate_network.deploy_sfc(sfc, rf)
-            # Importante manter cópia profunda, especialmente para o algoritmo Musfico
-            self.sfcs_routing_info[sfc.id] = copy.deepcopy(rf)
+            if not rf:
+                deployment_success = False
+                continue
 
-        group_id = sfc_list[0].dst_node
-        duration = sfc_list[0].duration
+            try:
+                # Tenta realizar o deploy físico na rede
+                substrate_network.deploy_sfc(sfc, rf)
+                # Mantém cópia profunda da rota
+                self.sfcs_routing_info[sfc.id] = copy.deepcopy(rf)
+                route_info_export = rf
+            except Exception as e:
+                if self.verbose:
+                    print(f"Deploy failed for {sfc.id}: {e}")
+                deployment_success = False
+                continue
 
-        if group_id in self.sfcs_tracker:
-            raise ValueError("SFC já instanciada")
-        else:
-            self.sfcs_tracker[group_id] = {
-                "sfc_list": sfc_list,
-                'solution': solution,
-                'duration': duration,
-                'timer': time.time()
-            }
+        # Se for backup, não registramos no tracker de sessões (sfcs_tracker),
+        # pois backups são gerenciados separadamente.
+        if not is_backup and deployment_success:
+            group_id = sfc_list[0].dst_node
+            duration = sfc_list[0].duration
 
-        self.counter += 1
-        # Return implícito None mantido conforme original
+            if group_id in self.sfcs_tracker:
+                raise ValueError("SFC já instanciada")
+            else:
+                self.sfcs_tracker[group_id] = {
+                    "sfc_list": sfc_list,
+                    'solution': solution,
+                    'duration': duration,
+                    'timer': time.time()
+                }
+
+        if not is_backup and deployment_success:
+            self.counter += 1
+
+        # Retorno corrigido para evitar crash no create_backups
+        return {
+            'is_success': deployment_success,
+            'route_info': route_info_export
+        }
 
     def undeploy_sfc(self, sfc_list_id: str, substrate_network, take_out_backup=True) -> None:
         """Remove a SFC group based on the destination node ID (sfc_list_id)."""
@@ -67,7 +99,6 @@ class SFCManager:
                 # --- [MODIFICAÇÃO] Limpeza de Backups ---
                 # Verifica se existem backups registrados para esta SFC específica
                 if take_out_backup and sfc.id in self.backup_manager.sfcs_backups_instatiated:
-                    # Chama o método que já existe na classe para remover backups
                     self.undeploy_sfc_backups(sfc.id, substrate_network)
                 # ----------------------------------------
 
@@ -90,6 +121,7 @@ class SFCManager:
         backups_mount = []
         sfc_id_duration = copy.deepcopy(self.sfc_id_duration)
 
+        # 1. Gera as SFCs de backup (mas elas vêm sem rota definida ainda)
         if self.alg_name in ['vegeta', 'ga']:
             self.clean_backups(network)
             backups_mount = self.backup_manager.seletive_strategy(network, sfc_id_duration)
@@ -97,33 +129,105 @@ class SFCManager:
             backups_mount = self.backup_manager.greedy_strategy(network, sfc_id_duration)
 
         if backups_mount:
-            for backup in backups_mount:
-                sfc = backup[0]
-                results_dict = self.submit_solution([sfc], {sfc.id: {'route_info': ...}}, network, is_backup=True) 
-                # NOTA: O código original chamava self.deploy_sfc aqui, mas essa função não existe na classe fornecida.
-                # Assumi que o original talvez usasse submit_solution ou similar. 
-                # MANTIVE O ORIGINAL ABAIXO PARA SEGURANÇA SE A FUNÇÃO EXISTIR EM OUTRO ESCOPO (MIXIN):
-                results_dict = self.deploy_sfc(sfc, network, is_backup=True)
-
-                if sfc.id in self.backup_manager.backups_sfc_instantiated:
+            for backup_list in backups_mount:
+                sfc = backup_list[0] # SFC de backup gerada
+                
+                # --- CORREÇÃO: Busca de Rota (Placement) ---
+                # Como o backup_manager apenas cria o objeto SFC, precisamos encontrar 
+                # um servidor válido para hospedar a VNF de backup.
+                
+                # Identifica a VNF de backup (aquela que não é src nem dst)
+                backup_vnf = None
+                for vnf in sfc.vnfs_dict:
+                    if vnf['name'] not in ['src', 'dst'] and not vnf['name'].startswith('src_') and not vnf['name'].startswith('dst_'):
+                        backup_vnf = vnf
+                        break
+                
+                if not backup_vnf:
                     continue
 
+                # Tenta encontrar um servidor válido (simples greedy/shortest path)
+                valid_placement_found = False
+                route_info = {}
+                
+                # Lista de candidatos: todos os servidores (exceto router/mobile)
+                candidates = [n for n, d in network.graph.nodes(data=True) if d.get('type') == 'server']
+                random.shuffle(candidates) # Aleatoriza para balancear
+
+                for server in candidates:
+                    # Checa recursos (CPU/Cache)
+                    node_data = network.graph.nodes[server]
+                    if (node_data['cpu_used'] + backup_vnf['CPU'] <= node_data['cpu_capacity']) and \
+                       (node_data['cache_used'] + backup_vnf['cache'] <= node_data['cache_capacity']):
+                        
+                        # Checa conectividade (Path: Src -> Server -> Dst)
+                        try:
+                            # src -> server
+                            path1 = k_shortest_paths(network, sfc.src_substrate_node, server, k=1, weight='latency')[0]
+                            # server -> dst
+                            path2 = k_shortest_paths(network, server, sfc.dst_substrate_node, k=1, weight='latency')[0]
+                            
+                            # Se encontrou caminhos
+                            if path1 and path2:
+                                route_info[backup_vnf['name']] = path1 # Caminho até a VNF
+                                # Precisamos estruturar como o deploy_sfc espera.
+                                # Normalmente: 'vnf_name': [node, path_to_next...]
+                                # Mas k_shortest retorna nós.
+                                # Vamos simplificar assumindo que deploy_sfc re-calcula ou aceita o nó.
+                                # O deploy_sfc espera {vnf_id: [node_allocated, ...path_to_next_vnf...]}
+                                
+                                # Ajuste para formato do deploy_sfc:
+                                # VNF Backup: alocada em 'server'. Caminho até PRÓXIMA (dst) é path2.
+                                route_info[backup_vnf['name']] = [server] + path2 
+                                
+                                # Src virtual: alocada em src_node. Caminho até Backup é path1.
+                                # route_info['src'] = [sfc.src_substrate_node] + path1 # Opcional dependendo da imp.
+                                
+                                valid_placement_found = True
+                                break
+                        except Exception:
+                            continue
+                
+                if not valid_placement_found:
+                    if self.verbose:
+                        print(f"Skipping backup {sfc.id}: No placement found.")
+                    continue
+
+                # --- FIM CORREÇÃO ROTA ---
+
+                # Agora chamamos submit_solution com a rota calculada
+                solution = {sfc.id: {'route_info': route_info}}
+                results_dict = self.submit_solution([sfc], solution, network, is_backup=True)
+
+                # Verifica se o deploy funcionou
                 if results_dict['is_success']:
+                    original_sfc = None
+                    vnf_id = None
+
+                    # Lógica para extrair ID original corrigida
                     if self.alg_name == 'ga':
                         original_sfc = sfc.vnfs_dict[1]['original_sfc']
                         vnfs_dict = sfc.vnfs_dict[1]
                         vnf_id = vnfs_dict['name']
                     else:
+                        # CORREÇÃO PARA GREEDY/SBRC
+                        # O nome vem como "sfc_unique_pX_Y_backup_VNFID_Z_W" ou similar
+                        # backup_vnf['name'] contém o nome da VNF de backup (ex: "vnf1_b")
                         split = sfc.id.split("_")
+                        # Reconstrói ID original (assumindo padrão sfc_tipo_pX_Y)
+                        # Ex: sfc_unique_p6_0_backup_vnf1... -> sfc_unique_p6_0
                         original_sfc = f"{split[0]}_{split[1]}_{split[3]}_{split[4]}"
-                        vnf_id = None
+                        
+                        # Extrai a VNF ID removendo sufixo '_b' se existir
+                        raw_vnf_name = backup_vnf['name']
+                        vnf_id = raw_vnf_name.removesuffix("_b") if hasattr(raw_vnf_name, 'removesuffix') else raw_vnf_name.replace("_b", "")
 
                     if original_sfc not in self.backup_manager.sfcs_backups_instatiated:
                         self.backup_manager.sfcs_backups_instatiated[original_sfc] = []
 
                     self.backup_manager.sfcs_backups_instatiated[original_sfc].append({
                         "sfc_backup_id": sfc.id,
-                        "vnf_id": vnf_id,
+                        "vnf_id": vnf_id, # Agora é o ID real, não None
                         "route_info": results_dict["route_info"]
                     })
                     self.backup_manager.backups_sfc_instantiated[sfc.id] = original_sfc
