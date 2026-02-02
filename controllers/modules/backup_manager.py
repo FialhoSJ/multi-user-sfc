@@ -171,31 +171,32 @@ class BackupManager:
                 if 'src' in sfc_rf: del sfc_rf['src']
                 if 'dst' in sfc_rf: del sfc_rf['dst']
 
+                # Location pode falhar se vnf_id não estiver na rota (ex: src/dst virtual)
+                if vnf_id not in sfc_rf: continue
                 location = sfc_rf[vnf_id][0]
+                
                 src_out = resources_info['in_bw']
                 dst_in = resources_info['out_bw']
                 cpu = resources_info['CPU']
                 cache = resources_info['cache']
 
-                # --- CORREÇÃO AQUI ---
-                # Passamos a latência original para a função auxiliar
                 original_latency = getattr(sfc, 'latency_request', 10)
-                dst, src, latency_req = self.escolher_src_dst(sfc_rf, vnf_id, original_latency)
+                dst_node, src_node, latency_req = self.escolher_src_dst(sfc_rf, vnf_id, original_latency)
                 
-                if latency_req < 0:
+                if latency_req < 0 or dst_node is None:
                     continue
 
-                # Configuração da VNF de Backup
-                src_name = "source"
-                backup_vnf_name = vnf_id
-                dst_name = "destiny"
+                # --- CORREÇÃO AQUI: Adicionado sufixo _b para consistência ---
+                src_name = "src_virt"
+                backup_vnf_name = vnf_id + "_b" 
+                dst_name = "dst_virt"
                 reduction_factor = self.standard_reduction_factor
 
                 backup_sf_list = [
                     {
                         "type": 2, "name": src_name, "CPU": 0, "cache": 0, 
                         "in_bw": 0, "out_bw": 0, 
-                        "latency": 0, "location": src
+                        "latency": 0, "location": src_node
                     },
                     {
                         "type": 2, "name": backup_vnf_name, 
@@ -208,11 +209,10 @@ class BackupManager:
                     {
                         "type": 2, "name": dst_name, "CPU": 0, "cache": 0, 
                         "in_bw": 0, "out_bw": 0, 
-                        "latency": 0, "location": dst
+                        "latency": 0, "location": dst_node
                     }
                 ]
 
-                # Cálculo de duração (Seletive já fazia +/- certo, mas padronizamos)
                 time_elapsed = current_time - sfc_id_duration[sfc_id]["timer"]
                 duration = max(10, sfc_id_duration[sfc_id]["duration"] - time_elapsed + 10)
 
@@ -220,8 +220,8 @@ class BackupManager:
                     "name": name,
                     "vnf_list": backup_sf_list,
                     "bandwidth": sfc.input_throughput,
-                    "src_node": src,
-                    "dst_node": dst,
+                    "src_node": src_node,
+                    "dst_node": dst_node,
                     "duration": duration,
                     "latency": latency_req
                 }

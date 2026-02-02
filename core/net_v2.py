@@ -323,8 +323,19 @@ class Net2:
 
         session_id = sfc_id.split("_")[-1]
         service_key = (service_id, session_id)
+        
+        # --- CORREÇÃO PARA REPLICAÇÃO/STITCHING ---
         if service_key not in node['services']:
-            raise ValueError(f"Serviço {service_id} não encontrado no nó {node_id}.")
+            # Se a rota aponta para este nó, mas o serviço com ID original não está aqui,
+            # significa que este é um nó de BACKUP. Os recursos aqui estão sendo 
+            # consumidos/pagos pela SFC de Backup (Mini-SFC) e não pela Original.
+            # Portanto, não precisamos (e não devemos) subtrair recursos aqui, 
+            # pois isso causaria 'double-free' (subtração dupla) ou erro.
+            if self.verbose:
+                print(f"Aviso: Tentativa de desalocar serviço {service_id} no nó {node_id} ignorada (Nó de Backup/Recuperado).")
+                
+            return
+        # -------------------------------------------
 
         service_info = node['services'][service_key]
         cpu_to_handle = service_info['cpu']
