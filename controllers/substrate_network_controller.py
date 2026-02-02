@@ -239,7 +239,7 @@ class SubstrateNetworkController():
     def check_network_health(self):
         """Verifica se a carga da rede está abaixo de 80%."""
         utilization = self.substrate_network.get_total_system_processing_utilization_rate()
-        return utilization < 0.80
+        return utilization < 0.75
 
     def ensure_reliability_target(self, sfc_list, target_reliability=0.99):
         """
@@ -263,7 +263,7 @@ class SubstrateNetworkController():
             current_r, weak_vnf, weak_node = self.sfc_manager.calculate_sfc_reliability(sfc.id, self.substrate_network)
             
             attempts = 0
-            max_replicas = 2 
+            max_replicas = 1
             
             while current_r < target_reliability and attempts < max_replicas:
                 if not weak_vnf: break
@@ -355,7 +355,7 @@ class SubstrateNetworkController():
         solution, is_success = self.sfc_instantiator.search_solution(sfc_list, self.substrate_network)
         if is_success:
             self.sfc_manager.submit_solution(sfc_list, solution, self.substrate_network)
-            target_r = 0.925
+            target_r = 0.9
             self.ensure_reliability_target(sfc_list, target_reliability=target_r)
         else:
             self.remove_mobile_user(mob_player_id)

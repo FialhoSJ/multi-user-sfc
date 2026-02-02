@@ -21,7 +21,7 @@ if __name__ == '__main__':
     # =========================================================================
     parser = argparse.ArgumentParser(description='Select MUAR arguments')
     parser.add_argument('--n_sessions', type=int, default=50)
-    parser.add_argument('--n_players', type=int, default=6)
+    parser.add_argument('--n_players', type=int, default=4)
     parser.add_argument('--time', type=int, default=120)
     parser.add_argument('--eco_effi_ratio', type=float, default=0.7)
     parser.add_argument('--sfc', type=str, default='on')
@@ -34,7 +34,7 @@ if __name__ == '__main__':
     RUN_MODE = 'batch'
     
     # 1. Lista de Algoritmos (Adicionados GA e GreedyB)
-    BATCH_ALGS = ['SBRCMASKABLEPPO'] #['sbrcMaskablePPO']
+    BATCH_ALGS = ["SBRCMASKABLEPPO"] #['sbrcMaskablePPO']
 
     # 2. Cenários de Risco
     BATCH_FAIL_TARGETS = ['low_risk', 'med_risk', 'high_risk']
@@ -44,7 +44,7 @@ if __name__ == '__main__':
     
     # ATENÇÃO: Isso vai disparar 27 processos Python pesados simultaneamente.
     # Certifique-se de que sua máquina aguenta (CPU/RAM).
-    BATCH_PARALLEL_RUNS = 12
+    BATCH_PARALLEL_RUNS = 24
     
     # --- Configurações de Falha ---
     number_of_fails = ['20'] 
