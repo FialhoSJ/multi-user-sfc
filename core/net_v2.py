@@ -262,12 +262,28 @@ class Net2:
                 self.total_cache_used = round(self.total_cache_used + cache_req, 2)
         # ----------------------
 
+        # --- INICIO DA ALTERAÇÃO ---
+
+        # 1. Normalização: Descobre o "Nome Base" do serviço (Remove _b)
+        clean_current_id = service_id.replace("_b", "")
+        
+        # 2. Verifica se JÁ EXISTE alguma instância compatível (Pai/Irmão) no nó
+        compatible_instance_found = False
+        
+        # Só buscamos compatibilidade se o serviço for compartilhável
+        if self.is_shareable(service_id) or self.is_shareable(clean_current_id):
+            for (existing_id, existing_session) in node['services'].keys():
+                existing_clean = existing_id.replace("_b", "")
+                if existing_clean == clean_current_id:
+                    compatible_instance_found = True
+                    break
+
         if sfc_id not in node['sfcs_list']:
             node['sfcs_list'].append(sfc_id)
 
         service_key = (service_id, session)
 
-        # Lógica de Reuso
+        # CASO 1: Match Exato (Mesmo ID e Mesma Sessão)
         if service_key in node['services']:
             node['services'][service_key]['copys'] += 1
 
@@ -279,25 +295,40 @@ class Net2:
                     raise ValueError(f"Sem capacidade suficiente no nó {node_id} para instância não compartilhável.")
                 put_resource(cpu_required, cache_required, mobile)
             else:
-                # É compartilhável, apenas registra economia
                 if is_gpu:
                     self.total_gpu_saved = round(self.total_gpu_saved + cpu_required, 2)
                 else:
                     self.total_cpu_saved = round(self.total_cpu_saved + cpu_required, 2)
                 self.total_cache_saved = round(self.total_cache_saved + cache_required, 2)
                 self.shared_vnfs_count += 1
+
+        # CASO 2: Novo Registro no Dicionário
         else:
-            # Serviço novo no nó
-            if node['cpu_used'] + cpu_required > node['cpu_capacity'] or \
-               node['cache_used'] + cache_required > node['cache_capacity']:
+            cost_cpu = cpu_required
+            cost_cache = cache_required
+            
+            if compatible_instance_found:
+                cost_cpu = 0
+                cost_cache = 0
+                
+                if is_gpu:
+                    self.total_gpu_saved = round(self.total_gpu_saved + cpu_required, 2)
+                else:
+                    self.total_cpu_saved = round(self.total_cpu_saved + cpu_required, 2)
+                self.total_cache_saved = round(self.total_cache_saved + cache_required, 2)
+                self.shared_vnfs_count += 1
+
+            if node['cpu_used'] + cost_cpu > node['cpu_capacity'] or \
+               node['cache_used'] + cost_cache > node['cache_capacity']:
                 if sfc_id in node['sfcs_list']: node['sfcs_list'].remove(sfc_id)
                 raise ValueError(f"Sem capacidade suficiente no nó {node_id} para novo serviço.")
 
-            node['services'][service_key] = {'cpu': cpu_required, 'cache': cache_required, 'copys': 1}
-            put_resource(cpu_required, cache_required, mobile)
+            node['services'][service_key] = {'cpu': cost_cpu, 'cache': cost_cache, 'copys': 1}
+            put_resource(cost_cpu, cost_cache, mobile)
 
             if self.is_shareable(service_id):
                 node['reuse'].append(vnf)
+
 
     def deallocate_microservice(self, node_id, sfc_id, vnf):
         mobile = False

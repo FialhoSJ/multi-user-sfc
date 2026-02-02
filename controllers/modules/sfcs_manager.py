@@ -216,7 +216,7 @@ class SFCManager:
                         split = sfc.id.split("_")
                         # Reconstrói ID original (assumindo padrão sfc_tipo_pX_Y)
                         # Ex: sfc_unique_p6_0_backup_vnf1... -> sfc_unique_p6_0
-                        original_sfc = f"{split[0]}_{split[1]}_{split[3]}_{split[4]}"
+                        original_sfc = f"{split[0]}_{split[1]}_{split[4]}_{split[5]}"
                         
                         # Extrai a VNF ID removendo sufixo '_b' se existir
                         raw_vnf_name = backup_vnf['name']
@@ -408,7 +408,7 @@ class SFCManager:
                     "in_bw": 0, "out_bw": src_out, "latency": 0, "location": src
                 })
                 backup_sf_list.append({
-                    "type": 2, "name": vnf_id, "CPU": cpu, "cache": cache, 
+                    "type": 2, "name": vnf_id + "_b", "CPU": cpu, "cache": cache, 
                     "in_bw": src_out, "out_bw": dst_in, "latency": 0, 
                     "restriction": location, "original_sfc": sfc_id
                 })
@@ -441,9 +441,8 @@ class SFCManager:
 
     def calculate_sfc_reliability(self, sfc_id, substrate_network):
         """
-        Calcula a confiabilidade total da SFC considerando réplicas (Sistema Paralelo).
-        R_stage = 1 - ( (1-R_prim) * (1-R_rep) )
-        R_total = Produto(R_stage) para todos os estágios.
+        Calcula a confiabilidade da SFC agrupando VNFs por nó físico para evitar
+        penalização dupla (R * R) no mesmo hardware.
         """
         if sfc_id not in self.sfcs_routing_info:
             return 0.0, None, None
@@ -451,72 +450,183 @@ class SFCManager:
         sfc = substrate_network.get_sfc_by_id(sfc_id)
         route_info = self.sfcs_routing_info[sfc_id]
         
-        total_reliability = 1.0
+        # Estruturas para identificar o elo mais fraco (para o Agente DRL/Greedy)
         weakest_vnf_id = None
-        min_stage_reliability = 1.1 # Sentinela
+        min_stage_reliability = 1.1 
         weakest_node_primary = None
 
-        # Itera sobre VNFs (Estágio por Estágio)
-        current_vnf = sfc.get_src_vnf() # Começa da Origem
+        # 1. Agrupamento: Mapeia quais VNFs estão em qual nó físico
+        # Estrutura: { 'node_id': ['vnf_id_1', 'vnf_id_2'] }
+        node_groups = {}
         
-        # Percorre a cadeia
+        current_vnf = sfc.get_src_vnf()
         while current_vnf:
-            if current_vnf.id == 'src' or current_vnf.id == 'dst':
-                # Pula src/dst virtuais para cálculo de confiabilidade (assumidos perfeitos ou externos)
+            if current_vnf.id in ['src', 'dst']:
                 current_vnf = sfc.get_next_vnf(current_vnf)
                 continue
 
-            # 1. Identifica Nó Primário
             path = route_info.get(current_vnf.id)
             if not path:
-                return 0.0, None, None # Cadeia quebrada
+                return 0.0, None, None # Rota quebrada
             
             primary_node = path[0]
-            r_prim = substrate_network.get_node_reliability(primary_node)
             
-            # 2. Verifica se há Réplica
-            r_rep = 0.0
-            has_replica = False
-            
-            if sfc_id in self.backup_manager.sfcs_backups_instatiated:
-                backups = self.backup_manager.sfcs_backups_instatiated[sfc_id]
-                for backup in backups:
-                    # Verifica se este backup corresponde à VNF atual
-                    if backup['vnf_id'] == current_vnf.id:
-                        # Obtém Nó da Réplica da informação de rota do backup
-                        rep_route = backup['route_info']
-                        # A SFC de backup tem estrutura: src -> VNF_b -> dst
-                        # Precisamos encontrar o nó da VNF_b
-                        for k, v in rep_route.items():
-                            if k.endswith('_b') and v:
-                                replica_node = v[0]
-                                r_rep = substrate_network.get_node_reliability(replica_node)
-                                has_replica = True
-                                break
-                        break
-
-            # 3. Calcula Confiabilidade do Estágio
-            if has_replica:
-                # Matemática de Sistema Paralelo: P(Pelo menos um funcionando)
-                p_fail_prim = 1.0 - r_prim
-                p_fail_rep = 1.0 - r_rep
-                stage_reliability = 1.0 - (p_fail_prim * p_fail_rep)
-            else:
-                stage_reliability = r_prim
-
-            # 4. Agrega
-            total_reliability *= stage_reliability
-            
-            # 5. Rastreia Elo Mais Fraco (Alvo de Otimização)
-            # Priorizamos replicar estágios que ainda não têm réplicas ou ainda são fracos
-            if stage_reliability < min_stage_reliability:
-                min_stage_reliability = stage_reliability
-                weakest_vnf_id = current_vnf.id
-                weakest_node_primary = primary_node
+            if primary_node not in node_groups:
+                node_groups[primary_node] = []
+            node_groups[primary_node].append(current_vnf.id)
             
             current_vnf = sfc.get_next_vnf(current_vnf)
+
+        # 2. Cálculo da Confiabilidade Total (Baseado na sobrevivência dos Nós Físicos)
+        total_reliability = 1.0
+
+        for node_id, vnfs_list in node_groups.items():
+            r_prim = substrate_network.get_node_reliability(node_id)
             
+            # Variáveis para analisar redundância deste grupo físico
+            all_vnfs_have_backup = True
+            prod_reliability_backups = 1.0 # Probabilidade de TODOS os backups necessários estarem vivos
+
+            for vnf_id in vnfs_list:
+                # --- Lógica Individual da VNF (Busca Backup) ---
+                has_replica = False
+                r_rep = 0.0
+                
+                if sfc_id in self.backup_manager.sfcs_backups_instatiated:
+                    backups = self.backup_manager.sfcs_backups_instatiated[sfc_id]
+                    for backup in backups:
+                        if backup['vnf_id'] == vnf_id:
+                            # Busca o nó onde a réplica está
+                            rep_route = backup['route_info']
+                            for k, v in rep_route.items():
+                                if k.endswith('_b') and v:
+                                    replica_node = v[0]
+                                    r_rep = substrate_network.get_node_reliability(replica_node)
+                                    has_replica = True
+                                    break
+                        if has_replica: break
+                
+                # --- Atualização do Grupo (Nó Físico) ---
+                if not has_replica:
+                    all_vnfs_have_backup = False
+                else:
+                    # Acumula a confiabilidade dos backups necessários
+                    prod_reliability_backups *= r_rep
+
+                # --- Atualização do "Elo Mais Fraco" (Para o Agente saber onde agir) ---
+                # Calculamos a confiabilidade desta VNF isoladamente apenas para comparação
+                if has_replica:
+                    stage_r = 1.0 - ((1.0 - r_prim) * (1.0 - r_rep))
+                else:
+                    stage_r = r_prim
+                
+                if stage_r < min_stage_reliability:
+                    min_stage_reliability = stage_r
+                    weakest_vnf_id = vnf_id
+                    weakest_node_primary = node_id
+
+            # --- Aplicação da Fórmula no Grupo Físico ---
+            if all_vnfs_have_backup:
+                # Se o nó primário cair, a SFC sobrevive SE E SOMENTE SE todos os backups funcionarem
+                # P(Sucesso) = P(Primário Vivo) + P(Primário Morto E Backups Vivos)
+                group_reliability = r_prim + ((1.0 - r_prim) * prod_reliability_backups)
+            else:
+                # Se pelo menos uma VNF não tem backup, a morte do nó mata a SFC
+                group_reliability = r_prim
+
+            total_reliability *= group_reliability
+
         return total_reliability, weakest_vnf_id, weakest_node_primary
+    
+    def reconstruct_and_redeploy(self, sfc_obj, crashed_node_id, old_route_info, substrate_network) -> bool:
+        """
+        Reconstrói a rota usando o backup e realiza um novo deploy completo.
+        """
+        # 1. Verifica Backups Disponíveis
+        if sfc_obj.id not in self.backup_manager.sfcs_backups_instatiated:
+            return False
+
+        # 2. Identifica qual VNF estava no nó que caiu
+        affected_vnf_id = None
+        for vnf_id, path in old_route_info.items():
+            if vnf_id in ['src', 'dst'] or not path: continue
+            if path[0] == crashed_node_id:
+                affected_vnf_id = vnf_id
+                break
+        
+        if not affected_vnf_id: return False
+
+        # 3. Busca a Réplica Específica
+        backups_list = self.backup_manager.sfcs_backups_instatiated[sfc_obj.id]
+        target_backup = None
+        for backup_entry in backups_list:
+            b_vnf_clean = backup_entry['vnf_id'].replace("_b", "")
+            if b_vnf_clean == affected_vnf_id:
+                target_backup = backup_entry
+                break
+        
+        if not target_backup: return False
+
+        # 4. COSTURA (Stitching): Prepara a nova rota
+        new_route_info = copy.deepcopy(old_route_info)
+        backup_route = target_backup['route_info'] # Rota interna da mini-SFC de backup
+        
+        # Encontra chaves de entrada e saída no backup
+        key_ingress = 'src_virt' # Do nó anterior -> Backup
+        key_egress = None        # Do Backup -> Próximo nó
+        
+        # A chave de egress geralmente é o ID da vnf de backup (ex: vnf1_b)
+        for k in backup_route.keys():
+            if k.endswith('_b') or k == f"{affected_vnf_id}_b":
+                key_egress = k
+                break
+        
+        path_ingress = backup_route.get(key_ingress)
+        path_egress = backup_route.get(key_egress)
+
+        if not path_ingress or not path_egress: return False
+
+        # Verifica se o nó de backup está vivo
+        backup_node = path_egress[0]
+        if not substrate_network.graph.nodes[backup_node].get('is_active', True):
+            return False
+
+        # -- APLICANDO A COSTURA --
+        
+        # A) Atualiza o caminho da VNF Anterior para apontar para o Backup
+        # (Nó Anterior -> ... -> Nó Backup)
+        prev_vnf = sfc_obj.get_previous_vnf(sfc_obj.get_vnf_by_id(affected_vnf_id))
+        if prev_vnf.id == 'src':
+            new_route_info['src'] = path_ingress
+        else:
+            new_route_info[prev_vnf.id] = path_ingress
+            
+        # B) Atualiza o caminho da VNF Afetada (agora recuperada)
+        # (Nó Backup -> ... -> Próximo Nó)
+        new_route_info[affected_vnf_id] = path_egress
+
+        # 5. DEPLOY RÁPIDO: Realoca tudo com a nova rota costurada
+        # Como demos undeploy antes, os recursos nos nós saudáveis estão livres.
+        try:
+            # O deploy_sfc vai reservar CPU/Cache nos nós saudáveis e no nó de backup,
+            # e reservar Banda em todos os links da nova rota composta.
+            substrate_network.deploy_sfc(sfc_obj, new_route_info)
+            
+            # Atualiza o registro oficial de rotas
+            self.sfcs_routing_info[sfc_obj.id] = new_route_info
+            
+            # Registra que o backup foi usado
+            if target_backup['sfc_backup_id'] not in self.backup_manager.backups_activated:
+                self.backup_manager.backups_activated.append(target_backup['sfc_backup_id'])
+                
+            return True
+            
+        except Exception as e:
+            # Se falhar (ex: nó saudável ficou cheio nesse meio tempo), retorna False
+            # O Controller vai pegar esse False e mandar para a fila de espera.
+            if self.verbose:
+                print(f"Falha ao redeployar SFC {sfc_obj.id} via backup: {e}")
+            return False
 
     def attempt_recovery_by_replica(self, sfc_id, crashed_node_id, substrate_network) -> bool:
         """

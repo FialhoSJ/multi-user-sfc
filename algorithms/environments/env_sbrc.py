@@ -371,6 +371,8 @@ class SFC_AllocationEnv(gymnasium.Env):
 
             reliability = node_data.get('reliability', 1.0)
             features[i, 3] = reliability 
+            if node_id in self.forbidden_nodes:
+                features[i, 6] = 1
 
         first_vnf = self.current_sfc.get_previous_vnf(self.current_sfc.get_dst_vnf())
         second_vnf = first_vnf.get_previous_vnf() if first_vnf else None

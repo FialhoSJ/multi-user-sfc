@@ -254,7 +254,7 @@ class SubstrateNetworkController():
             current_r, weak_vnf, weak_node = self.sfc_manager.calculate_sfc_reliability(sfc.id, self.substrate_network)
             
             attempts = 0
-            max_replicas = 1
+            max_replicas = 2
             
             while current_r < target_reliability and attempts < max_replicas:
                 if not weak_vnf: break
@@ -279,6 +279,11 @@ class SubstrateNetworkController():
                 )
                 
                 forbidden = [weak_node]
+
+                if weak_node%1 == 0.1:
+                    forbidden.append(weak_node-0.1)
+                else:
+                    forbidden.append(weak_node+0.1)
                 
                 env.set_forbidden_nodes(forbidden)
                 agent = self.sfc_instantiator.alg
@@ -346,7 +351,7 @@ class SubstrateNetworkController():
         solution, is_success = self.sfc_instantiator.search_solution(sfc_list, self.substrate_network)
         if is_success:
             self.sfc_manager.submit_solution(sfc_list, solution, self.substrate_network)
-            target_r = 0.9
+            target_r = 0.925
             self.ensure_reliability_target(sfc_list, target_reliability=target_r)
         else:
             self.remove_mobile_user(mob_player_id)
@@ -446,13 +451,32 @@ class SubstrateNetworkController():
     ###########################################################################
 
     def check_mobility(self, interval=5):
-        if self.sfc_manager.sfcs_tracker != {}: # Se não houver mais SFC's não faz nada
-            # Checagem dos Veh que mudaram de posição
+        if self.sfc_manager.sfcs_tracker != {}: 
             sfcs_moved, new_locations = self.mobility_manager.check_all_vehicles_position_changes()  
+            
             for sfc_list, new_location in zip(sfcs_moved, new_locations):
-                print(f"SFCs moved: {sfc_list} | New Location: {new_location}")
-                obj_sfc_list = [self.substrate_network.get_sfc_by_id(sfc_id) for sfc_id in sfc_list]
-                self.send_back_to_qeue(obj_sfc_list, changed_location=True, new_location=new_location)
+                obj_sfc_list = []
+                valid_move = True
+                
+                # 2. Tentamos buscar os objetos SFC na rede
+                for sfc_id in sfc_list:
+                    try:
+                        # AQUI OCORRIA O ERRO: get_sfc_by_id falhava se a SFC tivesse sofrido undeploy
+                        sfc_obj = self.substrate_network.get_sfc_by_id(sfc_id)
+                        obj_sfc_list.append(sfc_obj)
+                    except KeyError:
+                        # 3. Tratamento Silencioso: 
+                        # Se não achou (está no limbo/fila), apenas abortamos a mobilidade deste ciclo
+                        # Não removemos do mobility, pois o usuário ainda existe.
+                        if self.verbose:
+                            print(f"[MOBILITY] Ignorando movimento da SFC {sfc_id} (SFC em recuperação/offline).")
+                        valid_move = False
+                        break # Aborta processamento desta lista específica
+                
+                # Só prossegue se TODAS as SFCs do usuário estiverem vivas na rede
+                if valid_move and obj_sfc_list:
+                    print(f"SFCs moved: {sfc_list} | New Location: {new_location}")
+                    self.send_back_to_qeue(obj_sfc_list, changed_location=True, new_location=new_location)
 
     def create_mobile_user(self, sfc_list):
         group_id = sfc_list[0].dst_node
@@ -623,48 +647,55 @@ class SubstrateNetworkController():
         post_crash_latencies = {}
 
         for sfc_id in sorted(affected_sfc_ids):
-
+            # 1. Identificar o nó que falhou para esta SFC
             failed_nodes = sfc_failed_nodes_map.get(sfc_id, [])
             relevant_server_down = failed_nodes[0] if failed_nodes else None
+            
+            # 2. Snapshot: Salvar Objeto e Rota antes de destruir
+            try:
+                sfc_obj = self.substrate_network.get_sfc_by_id(sfc_id)
+                old_route_info = copy.deepcopy(self.sfc_manager.sfcs_routing_info.get(sfc_id))
+            except:
+                # Se não conseguir pegar o objeto, não tem como recuperar
+                continue
+
+            # 3. UNDEPLOY IMEDIATO: Libera todos os recursos (Banda e CPU)
+            # Isso garante que a rede esteja limpa para a tentativa de realocação
+            self.sfc_manager.undeploy_sfc(sfc_owners_map.get(sfc_id), self.substrate_network, take_out_backup=False)
 
             # Marca o tempo inicial da tentativa
             recovery_start_time = time.time()
-            
             recovered = False
-            if relevant_server_down:
-                recovered = self.sfc_manager.attempt_recovery_by_replica(
-                    sfc_id,
-                    relevant_server_down,
+
+            # 4. Tenta reconstruir e fazer o Deploy novamente
+            if relevant_server_down and old_route_info:
+                # Chama a nova função de "Costura e Deploy"
+                recovered = self.sfc_manager.reconstruct_and_redeploy(
+                    sfc_obj, 
+                    relevant_server_down, 
+                    old_route_info, 
                     self.substrate_network
                 )
 
             if recovered:
-                # --- [CORREÇÃO 1] CÁLCULO DE MÉTRICAS PARA BACKUP ---
+                # Sucesso: Calcula métricas
                 new_lat = self._calculate_sfc_path_latency(sfc_id)
                 post_crash_latencies[sfc_id] = new_lat
-                
                 old_lat = pre_crash_latencies.get(sfc_id, 0)
-                latency_diff = new_lat - old_lat
                 
-                # Tempo de recuperação (delta de processamento)
-                time_to_recover = time.time() - recovery_start_time
-
-                # Preenchemos o dicionário COMPLETO para o OutputWritter
                 self.sfcs_crash_affected[sfc_id] = {
                     "fall_time": time.time(),
                     "old_latency": old_lat,
-                    "latency_diff": latency_diff,       # <--- Correção
-                    "latency_degrad": latency_diff,     # <--- Correção
-                    "time_to_recover": time_to_recover, # <--- Correção
-                    "resource_info": 0,                 
-                    "resource_degrad": 0,               
+                    "latency_diff": new_lat - old_lat,
+                    "latency_degrad": new_lat - old_lat,
+                    "time_to_recover": time.time() - recovery_start_time,
+                    "resource_info": 0,
+                    "resource_degrad": 0,
                     "backup_success": True,
-                    "recover_success": True             
+                    "recover_success": True
                 }
-                # --------------------------------------------------
-
             else:
-                # --- [CORREÇÃO 2] FALHA NO BACKUP -> MIGRAÇÃO DE EMERGÊNCIA ---
+                # 5. Falha no Backup: Manda para a fila (Redeploy completo/Migração)
                 self.sfcs_crash_affected[sfc_id] = {
                     "fall_time": time.time(),
                     "old_latency": pre_crash_latencies.get(sfc_id, 0),
@@ -673,20 +704,16 @@ class SubstrateNetworkController():
                     "crash_trial": self.crashs_trials
                 }
                 
-                try:
-                    tracker_id = sfc_owners_map.get(sfc_id)
-                    if tracker_id and tracker_id in self.sfc_manager.sfcs_tracker:
-                        self.mobility_manager.mark_vehicle_as_redeploying(tracker_id)
-                        sfc_list = self.sfc_manager.sfcs_tracker[tracker_id]['sfc_list']
-
-                        # Se não foi recuperado pelo backup, mandamos para o início da fila (put_begin)
-                        # Isso age como uma "migração forçada"
-                        if sfc_list and sfc_list[0] not in fallen_sfcs_list:
-                            self.send_back_to_qeue(sfc_list, changed_location=False)
-                            fallen_sfcs_list.extend(sfc_list)
-
-                except Exception as e:
-                    print(f"Erro ao processar falha irreversível da SFC {sfc_id}: {e}")
+                tracker_id = sfc_owners_map.get(sfc_id)
+                if tracker_id and tracker_id in self.sfc_manager.sfcs_tracker:
+                    self.mobility_manager.mark_vehicle_as_redeploying(tracker_id)
+                    sfc_list = self.sfc_manager.sfcs_tracker[tracker_id]['sfc_list']
+                    
+                    # Como já demos undeploy lá em cima (passo 3), 
+                    # só precisamos mandar para a fila se a lista ainda existir
+                    if sfc_list:
+                        self.send_back_to_qeue(sfc_list, changed_location=False)
+                        fallen_sfcs_list.extend(sfc_list)
 
         return fallen_sfcs_list, post_crash_latencies
     
@@ -806,15 +833,6 @@ class SubstrateNetworkController():
         u, v = link_tuple
         self.substrate_network.restore_link(u, v)
         print(f">>> [RECOVERY] Link Restaurado: {u} <-> {v}")
-
-    def recover_sfcs(self, fallen_sfcs_list):
-        """
-        Placeholder/Legacy code for recovering specific SFCs.
-        Currently inactive in the flow.
-        """
-        pass
-        # Original logic commented out to preserve file structure without cluttering
-        # (See original file for the commented block if restoration is needed)
 
     ###########################################################################
     #                      MAINTENANCE & REPORTING                            #
