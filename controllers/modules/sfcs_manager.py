@@ -594,7 +594,6 @@ class SFCManager:
         # -- APLICANDO A COSTURA --
         
         # A) Atualiza o caminho da VNF Anterior para apontar para o Backup
-        # (Nó Anterior -> ... -> Nó Backup)
         prev_vnf = sfc_obj.get_previous_vnf(sfc_obj.get_vnf_by_id(affected_vnf_id))
         if prev_vnf.id == 'src':
             new_route_info['src'] = path_ingress
@@ -602,32 +601,36 @@ class SFCManager:
             new_route_info[prev_vnf.id] = path_ingress
             
         # B) Atualiza o caminho da VNF Afetada (agora recuperada)
-        # (Nó Backup -> ... -> Próximo Nó)
         new_route_info[affected_vnf_id] = path_egress
 
         # 5. DEPLOY RÁPIDO: Realoca tudo com a nova rota costurada
-        # Como demos undeploy antes, os recursos nos nós saudáveis estão livres.
         try:
-            # O deploy_sfc vai reservar CPU/Cache nos nós saudáveis e no nó de backup,
-            # e reservar Banda em todos os links da nova rota composta.
+            # === [FIX CRÍTICO] LIBERAR RECURSO DO BACKUP ANTES DE USAR ===
+            # O nó de backup já tem CPU reservada para a Mini-SFC (target_backup['sfc_backup_id']).
+            # Se tentarmos dar deploy na SFC Original sem remover a Mini-SFC, o nó vai acusar falta de recurso
+            # pois achará que estamos somando carga, e não substituindo.
+            
+            backup_sfc_id = target_backup['sfc_backup_id']
+            # Removemos a reserva da Mini-SFC da rede (libera CPU/RAM no backup_node)
+            substrate_network.undeploy_sfc(backup_sfc_id)
+            
+            # Agora o nó está livre (tem espaço) para receber a SFC Original
             substrate_network.deploy_sfc(sfc_obj, new_route_info)
             
             # Atualiza o registro oficial de rotas
             self.sfcs_routing_info[sfc_obj.id] = new_route_info
             
             # Registra que o backup foi usado
-            if target_backup['sfc_backup_id'] not in self.backup_manager.backups_activated:
-                self.backup_manager.backups_activated.append(target_backup['sfc_backup_id'])
+            if backup_sfc_id not in self.backup_manager.backups_activated:
+                self.backup_manager.backups_activated.append(backup_sfc_id)
                 
             return True
             
         except Exception as e:
-            # Se falhar (ex: nó saudável ficou cheio nesse meio tempo), retorna False
-            # O Controller vai pegar esse False e mandar para a fila de espera.
             if self.verbose:
                 print(f"Falha ao redeployar SFC {sfc_obj.id} via backup: {e}")
             return False
-
+        
     def attempt_recovery_by_replica(self, sfc_id, crashed_node_id, substrate_network) -> bool:
         """
         Tenta recuperar uma SFC afetada por falha trocando a VNF falha por sua réplica.

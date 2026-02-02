@@ -694,6 +694,8 @@ class SubstrateNetworkController():
                     "backup_success": True,
                     "recover_success": True
                 }
+
+                print(f"")
             else:
                 # 5. Falha no Backup: Manda para a fila (Redeploy completo/Migração)
                 self.sfcs_crash_affected[sfc_id] = {
