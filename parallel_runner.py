@@ -44,12 +44,12 @@ if __name__ == '__main__':
     
     # ATENÇÃO: Isso vai disparar 27 processos Python pesados simultaneamente.
     # Certifique-se de que sua máquina aguenta (CPU/RAM).
-    BATCH_PARALLEL_RUNS = 24
+    BATCH_PARALLEL_RUNS = 12
     
     # --- Configurações de Falha ---
     number_of_fails = ['20'] 
     CRASH_AT_TIME = -1 
-    avas = ['0.99']
+    avas = ['0.97']
 
     # =========================================================================
     # LÓGICA DE GERAÇÃO DE COMANDOS

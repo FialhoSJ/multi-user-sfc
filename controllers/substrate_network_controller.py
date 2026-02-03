@@ -233,7 +233,7 @@ class SubstrateNetworkController():
     def check_network_health(self):
         """Verifica se a carga da rede está abaixo de 75%."""
         utilization = self.substrate_network.get_processing_network_used_precise()
-        return utilization < 0.70
+        return utilization < 0.2
 
     def ensure_reliability_target(self, sfc_list, target_reliability=0.99):
         """
