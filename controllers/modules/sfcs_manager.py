@@ -207,22 +207,28 @@ class SFCManager:
         network.update()
 
     def undeploy_sfc_backups(self, sfc_id, substrate_network):
-        """Retira os backups da SFC, inclusive os ativos."""
+        """Remove todos os backups associados a uma SFC da rede física e lógica."""
         if sfc_id in self.backup_manager.sfcs_backups_instatiated:
-            backups_removed = self.backup_manager.sfcs_backups_instatiated.pop(sfc_id)
+            # Pega a lista de backups (Mini-SFCs) associados
+            backups_list = self.backup_manager.sfcs_backups_instatiated.pop(sfc_id)
             
-            for backup in backups_removed:
-                backup_id = backup["sfc_backup_id"]
-                if backup_id in self.backup_manager.backups_sfc_instantiated:
-                    del self.backup_manager.backups_sfc_instantiated[backup_id]
+            for backup_entry in backups_list:
+                b_id = backup_entry["sfc_backup_id"]
                 
-                if backup_id in self.backup_manager.backups_activated:
-                    self.backup_manager.backups_activated.remove(backup_id)
-                
+                # 1. Remoção Física (O mais importante para liberar recursos)
                 try:
-                    substrate_network.undeploy_sfc(backup_id)
-                except ValueError:
-                    pass
+                    substrate_network.undeploy_sfc(b_id)
+                    if self.verbose:
+                        print(f"[CLEANUP] Backup {b_id} removido da rede física.")
+                except Exception as e:
+                    pass # Já removido ou inexistente
+
+                # 2. Remoção Lógica no BackupManager
+                if b_id in self.backup_manager.backups_sfc_instantiated:
+                    del self.backup_manager.backups_sfc_instantiated[b_id]
+                
+                if b_id in self.backup_manager.backups_activated:
+                    self.backup_manager.backups_activated.remove(b_id)
 
     def remove_backup_by_id(self, backup_id, substrate_network):
         """Remove todos os backups de forma segura e agressiva."""
