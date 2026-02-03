@@ -225,27 +225,33 @@ class SFCManager:
                     pass
 
     def remove_backup_by_id(self, backup_id, substrate_network):
-        """Remove todos os backups (menos os ativos)."""
+        """Remove todos os backups de forma segura e agressiva."""
+        
+        # Tenta remover da rede física INCONDICIONALMENTE primeiro
+        # Isso garante que não sobrem recursos zumbis
+        try:
+            substrate_network.undeploy_sfc(backup_id)
+        except Exception:
+            # Ignora erro se já não existia na rede, mas garante a tentativa
+            pass
+
+        # Agora limpa os registros lógicos (dicionários)
         if backup_id in self.backup_manager.backups_sfc_instantiated:
             original_sfc = self.backup_manager.backups_sfc_instantiated[backup_id]
 
             if original_sfc in self.backup_manager.sfcs_backups_instatiated:
                 backups = self.backup_manager.sfcs_backups_instatiated[original_sfc]
+                # Filtra a lista mantendo apenas os outros backups
                 self.backup_manager.sfcs_backups_instatiated[original_sfc] = [
                     b for b in backups if b["sfc_backup_id"] != backup_id
                 ]
 
+                # Se a lista ficou vazia, remove a entrada da SFC original
                 if len(self.backup_manager.sfcs_backups_instatiated[original_sfc]) == 0:
                     del self.backup_manager.sfcs_backups_instatiated[original_sfc]
-                del self.backup_manager.backups_sfc_instantiated[backup_id]
-               
-                substrate_network.undeploy_sfc(backup_id)
-            else:
-                try:
-                    del self.backup_manager.backups_sfc_instantiated[backup_id]
-                    substrate_network.undeploy_sfc(backup_id)
-                except:
-                    pass
+            
+            # Remove o mapeamento reverso
+            del self.backup_manager.backups_sfc_instantiated[backup_id]
 
     # ==========================================
     # Risk Assessment & Recovery Methods
@@ -466,6 +472,9 @@ class SFCManager:
 
         # D) Consolidação
         self.sfcs_routing_info[sfc_obj.id] = new_route_info
+
+        if hasattr(substrate_network, 'sfc_route_info'):
+            substrate_network.sfc_route_info[sfc_obj.id] = copy.deepcopy(new_route_info)
         
         self.remove_backup_by_id(backup_sfc_id, substrate_network)
         
