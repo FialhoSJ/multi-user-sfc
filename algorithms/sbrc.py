@@ -1,7 +1,8 @@
-from typing import List, Union
-from core.sfc import SFC, VNF
+import sys
+import contextlib
+
+from core.sfc import SFC
 import logging
-import re
 import networkx as nx
 from stable_baselines3 import DQN, PPO 
 from sb3_contrib import MaskablePPO
@@ -19,10 +20,21 @@ file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 
 # Constants
-N_STEPS = 256
 IS_TRAINING = 0
 VERBOSE = False
 os.environ["CUDA_VISIBLE_DEVICES"] = ""  # Desabilita o uso da GPU
+
+
+@contextlib.contextmanager
+def suppress_output():
+    """Silencia o stdout (prints) dentro deste bloco."""
+    with open(os.devnull, "w") as devnull:
+        old_stdout = sys.stdout
+        sys.stdout = devnull
+        try:
+            yield
+        finally:
+            sys.stdout = old_stdout
 
 
 class SBRC:
@@ -176,23 +188,24 @@ class SBRC:
     # O método principal agora RECEBE a instância do ambiente.
     def start_algorithm(self, env: SFC_AllocationEnv):
         if not self.valid_nodes or not self.sfc or not self.graph:
-            self.fail_reason = "Erro: Rede ou SFC não foram instalados antes de chamar start_algorithm."
+            self.fail_reason = "Erro: Rede ou SFC não foram instalados..."
             logger.error(self.fail_reason)
             self.handle_failure()
             return False
 
-        # --- ADICIONADO: Configuração do ambiente com o problema atual ---
-        # Garante que o ambiente está sincronizado com o grafo e SFC que o SBRC recebeu.
         env.is_training = False
         self.fail_reason = None
         env.valid_nodes = self.valid_nodes
         env._set_list_graph_sfcs([self.graph], [self.sfc])
-        self.model.set_env(env) # Associa o modelo ao ambiente configurado
 
-        # Chama a lógica principal do algoritmo, passando o ambiente
+        # --- ALTERAÇÃO AQUI ---
+        # Silencia o print "Wrapping the env..." apenas nesta execução
+        with suppress_output():
+            self.model.set_env(env) 
+        # ----------------------
+
         self.algorithm(env)
 
-        # A lógica de verificação e retorno foi mantida do original.
         if self.check_solution():
             try:
                 logger.info("Finished algorithm, success")
@@ -237,6 +250,8 @@ class SBRC:
             obs, _, terminated, truncated, _ = env.step(action)
             done = terminated or truncated
 
+        # ... (dentro de find_best_allocation_for_sfc)
+
         if not env.success:
             if not VERBOSE:
                 print(f"Causa Falha: {env.fail_reason}")
@@ -244,7 +259,20 @@ class SBRC:
             self.fail_reason = env.fail_reason
             return [], None
 
-        print(f"SFC: {self.sfc.id}: {env.servers_used} || latência usada: {env.latency_used}")
+        # --- MODIFICADO: Print Limpo para Backups ---
+        servers_output = env.servers_used
+        
+        # Se for backup (identificado pelo ID), queremos apenas o nó do meio
+        if "backup" in self.sfc.id and len(env.servers_used) == 3:
+            # A lista vem invertida [dst_virt, BACKUP, src_virt]
+            real_backup_node = env.servers_used[1] 
+            servers_output = [real_backup_node]
+            
+            # (Opcional) Debug para você validar na primeira vez
+            # print(f"DEBUG BACKUP RAW: {env.servers_used}") 
+
+        print(f"SFC: {self.sfc.id}: {servers_output} || latência usada: {env.latency_used}")
+        # --------------------------------------------
 
         env.allocation_results['dst'] = {'allocated_server': dst, 'path': [], 'cost': 0}
 

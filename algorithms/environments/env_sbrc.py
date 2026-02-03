@@ -73,15 +73,15 @@ class SFC_AllocationEnv(gymnasium.Env):
         "cache": 0.5,
 
         # 1º Prioridade: Banda (O "Dono" da decisão)
-        "band": 15.0,   
+        "band": 8.5,   
 
         # 2º Prioridade: Confiabilidade (O "Guarda-Costas")
         # O peso precisa ser alto (10 a 12) para compensar o fato de que 
         # a penalidade base (1 - reliability) é um número muito pequeno (0.01 a 0.1).
-        "rel": 5.0,   
+        "rel": 7.5,   
 
         # Outros (Baixa prioridade)
-        "lat": 10.0,     
+        "lat": 7.5,     
         "mobile": 0.0,
         }
 

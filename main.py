@@ -57,7 +57,7 @@ def main():
     
     # 1. Configuração MACRO (Gera o Cronograma)
     parser.add_argument('--ava', type=str, default='0.97', help='Meta Global de Disponibilidade')
-    parser.add_argument('--number_of_fails', type=str, default='25', help='Number of node failures')
+    parser.add_argument('--number_of_fails', type=str, default='20', help='Number of node failures')
     parser.add_argument('--min_fail_duration', type=float, default=20, help='Min duration of node failure')
     parser.add_argument('--crash_at', type=float, default=-1, help='Forcar falha em X segundos (Ex: [300, 400, 500]). Use -1 para aleatorio. Respeite o numero de falhas.')
 
@@ -123,15 +123,6 @@ def main():
     # Se veio um número único do argparse, envelopa numa lista para ter len()
     elif isinstance(fixed_time, (float, int)):
         fixed_time = [fixed_time]
-
-    # Gera cronograma para NÓS
-    raw_node_schedule = calcular_janelas_falha(
-        duracao_simulacao=simulation_duration,
-        num_falhas=int(args.number_of_fails),
-        duracao_minima_falha=args.min_fail_duration,
-        confiabilidade=float(args.ava),
-        start_times=fixed_time # <--- Agora isso será uma lista [300.0] ou None
-    )
 
     # Gera cronograma para NÓS
     raw_node_schedule = calcular_janelas_falha(

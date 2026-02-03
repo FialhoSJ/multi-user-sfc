@@ -910,6 +910,7 @@ class Net2:
         self.update()
         return self.total_bandwidth_used * 1.0 / self.total_bandwidth_capacity
 
+
     # --- Percentuais de Utilização Específicos ---
     def get_network_cpu_utilization_percentage(self):
         total_network_capacity = 0.0
@@ -926,6 +927,22 @@ class Net2:
                 total_network_capacity += node_data['cpu_capacity']
         if total_network_capacity == 0: return 0.0
         return (self.total_gpu_used / total_network_capacity) * 100
+    
+    def get_processing_network_used_precise(self):
+        total_used = 0.0
+        total_capacity = 0.0
+
+        for node_id, node in self.graph.nodes(data=True):
+            if node.get('type') == 'server' and node.get('is_active', True):
+                total_used += node.get('cpu_used', 0.0)
+                total_capacity += node.get('cpu_capacity', 0.0)
+
+        if total_capacity == 0:
+            return 0.0
+
+        return total_used / total_capacity
+
+
 
     def get_network_cache_utilization_percentage(self):
         total_network_capacity = 0.0

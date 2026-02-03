@@ -85,7 +85,6 @@ class SFCManager:
         if not is_backup and deployment_success:
             self.counter += 1
 
-        # Retorno corrigido para evitar crash no create_backups
         return {
             'is_success': deployment_success,
             'route_info': route_info_export
@@ -97,7 +96,6 @@ class SFCManager:
             for sfc in self.sfcs_tracker[sfc_list_id]['sfc_list']:
                 
                 # --- [MODIFICAÇÃO] Limpeza de Backups ---
-                # Verifica se existem backups registrados para esta SFC específica
                 if take_out_backup and sfc.id in self.backup_manager.sfcs_backups_instatiated:
                     self.undeploy_sfc_backups(sfc.id, substrate_network)
                 # ----------------------------------------
@@ -132,10 +130,6 @@ class SFCManager:
             for backup_list in backups_mount:
                 sfc = backup_list[0] # SFC de backup gerada
                 
-                # --- CORREÇÃO: Busca de Rota (Placement) ---
-                # Como o backup_manager apenas cria o objeto SFC, precisamos encontrar 
-                # um servidor válido para hospedar a VNF de backup.
-                
                 # Identifica a VNF de backup (aquela que não é src nem dst)
                 backup_vnf = None
                 for vnf in sfc.vnfs_dict:
@@ -150,75 +144,47 @@ class SFCManager:
                 valid_placement_found = False
                 route_info = {}
                 
-                # Lista de candidatos: todos os servidores (exceto router/mobile)
                 candidates = [n for n, d in network.graph.nodes(data=True) if d.get('type') == 'server']
-                random.shuffle(candidates) # Aleatoriza para balancear
+                random.shuffle(candidates) 
 
                 for server in candidates:
-                    # Checa recursos (CPU/Cache)
                     node_data = network.graph.nodes[server]
                     if (node_data['cpu_used'] + backup_vnf['CPU'] <= node_data['cpu_capacity']) and \
                        (node_data['cache_used'] + backup_vnf['cache'] <= node_data['cache_capacity']):
                         
-                        # Checa conectividade (Path: Src -> Server -> Dst)
                         try:
                             # src -> server
                             path1 = k_shortest_paths(network, sfc.src_substrate_node, server, k=1, weight='latency')[0]
                             # server -> dst
                             path2 = k_shortest_paths(network, server, sfc.dst_substrate_node, k=1, weight='latency')[0]
                             
-                            # Se encontrou caminhos
                             if path1 and path2:
-                                route_info[backup_vnf['name']] = path1 # Caminho até a VNF
-                                # Precisamos estruturar como o deploy_sfc espera.
-                                # Normalmente: 'vnf_name': [node, path_to_next...]
-                                # Mas k_shortest retorna nós.
-                                # Vamos simplificar assumindo que deploy_sfc re-calcula ou aceita o nó.
-                                # O deploy_sfc espera {vnf_id: [node_allocated, ...path_to_next_vnf...]}
-                                
-                                # Ajuste para formato do deploy_sfc:
-                                # VNF Backup: alocada em 'server'. Caminho até PRÓXIMA (dst) é path2.
                                 route_info[backup_vnf['name']] = [server] + path2 
-                                
-                                # Src virtual: alocada em src_node. Caminho até Backup é path1.
-                                # route_info['src'] = [sfc.src_substrate_node] + path1 # Opcional dependendo da imp.
-                                
                                 valid_placement_found = True
                                 break
                         except Exception:
                             continue
                 
                 if not valid_placement_found:
-                    if self.verbose:
-                        print(f"Skipping backup {sfc.id}: No placement found.")
                     continue
-
-                # --- FIM CORREÇÃO ROTA ---
 
                 # Agora chamamos submit_solution com a rota calculada
                 solution = {sfc.id: {'route_info': route_info}}
                 results_dict = self.submit_solution([sfc], solution, network, is_backup=True)
 
-                # Verifica se o deploy funcionou
                 if results_dict['is_success']:
                     original_sfc = None
                     vnf_id = None
 
-                    # Lógica para extrair ID original corrigida
                     if self.alg_name == 'ga':
                         original_sfc = sfc.vnfs_dict[1]['original_sfc']
                         vnfs_dict = sfc.vnfs_dict[1]
                         vnf_id = vnfs_dict['name']
                     else:
-                        # CORREÇÃO PARA GREEDY/SBRC
-                        # O nome vem como "sfc_unique_pX_Y_backup_VNFID_Z_W" ou similar
-                        # backup_vnf['name'] contém o nome da VNF de backup (ex: "vnf1_b")
                         split = sfc.id.split("_")
-                        # Reconstrói ID original (assumindo padrão sfc_tipo_pX_Y)
-                        # Ex: sfc_unique_p6_0_backup_vnf1... -> sfc_unique_p6_0
+                        # Reconstrói ID original: sfc_unique_p6_0
                         original_sfc = f"{split[0]}_{split[1]}_{split[4]}_{split[5]}"
                         
-                        # Extrai a VNF ID removendo sufixo '_b' se existir
                         raw_vnf_name = backup_vnf['name']
                         vnf_id = raw_vnf_name.removesuffix("_b") if hasattr(raw_vnf_name, 'removesuffix') else raw_vnf_name.replace("_b", "")
 
@@ -227,7 +193,7 @@ class SFCManager:
 
                     self.backup_manager.sfcs_backups_instatiated[original_sfc].append({
                         "sfc_backup_id": sfc.id,
-                        "vnf_id": vnf_id, # Agora é o ID real, não None
+                        "vnf_id": vnf_id,
                         "route_info": results_dict["route_info"]
                     })
                     self.backup_manager.backups_sfc_instantiated[sfc.id] = original_sfc
@@ -240,57 +206,22 @@ class SFCManager:
                 self.remove_backup_by_id(backup, network)
         network.update()
 
-    def check_backups(self, sfc_id, vnfs, substrate_network):
-        if sfc_id in list(self.backup_manager.sfcs_backups_instatiated.keys()):
-            if self.alg_name == 'ga':
-                for vnf in vnfs:
-                    vnf_id = vnf.id
-                    backups = self.backup_manager.sfcs_backups_instatiated[sfc_id]
-                    for backup in backups:
-                        vnf_backup = backup['vnf_id'].removesuffix("_b")
-                        if vnf_id == vnf_backup:
-                            print("Tem backup daquela vnf caída, então ativa")
-                            self.trigger_sfc_backup(sfc_id, vnf_id, substrate_network, self.crashed_servers[0])
-                            self.backup_manager.backups_activated.append(backup['sfc_backup_id'])
-                            return backup
-            else:
-                backup = self.backup_manager.sfcs_backups_instatiated[sfc_id][0]
-                backup_id = backup['sfc_backup_id']
-                duration = self.sfc_id_duration[sfc_id]['duration']
-                timer = self.sfc_id_duration[sfc_id]['timer']
-                
-                self.sfc_id_duration[backup_id] = {"duration": duration, "timer": timer}
-                # self.sfc_list.append(backup_id) # Atenção: self.sfc_list não está definido no init, mantendo original
-                # self.undeploy_sfc(sfc_id,substrate_network)
-                return backup
-        return False
-
-    def trigger_sfc_backup(self, sfc_id, vnf_id, substrate_network, node_id):
-        if sfc_id in list(self.sfs_backup.keys()):
-            substrate_network.reset_vnf_cpu_request(node_id, sfc_id, vnf_id)
-
     def undeploy_sfc_backups(self, sfc_id, substrate_network):
         """Retira os backups da SFC, inclusive os ativos."""
-        # Proteção: só tenta remover se a chave existir
         if sfc_id in self.backup_manager.sfcs_backups_instatiated:
             backups_removed = self.backup_manager.sfcs_backups_instatiated.pop(sfc_id)
             
             for backup in backups_removed:
                 backup_id = backup["sfc_backup_id"]
-                
-                # Limpa do registro reverso (backup -> original)
                 if backup_id in self.backup_manager.backups_sfc_instantiated:
                     del self.backup_manager.backups_sfc_instantiated[backup_id]
                 
-                # Remove da lista de ativados se estiver lá
                 if backup_id in self.backup_manager.backups_activated:
                     self.backup_manager.backups_activated.remove(backup_id)
                 
-                # Remove fisicamente da rede
                 try:
                     substrate_network.undeploy_sfc(backup_id)
                 except ValueError:
-                    # Caso já tenha sido removido por outro processo
                     pass
 
     def remove_backup_by_id(self, backup_id, substrate_network):
@@ -307,12 +238,7 @@ class SFCManager:
                 if len(self.backup_manager.sfcs_backups_instatiated[original_sfc]) == 0:
                     del self.backup_manager.sfcs_backups_instatiated[original_sfc]
                 del self.backup_manager.backups_sfc_instantiated[backup_id]
-
-                # Nota: self.sfc_list não inicializado no init, mantido do original
-                if hasattr(self, 'sfc_list') and backup_id in self.sfc_list:
-                    self.sfc_list.remove(backup_id)
-                    del self.sfc_id_duration[backup_id]
-                
+               
                 substrate_network.undeploy_sfc(backup_id)
             else:
                 try:
@@ -325,124 +251,10 @@ class SFCManager:
     # Risk Assessment & Recovery Methods
     # ==========================================
 
-    def set_risk_sfcs(self, servers, network):
-        if len(servers) == 0:
-            return []
-
-        backups_mount = []
-        sfc_id_duration = copy.deepcopy(self.sfc_id_duration)
-
-        for server in servers:
-            server_info = network.get_node_sfc_vnf_list(server)
-            current_time = time.time()
-            
-            if not server_info:
-                continue
-
-            for info in server_info:
-                # info = [sfc_id, vnf_object]
-                sfc_id = info[0]
-                vnf = info[1]
-                vnf_id = vnf.id
-
-                if sfc_id.split("_")[2] == 'backup':
-                    continue
-
-                if sfc_id not in network.sfc_dict or sfc_id not in sfc_id_duration:
-                    continue
-
-                # Check if backup already exists logic (simplified in original)
-                split = sfc_id.split("_")
-                name_check = f"{split[0]}_{split[1]}_backup_{split[2]}_{split[3]}"
-                try:
-                    network.get_sfc_by_id(name_check)
-                    continue
-                except:
-                    pass
-
-                # Gather SFC Info
-                sfc = network.get_sfc_by_id(sfc_id)
-                vnf_info = sfc.vnfs_dict
-                resources_info = [x for x in vnf_info if x['name'] == vnf_id][0]
-                sfc_rf = network.sfc_route_info[sfc_id]
-
-                src = None
-                location = None
-                dst = None
-                
-                src_out = resources_info['in_bw']
-                dst_in = resources_info['out_bw']
-                cpu = resources_info['CPU']
-                cache = resources_info['cache']
-
-                i = 0
-                latency_dismiss = 0
-                
-                # Determine topology details
-                for key, value in sfc_rf.items():
-                    if i == 1:
-                        src = value[0]
-                        if src == 0:  # SF IA
-                            src = value[-1]
-                        else:
-                            src = value[0]
-                            latency_dismiss += len(value) - 1
-                            print() # Mantido do original
-                        break
-                    if key == vnf_id:
-                        location = value[0]
-                        dst = value[-1]
-                        latency_dismiss += len(value) - 1
-                        i += 1
-
-                # Construct Backup SFC
-                new_sfc_list = []
-                backup_sf_list = []
-                
-                name = f"{split[0]}_{split[1]}_backup_{vnf_id}_{split[2]}_{split[3]}"
-                src_name = "src_" + name
-                dst_name = "dst_" + name
-
-                backup_sf_list.append({
-                    "type": 2, "name": src_name, "CPU": 0, "cache": 0, 
-                    "in_bw": 0, "out_bw": src_out, "latency": 0, "location": src
-                })
-                backup_sf_list.append({
-                    "type": 2, "name": vnf_id + "_b", "CPU": cpu, "cache": cache, 
-                    "in_bw": src_out, "out_bw": dst_in, "latency": 0, 
-                    "restriction": location, "original_sfc": sfc_id
-                })
-                backup_sf_list.append({
-                    "type": 2, "name": dst_name, "CPU": 0, "cache": 0, 
-                    "in_bw": dst_in, "out_bw": 0, "latency": 0, "location": dst
-                })
-
-                duration = sfc_id_duration[sfc_id]["duration"] - (current_time - sfc_id_duration[sfc_id]["timer"])
-                
-                new_sfc_dict = {
-                    "name": name,
-                    "vnf_list": backup_sf_list,
-                    "bandwidth": sfc.input_throughput,
-                    "src_node": src,
-                    "dst_node": dst,
-                    "duration": duration + 20,
-                    "latency": sfc.latency_request - self.calculate_latency(sfc_rf) + latency_dismiss
-                }
-
-                new_sfc = SFCGenerator(new_sfc_dict).generate()
-                new_sfc_list.append(new_sfc)
-                backups_mount.append(new_sfc_list)
-
-        return backups_mount
-
-    # ==========================================
-    # Risk Assessment & Recovery Methods
-    # ==========================================
-
     def calculate_sfc_reliability(self, sfc_id, substrate_network):
         """
-        Calcula a confiabilidade da SFC agrupando VNFs por nó físico para evitar
-        penalização dupla (R * R) no mesmo hardware.
+        Calcula a confiabilidade da SFC agrupando VNFs por nó físico.
+        [MODIFICADO] Agora imprime a confiabilidade total com 3 casas decimais.
         """
         if sfc_id not in self.sfcs_routing_info:
             return 0.0, None, None
@@ -450,15 +262,12 @@ class SFCManager:
         sfc = substrate_network.get_sfc_by_id(sfc_id)
         route_info = self.sfcs_routing_info[sfc_id]
         
-        # Estruturas para identificar o elo mais fraco (para o Agente DRL/Greedy)
         weakest_vnf_id = None
         min_stage_reliability = 1.1 
         weakest_node_primary = None
-
-        # 1. Agrupamento: Mapeia quais VNFs estão em qual nó físico
-        # Estrutura: { 'node_id': ['vnf_id_1', 'vnf_id_2'] }
         node_groups = {}
         
+        # 1. Agrupamento (Mapeia VNF -> Nó Físico)
         current_vnf = sfc.get_src_vnf()
         while current_vnf:
             if current_vnf.id in ['src', 'dst']:
@@ -467,37 +276,33 @@ class SFCManager:
 
             path = route_info.get(current_vnf.id)
             if not path:
-                return 0.0, None, None # Rota quebrada
+                return 0.0, None, None
             
             primary_node = path[0]
-            
             if primary_node not in node_groups:
                 node_groups[primary_node] = []
             node_groups[primary_node].append(current_vnf.id)
-            
             current_vnf = sfc.get_next_vnf(current_vnf)
 
-        # 2. Cálculo da Confiabilidade Total (Baseado na sobrevivência dos Nós Físicos)
+        # 2. Cálculo da Confiabilidade Total
         total_reliability = 1.0
 
         for node_id, vnfs_list in node_groups.items():
             r_prim = substrate_network.get_node_reliability(node_id)
-            
-            # Variáveis para analisar redundância deste grupo físico
             all_vnfs_have_backup = True
-            prod_reliability_backups = 1.0 # Probabilidade de TODOS os backups necessários estarem vivos
+            prod_reliability_backups = 1.0
 
             for vnf_id in vnfs_list:
-                # --- Lógica Individual da VNF (Busca Backup) ---
                 has_replica = False
                 r_rep = 0.0
                 
+                # Verifica se existe backup para esta VNF específica
                 if sfc_id in self.backup_manager.sfcs_backups_instatiated:
                     backups = self.backup_manager.sfcs_backups_instatiated[sfc_id]
                     for backup in backups:
                         if backup['vnf_id'] == vnf_id:
-                            # Busca o nó onde a réplica está
                             rep_route = backup['route_info']
+                            # Encontra onde o backup está alocado fisicamente
                             for k, v in rep_route.items():
                                 if k.endswith('_b') and v:
                                     replica_node = v[0]
@@ -506,16 +311,14 @@ class SFCManager:
                                     break
                         if has_replica: break
                 
-                # --- Atualização do Grupo (Nó Físico) ---
                 if not has_replica:
                     all_vnfs_have_backup = False
                 else:
-                    # Acumula a confiabilidade dos backups necessários
                     prod_reliability_backups *= r_rep
 
-                # --- Atualização do "Elo Mais Fraco" (Para o Agente saber onde agir) ---
-                # Calculamos a confiabilidade desta VNF isoladamente apenas para comparação
+                # Cálculo do estágio individual para achar o elo mais fraco
                 if has_replica:
+                    # Confiabilidade paralela: 1 - (Prob Falha Prim * Prob Falha Backup)
                     stage_r = 1.0 - ((1.0 - r_prim) * (1.0 - r_rep))
                 else:
                     stage_r = r_prim
@@ -525,28 +328,33 @@ class SFCManager:
                     weakest_vnf_id = vnf_id
                     weakest_node_primary = node_id
 
-            # --- Aplicação da Fórmula no Grupo Físico ---
+            # Aplicação da Fórmula no Grupo Físico
             if all_vnfs_have_backup:
-                # Se o nó primário cair, a SFC sobrevive SE E SOMENTE SE todos os backups funcionarem
-                # P(Sucesso) = P(Primário Vivo) + P(Primário Morto E Backups Vivos)
                 group_reliability = r_prim + ((1.0 - r_prim) * prod_reliability_backups)
             else:
-                # Se pelo menos uma VNF não tem backup, a morte do nó mata a SFC
                 group_reliability = r_prim
 
             total_reliability *= group_reliability
+
+        # --- [NOVO] Print de Monitoramento ---
+        if self.verbose:
+            print(f"[RELIABILITY] SFC {sfc_id}: {total_reliability:.3f} (Elo mais fraco: {min_stage_reliability:.3f} em {weakest_node_primary})")
+        # -------------------------------------
 
         return total_reliability, weakest_vnf_id, weakest_node_primary
     
     def reconstruct_and_redeploy(self, sfc_obj, crashed_node_id, old_route_info, substrate_network) -> bool:
         """
-        Reconstrói a rota usando o backup e realiza um novo deploy completo.
+        Reconstrói a rota usando o backup de forma ATÔMICA e SEGURA.
+        Inclui logs detalhados de falha.
         """
         # 1. Verifica Backups Disponíveis
         if sfc_obj.id not in self.backup_manager.sfcs_backups_instatiated:
+            if self.verbose:
+                print(f"❌ [STITCH-FAIL] {sfc_obj.id}: Nenhum backup foi instanciado previamente.")
             return False
 
-        # 2. Identifica qual VNF estava no nó que caiu
+        # 2. Identifica VNF afetada
         affected_vnf_id = None
         for vnf_id, path in old_route_info.items():
             if vnf_id in ['src', 'dst'] or not path: continue
@@ -554,7 +362,10 @@ class SFCManager:
                 affected_vnf_id = vnf_id
                 break
         
-        if not affected_vnf_id: return False
+        if not affected_vnf_id:
+            if self.verbose:
+                print(f"❌ [STITCH-FAIL] {sfc_obj.id}: Não consegui mapear qual VNF estava no nó falho {crashed_node_id}.")
+            return False
 
         # 3. Busca a Réplica Específica
         backups_list = self.backup_manager.sfcs_backups_instatiated[sfc_obj.id]
@@ -565,17 +376,19 @@ class SFCManager:
                 target_backup = backup_entry
                 break
         
-        if not target_backup: return False
+        if not target_backup:
+            if self.verbose:
+                print(f"❌ [STITCH-FAIL] {sfc_obj.id}: Existe backup da SFC, mas NÃO para a VNF específica {affected_vnf_id}.")
+            return False
 
-        # 4. COSTURA (Stitching): Prepara a nova rota
+        # 4. Prepara a nova rota (Stitching)
         new_route_info = copy.deepcopy(old_route_info)
-        backup_route = target_backup['route_info'] # Rota interna da mini-SFC de backup
+        backup_route = target_backup['route_info']
+        backup_sfc_id = target_backup['sfc_backup_id']
         
         # Encontra chaves de entrada e saída no backup
-        key_ingress = 'src_virt' # Do nó anterior -> Backup
-        key_egress = None        # Do Backup -> Próximo nó
-        
-        # A chave de egress geralmente é o ID da vnf de backup (ex: vnf1_b)
+        key_ingress = 'src_virt'
+        key_egress = None
         for k in backup_route.keys():
             if k.endswith('_b') or k == f"{affected_vnf_id}_b":
                 key_egress = k
@@ -584,207 +397,85 @@ class SFCManager:
         path_ingress = backup_route.get(key_ingress)
         path_egress = backup_route.get(key_egress)
 
-        if not path_ingress or not path_egress: return False
-
-        # Verifica se o nó de backup está vivo
-        backup_node = path_egress[0]
-        if not substrate_network.graph.nodes[backup_node].get('is_active', True):
+        if not path_ingress or not path_egress:
+            if self.verbose:
+                print(f"❌ [STITCH-FAIL] {sfc_obj.id}: Rota do backup incompleta/corrompida (Ingress/Egress missing).")
             return False
 
-        # -- APLICANDO A COSTURA --
+        # Verifica saúde do nó de backup
+        backup_node = path_egress[0]
+        backup_node_obj = substrate_network.graph.nodes[backup_node]
+        if not backup_node_obj.get('is_active', True):
+            if self.verbose:
+                print(f"❌ [STITCH-FAIL] {sfc_obj.id}: Azar! O nó de backup {backup_node} TAMBÉM está caído.")
+            return False
+
+        # =========================================================================
+        # 5. EXECUÇÃO CRÍTICA: ATOMIC SWAP & COLD STANDBY ACTIVATION
+        # =========================================================================
         
-        # A) Atualiza o caminho da VNF Anterior para apontar para o Backup
-        prev_vnf = sfc_obj.get_previous_vnf(sfc_obj.get_vnf_by_id(affected_vnf_id))
+        affected_vnf_obj = sfc_obj.get_vnf_by_id(affected_vnf_id)
+        bw_in = affected_vnf_obj.get_income_interface_bandwidth()
+        bw_out = affected_vnf_obj.get_outcome_interface_bandwidth()
+
+        # Tenta reservar banda no path_ingress
+        if not substrate_network.activate_backup_path_bandwidth(path_ingress, bw_in, sfc_obj.id):
+            if self.verbose: 
+                print(f"❌ [STITCH-FAIL] {sfc_obj.id}: Congestionamento! Falha ao ativar banda de ENTRADA no caminho {path_ingress}.")
+            return False
+
+        # Tenta reservar banda no path_egress
+        if not substrate_network.activate_backup_path_bandwidth(path_egress, bw_out, sfc_obj.id):
+            if self.verbose: 
+                print(f"❌ [STITCH-FAIL] {sfc_obj.id}: Congestionamento! Falha ao ativar banda de SAÍDA no caminho {path_egress}.")
+            return False
+
+        # B) TRANSFERÊNCIA DE TITULARIDADE (Swap de CPU/RAM)
+        backup_vnf_name = key_egress # ex: "vnf1_b"
+        session_backup = backup_sfc_id.split("_")[-1]
+        
+        backup_service_key = (backup_vnf_name, session_backup)
+        original_vnf_name = affected_vnf_id
+        session_original = sfc_obj.id.split("_")[-1]
+        original_service_key = (original_vnf_name, session_original)
+        
+        if backup_service_key in backup_node_obj['services']:
+            res_data = backup_node_obj['services'].pop(backup_service_key)
+            backup_node_obj['services'][original_service_key] = res_data
+            
+            if backup_sfc_id in backup_node_obj['sfcs_list']:
+                backup_node_obj['sfcs_list'].remove(backup_sfc_id)
+            if sfc_obj.id not in backup_node_obj['sfcs_list']:
+                backup_node_obj['sfcs_list'].append(sfc_obj.id)
+        else:
+            if self.verbose: 
+                actual_services = substrate_network.graph.nodes[backup_node].get('services', {})
+                print(f"DEBUG: Serviços no nó {backup_node}: {list(actual_services.keys())}")
+                print(f"DEBUG: Chave buscada: {backup_service_key}")
+                print(f"❌ [STITCH-FAIL] {sfc_obj.id}: Erro de Consistência! Serviço de backup {backup_service_key} não encontrado no nó {backup_node}.")
+            return False
+
+        # C) Atualiza Rotas
+        prev_vnf = sfc_obj.get_previous_vnf(affected_vnf_obj)
         if prev_vnf.id == 'src':
             new_route_info['src'] = path_ingress
         else:
             new_route_info[prev_vnf.id] = path_ingress
             
-        # B) Atualiza o caminho da VNF Afetada (agora recuperada)
         new_route_info[affected_vnf_id] = path_egress
 
-        # 5. DEPLOY RÁPIDO: Realoca tudo com a nova rota costurada
-        try:
-            # === [FIX CRÍTICO] LIBERAR RECURSO DO BACKUP ANTES DE USAR ===
-            # O nó de backup já tem CPU reservada para a Mini-SFC (target_backup['sfc_backup_id']).
-            # Se tentarmos dar deploy na SFC Original sem remover a Mini-SFC, o nó vai acusar falta de recurso
-            # pois achará que estamos somando carga, e não substituindo.
-            
-            backup_sfc_id = target_backup['sfc_backup_id']
-            # Removemos a reserva da Mini-SFC da rede (libera CPU/RAM no backup_node)
-            substrate_network.undeploy_sfc(backup_sfc_id)
-            
-            # Agora o nó está livre (tem espaço) para receber a SFC Original
-            substrate_network.deploy_sfc(sfc_obj, new_route_info)
-            
-            # Atualiza o registro oficial de rotas
-            self.sfcs_routing_info[sfc_obj.id] = new_route_info
-            
-            # Registra que o backup foi usado
-            if backup_sfc_id not in self.backup_manager.backups_activated:
-                self.backup_manager.backups_activated.append(backup_sfc_id)
-                
-            return True
-            
-        except Exception as e:
-            if self.verbose:
-                print(f"Falha ao redeployar SFC {sfc_obj.id} via backup: {e}")
-            return False
+        # D) Consolidação
+        self.sfcs_routing_info[sfc_obj.id] = new_route_info
         
-    def attempt_recovery_by_replica(self, sfc_id, crashed_node_id, substrate_network) -> bool:
-        """
-        Tenta recuperar uma SFC afetada por falha trocando a VNF falha por sua réplica.
-        Realiza o 'Stitching' (costura) completo da rota e ativação de banda nos dois sentidos.
-        """
-        # 1. Verifica se existem backups instanciados
-        if sfc_id not in self.backup_manager.sfcs_backups_instatiated:
-            return False
-
-        # 2. Identifica qual VNF estava no nó que caiu
-        route_info = self.sfcs_routing_info.get(sfc_id)
-        if not route_info: return False
-
-        affected_vnf_id = None
-        for vnf_id, path in route_info.items():
-            if vnf_id in ['src', 'dst']: continue
-            if not path: continue
-            if path[0] == crashed_node_id:
-                affected_vnf_id = vnf_id
-                break
-
-        if not affected_vnf_id: return False
-
-        # 3. Busca a réplica ESPECÍFICA
-        backups_list = self.backup_manager.sfcs_backups_instatiated[sfc_id]
-        target_backup = None
-
-        for backup_entry in backups_list:
-            # Tenta casar com ou sem o sufixo _b
-            b_vnf_clean = backup_entry['vnf_id'].replace("_b", "")
-            if b_vnf_clean == affected_vnf_id:
-                target_backup = backup_entry
-                break
-
-        if not target_backup: return False
-
-        # 4. Obtém as rotas da Mini-SFC (Backup)
-        # A Mini-SFC tem 3 componentes: src_virt -> VNF_Backup -> dst_virt
-        # rota 'src_virt': Caminho do Nó Anterior -> Nó de Backup (Ingress)
-        # rota 'vnf_id_b': Caminho do Nó de Backup -> Nó Seguinte (Egress)
-        backup_route_info = target_backup['route_info']
+        self.remove_backup_by_id(backup_sfc_id, substrate_network)
         
-        # Identifica as chaves corretas no dicionário de rotas do backup
-        key_ingress = 'src_virt'
-        key_egress = None
-        
-        # Procura a chave da VNF de backup (geralmente tem sufixo _b)
-        for k in backup_route_info.keys():
-            if k.endswith('_b') and k != 'src_virt' and k != 'dst_virt':
-                key_egress = k
-                break
-        
-        if not key_egress: 
-            # Fallback: pega qualquer chave que não seja src/dst virt
-            for k in backup_route_info.keys():
-                if k not in ['src_virt', 'dst_virt', 'src', 'dst']:
-                    key_egress = k
-                    break
+        if backup_sfc_id not in self.backup_manager.backups_activated:
+            self.backup_manager.backups_activated.append(backup_sfc_id)
 
-        path_ingress = backup_route_info.get(key_ingress)
-        path_egress = backup_route_info.get(key_egress)
-
-        if not path_ingress or not path_egress:
-            if self.verbose: print(f"Recuperação falhou: Rota do backup {sfc_id} incompleta.")
-            return False
-
-        # Verifica se o nó do backup está vivo
-        backup_node_id = path_egress[0] # O primeiro nó da rota de saída é onde a VNF está
-        backup_node_obj = substrate_network.graph.nodes[backup_node_id]
-        if not backup_node_obj.get('is_active', True):
-            return False
-
-        # 5. Ativação de Banda (Cold Standby -> Hot)
-        sfc_orig = substrate_network.get_sfc_by_id(sfc_id)
-        affected_vnf_obj = sfc_orig.get_vnf_by_id(affected_vnf_id)
-        
-        # Banda de entrada (usa in_bw da VNF afetada)
-        bw_ingress = affected_vnf_obj.get_income_interface_bandwidth()
-        # Banda de saída (usa out_bw da VNF afetada)
-        bw_egress = affected_vnf_obj.get_outcome_interface_bandwidth()
-
-        # Tenta ativar Ingress
-        if not substrate_network.activate_backup_path_bandwidth(path_ingress, bw_ingress, 'recovery_in'):
-            if self.verbose: print(f"Falha ao ativar banda de entrada para recuperação de {sfc_id}")
-            return False
-
-        # Tenta ativar Egress
-        if not substrate_network.activate_backup_path_bandwidth(path_egress, bw_egress, 'recovery_out'):
-            # Se falhar a saída, deveríamos idealmente reverter a entrada, mas para simulação simples, retornamos False
-            if self.verbose: print(f"Falha ao ativar banda de saída para recuperação de {sfc_id}")
-            return False
-
-        # 6. STITCHING (Costura da Topologia)
         if self.verbose:
-            print(f">>> [RECOVERY] Costurando rota {sfc_id}: {affected_vnf_id} movida para {backup_node_id}")
-
-        # Identifica VNF anterior para atualizar o caminho dela (que agora aponta para o backup)
-        prev_vnf_obj = sfc_orig.get_previous_vnf(affected_vnf_obj)
-        
-        # Atualiza rota da VNF Anterior -> Backup
-        if prev_vnf_obj.id == 'src':
-            self.sfcs_routing_info[sfc_id]['src'] = path_ingress
-            substrate_network.sfc_route_info[sfc_id]['src'] = path_ingress
-        else:
-            self.sfcs_routing_info[sfc_id][prev_vnf_obj.id] = path_ingress
-            substrate_network.sfc_route_info[sfc_id][prev_vnf_obj.id] = path_ingress
-
-        # Atualiza rota da VNF Recuperada (Backup) -> Próximo Nó
-        self.sfcs_routing_info[sfc_id][affected_vnf_id] = path_egress
-        substrate_network.sfc_route_info[sfc_id][affected_vnf_id] = path_egress
-
-        # Registra backup ativado
-        if target_backup['sfc_backup_id'] not in self.backup_manager.backups_activated:
-            self.backup_manager.backups_activated.append(target_backup['sfc_backup_id'])
-
+            print(f"✅ [STITCH-SUCCESS] {sfc_obj.id}: Recuperada! VNF {affected_vnf_id} movida de {crashed_node_id} -> {backup_node}")
+            
         return True
-
-    # ==========================================
-    # Algorithm Specifics
-    # ==========================================
-
-    def musfico_method(self, sfc, substrate_network):
-        """
-        Calculates the latency and obtains the route information for the musfico algorithm.
-        """
-        route_info = copy.deepcopy(self.sfcs_routing_info[sfc.id])
-        
-        # Gets dst vnf and previous vnf
-        dst_vnf = sfc.get_dst_vnf()
-        previous_vnf = sfc.get_previous_vnf(dst_vnf)
-        
-        dst_substrate_node = sfc.get_substrate_node(dst_vnf)
-        prev_vnf_node = route_info[previous_vnf.id][0]
-        
-        # Applies k shortest to link the last vnf with the previous one
-        shortest_path = k_shortest_paths(substrate_network, prev_vnf_node, dst_substrate_node, k=1, weight='latency')
-        
-        # Get the shortest among the k shortest paths
-        route_info[previous_vnf.id] = shortest_path[0]
-        latency = 0
-        
-        for vnf_id in route_info.keys():
-            if vnf_id == 'src':
-                continue
-            path = route_info[vnf_id]
-            for i in range(len(path) - 1):
-                edge_latency = substrate_network.get_link_latency(path[i], path[i + 1])
-                latency += edge_latency
-
-        if latency > sfc.get_latency_request() or latency < 0:
-            route_info = False
-            latency = None
-
-        return latency, route_info
 
     # ==========================================
     # Helpers & Statistics
@@ -821,38 +512,7 @@ class SFCManager:
         num_sessions = len(sessions)
         return len(running_sfcs.keys()), num_players, num_sessions
 
-    def set_sfc_reuse(self, sfc, route_info, shareable_sfs):
-        return 1
-        # Code unreachable based on original logic, but kept for preservation
-        conta = 0
-        if route_info:
-            if route_info != {}:
-                if route_info != False:
-                    cpu_saved = 0
-                    cache_saved = 0
-                    total_cpu_req = 0
-                    total_cache_req = 0
-
-                    for vnf, servers in route_info.items():
-                        if vnf not in ['src', 'dst']:
-                            server_used = servers[0]
-                            shared_sfs_in_node = list(map(lambda sf: sf.id, shareable_sfs[server_used]))
-                            cpu_req = sfc.vnfs[vnf].get_cpu_request()
-                            cache_req = sfc.vnfs[vnf].get_cache_request()
-                            if vnf in shared_sfs_in_node:
-                                cpu_saved += cpu_req
-                                cache_saved += cache_req
-
-                            total_cpu_req += cpu_req
-                            total_cache_req += cache_req
-                    conta = (cpu_saved + cache_saved) / (total_cpu_req + total_cache_req)
-                    self.sfc_reuse[sfc.id] = conta
-        return conta
-
     def get_shareable_sfs(self, sfc):
-        """
-        Returns: List[Tuple]: A list of SFs candidates.
-        """
         shareable_sfs_ar = []
         src_sf = sfc.get_src_vnf()
         dst_sf = sfc.get_dst_vnf()
@@ -860,9 +520,7 @@ class SFCManager:
         while sf != dst_sf:
             for (node, candidate_sf_id, candidate_sf) in self.shareable_list:
                 if candidate_sf_id == sf.id:
-                    print("Chegando onde não devia")
                     if len(self.substrate_network.sf_linkeds[candidate_sf]) != self.max_connections:
-                        print("shareable sf found.........")
                         shareable_sfs_ar.append((node, candidate_sf_id, candidate_sf))
             sf = sf.get_next_vnf()
         return shareable_sfs_ar

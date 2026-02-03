@@ -167,6 +167,9 @@ class SubstrateNetworkController():
 
     def handle_backups(self):
         """Gerencia a criação de backups reativos."""
+
+        if self.alg == 'SBRCMASKABLEPPO':
+            return
         if self.sfc_manager.backup_manager.backup_activated:
             if time.time() - self.last_backup_time >= self.backup_interval_creation:
                 # [CORREÇÃO] Chamada limpa sem argumentos extras
@@ -229,8 +232,8 @@ class SubstrateNetworkController():
     
     def check_network_health(self):
         """Verifica se a carga da rede está abaixo de 75%."""
-        utilization = self.substrate_network.get_total_system_processing_utilization_rate()
-        return utilization < 0.75
+        utilization = self.substrate_network.get_processing_network_used_precise()
+        return utilization < 0.70
 
     def ensure_reliability_target(self, sfc_list, target_reliability=0.99):
         """
@@ -351,7 +354,7 @@ class SubstrateNetworkController():
         solution, is_success = self.sfc_instantiator.search_solution(sfc_list, self.substrate_network)
         if is_success:
             self.sfc_manager.submit_solution(sfc_list, solution, self.substrate_network)
-            target_r = 0.925
+            target_r = 0.95
             self.ensure_reliability_target(sfc_list, target_reliability=target_r)
         else:
             self.remove_mobile_user(mob_player_id)
