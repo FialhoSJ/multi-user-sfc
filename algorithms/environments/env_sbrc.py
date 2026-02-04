@@ -69,19 +69,19 @@ class SFC_AllocationEnv(gymnasium.Env):
         # --- Configuração de Pesos e Recompensas ---
         self.pesos_fatores = pesos_fatores if pesos_fatores is not None else {
         # 3º Prioridade: Recursos (Baixo impacto, apenas desempate)
-        "cpu": 0.5,
-        "cache": 0.5,
+        "cpu": 1,
+        "cache": 1,
 
         # 1º Prioridade: Banda (O "Dono" da decisão)
-        "band": 8.5,   
+        "band": 5,   
 
         # 2º Prioridade: Confiabilidade (O "Guarda-Costas")
         # O peso precisa ser alto (10 a 12) para compensar o fato de que 
         # a penalidade base (1 - reliability) é um número muito pequeno (0.01 a 0.1).
-        "rel": 7.5,   
+        "rel": 1,   
 
         # Outros (Baixa prioridade)
-        "lat": 7.5,     
+        "lat": 5,     
         "mobile": 0.0,
         }
 
