@@ -212,6 +212,9 @@ class GreedyOptAlgorithm(Algorithm):
             node = None
             random.shuffle(servers_to_check)
             for node_a in servers_to_check:
+
+                if node_a == dst_substrate_node:
+                    continue
                 cpu_used = server_resources[node_a]['cpu_used']
                 cache_used = server_resources[node_a]['cache_used']
 

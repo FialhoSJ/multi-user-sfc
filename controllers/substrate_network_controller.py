@@ -147,6 +147,8 @@ class SubstrateNetworkController():
         
         while not self.is_stopped:
             self.check_duration() 
+            self.check_backup_integrity()
+            self.check_zombies_by_attributes()
             self.handle_mobility()
             self.handle_backups()
             self.handle_fails()
@@ -322,6 +324,7 @@ class SubstrateNetworkController():
                         if success:
                             route_info_backup = agent.get_route_info()
                             self.substrate_network.deploy_sfc(mini_sfc, route_info_backup)
+
                             
                             # Registra o Backup
                             if sfc.id not in self.sfc_manager.backup_manager.sfcs_backups_instatiated:
@@ -385,7 +388,7 @@ class SubstrateNetworkController():
         solution, is_success = self.sfc_instantiator.search_solution(sfc_list, self.substrate_network)
         if is_success:
             self.sfc_manager.submit_solution(sfc_list, solution, self.substrate_network)
-            target_r = 0.83
+            target_r = 0.95
             self.ensure_reliability_target(sfc_list, target_reliability=target_r)
         else:
             self.remove_mobile_user(mob_player_id)
@@ -698,6 +701,9 @@ class SubstrateNetworkController():
             self.sfc_manager.undeploy_sfc(sfc_owners_map.get(sfc_id), self.substrate_network, take_out_backup=False)
 
             # Marca o tempo inicial da tentativa
+            if sfc_id in self.substrate_network.sfc_dict:
+                debug = 1
+
             recovery_start_time = time.time()
             recovered = False
 
@@ -883,6 +889,7 @@ class SubstrateNetworkController():
             if elapsed_time >= info["duration"]: # Tempo do user acabou
                 self.sfc_manager.undeploy_sfc(sfc_list_id, self.substrate_network)
                 self.remove_mobile_user(sfc_list_id) # Definitivo
+
         pass
 
     def check_simulation_end(self, sfc_list):
@@ -903,6 +910,82 @@ class SubstrateNetworkController():
                 time.sleep(1) 
                 return True
         return False
+    
+
+    def get_effective_system_reliability(self) -> float:
+        """
+        Calcula a confiabilidade média REAL do sistema.
+        Considera:
+        1. Rota Principal (Série)
+        2. Backups Instanciados (Paralelo/Redundância)
+        
+        Fórmula por VNF: R_estagio = 1 - ((1 - R_main) * (1 - R_backup))
+        """
+        total_reliability = 0.0
+        active_count = 0
+        
+        # Acesso seguro aos backups (dicionário {sfc_id: [lista_backups]})
+        backups_dict = {}
+        if self.sfc_manager and self.sfc_manager.backup_manager:
+            backups_dict = self.sfc_manager.backup_manager.sfcs_backups_instatiated
+
+        for sfc_id, sfc in self.substrate_network.sfc_dict.items():
+            # 1. Filtros: Ignorar SFCs sem rota ou que sejam próprias de backup
+            if sfc_id not in self.substrate_network.sfc_route_info:
+                continue
+            
+            # Se a string 'backup' estiver no ID, é uma mini-SFC de proteção, não conta na média
+            if "backup" in sfc_id: 
+                continue
+
+            route_info = self.substrate_network.sfc_route_info[sfc_id]
+            
+            # 2. Identificar onde cada VNF está rodando na rota PRINCIPAL
+            # Estrutura típica route_info: {'src':..., 'vnf1': [node_id], ...}
+            vnf_placement = {}
+            for vnf_id, path in route_info.items():
+                if vnf_id not in ['src', 'dst'] and path:
+                    vnf_placement[vnf_id] = path[0]
+
+            if not vnf_placement:
+                continue
+
+            # 3. Calcular confiabilidade da SFC (Estágio por Estágio)
+            sfc_effective_rel = 1.0
+            
+            for vnf_id, main_node in vnf_placement.items():
+                # Confiabilidade do Nó Principal
+                r_main = self.substrate_network.get_node_reliability(main_node)
+                r_backup = 0.0
+                
+                # Verificar se existe Backup para esta VNF específica
+                if sfc_id in backups_dict:
+                    for bk_info in backups_dict[sfc_id]:
+                        # bk_info normalmente tem: {'vnf_id': '...', 'route_info': ...}
+                        if bk_info.get('vnf_id') == vnf_id:
+                            bk_route = bk_info.get('route_info', {})
+                            # Descobrir em qual nó o backup está rodando
+                            for bk_k, bk_path in bk_route.items():
+                                if bk_k not in ['src', 'dst'] and bk_path:
+                                    bk_node = bk_path[0]
+                                    r_backup = self.substrate_network.get_node_reliability(bk_node)
+                                    break
+                
+                # CÁLCULO DA REDUNDÂNCIA (PARALELO)
+                # Se r_backup for 0 (sem backup), a fórmula vira apenas r_main.
+                # Se tiver backup, a confiabilidade sobe drasticamente.
+                stage_rel = 1.0 - ((1.0 - r_main) * (1.0 - r_backup))
+                
+                # Multiplica pela confiabilidade acumulada da SFC
+                sfc_effective_rel *= stage_rel
+
+            # Só conta se a SFC estiver viva (> 0.0)
+            if sfc_effective_rel > 0.0001:
+                total_reliability += sfc_effective_rel
+                active_count += 1
+
+        # Retorna a média
+        return total_reliability / active_count if active_count > 0 else 0.0
 
     def output_results(self, results_dict, sfc_id, is_success, res_output=False, wait_time=None) -> None:
         current_time = time.time()
@@ -921,6 +1004,10 @@ class SubstrateNetworkController():
             mobile_energy_consumption = self.energy_calculator.calculate_total_mobile_device_power(self.substrate_network)
             total_energy_consumption = server_energy_consumption + mobile_energy_consumption
 
+            # [NOVO] 1. Calcula a confiabilidade correta aqui no Controller
+            real_reliability = self.get_effective_system_reliability()
+
+            # [MODIFICADO] 2. Passa 'real_reliability' para o writter
             self.output_writter.output_flows(
                 self.substrate_network,
                 wait_time,
@@ -939,7 +1026,10 @@ class SubstrateNetworkController():
                 self.substrate_network.get_acceptance_rate(self.success),
                 server_energy_consumption, mobile_energy_consumption, total_energy_consumption,
                 latency_diff,
-                len(self.fail_manager.nodes_crashed) != 0
+                len(self.fail_manager.nodes_crashed) != 0,
+                
+                # ARGUMENTO NOVO AQUI:
+                avg_sfc_reliability_override=real_reliability
             )
 
         # --- FUNÇÃO INTERNA (CORRIGIDA) ---
@@ -1008,3 +1098,89 @@ class SubstrateNetworkController():
             print("__________________________________________")
             self.output_writter.print_output_info(self.substrate_network, self.success) 
             print("")
+
+
+
+    def check_backup_integrity(self):
+        """
+        Remove backups órfãos (zumbis) cuja SFC original não existe mais na rede.
+        """
+        backups_to_kill = []
+        
+        # Iteramos sobre uma cópia da lista de chaves para poder deletar durante o loop se precisar
+        active_sfc_ids = list(self.substrate_network.sfc_dict.keys())
+
+        for sfc_id in active_sfc_ids:
+            # Se for backup, verificamos quem é o pai
+            if sfc_id.endswith("_backup"):
+                # Deduz o nome do pai removendo o sufixo
+                parent_id = sfc_id[:-7] # Remove os últimos 7 chars ("_backup")
+                
+                # Se o pai NÃO está na lista de ativos -> É um Zumbi
+                if parent_id not in self.substrate_network.sfc_dict:
+                    backups_to_kill.append(sfc_id)
+
+        # Executa a limpeza em massa
+        for zumbi in backups_to_kill:
+            if self.verbose:
+                print(f"🧟 [ZOMBIE KILLER] Removendo backup órfão: {zumbi}")
+            
+            # Tenta remover bonitinho pelo manager
+            try:
+                self.sfc_manager.remove_backup_by_id(zumbi, self.substrate_network)
+            except:
+                # Se falhar, remove na força bruta da rede
+                self.substrate_network.undeploy_sfc(zumbi)
+
+
+    def check_zombies_by_attributes(self):
+        """
+        Garbage Collector baseado nos atributos internos da SFC.
+        Ignora o sfcs_tracker e olha apenas para a 'validade' estampada no objeto.
+        """
+        current_time = time.time()
+        # Buffer de tolerância (ex: 5 segundos) para não competir com o encerramento normal
+        tolerance = 5.0 
+        
+        zombies_to_kill = []
+
+        # Iteramos sobre uma cópia segura dos itens
+        for sfc_id, sfc_obj in list(self.substrate_network.sfc_dict.items()):
+            
+            # Verificação de segurança: O objeto tem os atributos necessários?
+            if not hasattr(sfc_obj, 'arrival_time') or not hasattr(sfc_obj, 'duration'):
+                # Se não tiver, não podemos julgar pelo tempo (pode ser backup antigo sem data)
+                continue
+
+            # Cálculo da Idade
+            # Ex: Agora (1000) - Chegada (900) = Idade (100)
+            age = current_time - sfc_obj.arrival_time
+            
+            # Verificação de Validade
+            # Ex: Idade (100) > Duração (123) ? Não.
+            # Ex: Idade (200) > Duração (123) ? Sim -> ZUMBI.
+            if age > (sfc_obj.duration + tolerance):
+                zombies_to_kill.append(sfc_id)
+
+        # Execução da Limpeza
+        for zumbi in zombies_to_kill:
+            if self.verbose:
+                print(f"💀 [GC ATRIBUTOS] SFC Zumbi detectada (Expirada fisicamente): {zumbi}")
+            
+            try:
+                # Tenta remover usando a lógica padrão (que limpa banda, cpu, etc)
+                self.substrate_network.undeploy_sfc(zumbi)
+                
+                # Se for uma SFC principal, remove do tracker também pra garantir
+                # (embora provavelmente ela nem esteja mais lá, o que causou o problema)
+                # Precisamos achar o ID do grupo (geralmente o dst_node)
+                try:
+                    if hasattr(self.sfc_manager, 'sfcs_tracker'):
+                        group_id = sfc_obj.dst_node
+                        if group_id in self.sfc_manager.sfcs_tracker:
+                            del self.sfc_manager.sfcs_tracker[group_id]
+                except:
+                    pass
+
+            except Exception as e:
+                print(f"Erro ao remover zumbi {zumbi}: {e}")

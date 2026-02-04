@@ -19,126 +19,105 @@ def create_directory_if_not_exists(path):
     if not os.path.exists(path):
         os.makedirs(path)
 
-def create_output_dir(args,topology):
-    ec_servers = topology.get_topology_info()['ec_servers']
-    edges = topology.get_topology_info()['edges']
+def create_output_dir(args, topology):
+    # Topology info (evita chamadas duplicadas)
+    top_info = topology.get_topology_info()
+    ec_servers = top_info['ec_servers']
+    edges = top_info['edges']
 
-    alg_name = args.alg.replace("_","")
-    
+    alg_name = args.alg.replace("_", "")
     availability = args.ava
     
     number_of_fails = args.number_of_fails
-    if availability == '1.0':
+    if float(availability) == 1.0:
         number_of_fails = 0
 
     timestamp = datetime.now().strftime('%Y%m%d%H%M%S%f') + str(random.randint(0, 10000))
-    base_dir = f'results/'
-    
-    # ADICIONE 'gpu' AQUI
-    paths = ['cache', 'cpu', 'gpu', 'bandwidth', 'sf']
+    base_dir = 'results/'
 
+    paths = ['cache', 'cpu', 'gpu', 'bandwidth', 'sf']
     directories = {}
 
+    # Criação dos diretórios principais
     for path in paths:
         dir_path = os.path.join(base_dir, f'results_{path}')
         create_directory_if_not_exists(dir_path)
-        alg_path = os.path.join(dir_path, f'alg_{args.alg}_s_{args.n_sessions}_p_{args.n_players}_a_{availability}_c_{number_of_fails}')
+
+        alg_path = os.path.join(
+            dir_path,
+            f'alg_{args.alg}_s_{args.n_sessions}_p_{args.n_players}_a_{availability}_c_{number_of_fails}'
+        )
         create_directory_if_not_exists(alg_path)
         directories[path] = alg_path
 
-    # Prepare file paths
+    # Caminhos dos arquivos principais
     file_paths = {path: os.path.join(directories[path], timestamp + '.csv') for path in paths}
-    
+
     nodes_string = format_nodes_to_string(np.array(sorted(ec_servers)))
     edges_string = format_edges_to_string(edges)
-    
-    # Initialize files
-    with open(file_paths['cache'], "a") as file:
-        file.write(f'timestamp,{nodes_string[1:-1]}\n')
-    with open(file_paths['cpu'], "a") as file:
-        file.write(f'timestamp,{nodes_string[1:-1]}\n')
-        
-    # ADICIONE ESTE BLOCO PARA O ARQUIVO DE GPU
-    with open(file_paths['gpu'], "a") as file:
-        file.write(f'timestamp,{nodes_string[1:-1]}\n')
-        
-    with open(file_paths['sf'], "a") as file:
-        file.write(f'timestamp,{nodes_string[1:-1]}\n')
+
+    # Inicialização dos arquivos CPU / CACHE / GPU / SF
+    for key in ['cache', 'cpu', 'gpu', 'sf']:
+        with open(file_paths[key], "a") as file:
+            file.write(f'timestamp,{nodes_string[1:-1]}\n')
+
+    # Bandwidth usa edges
     with open(file_paths['bandwidth'], "a") as file:
-        file.write(f'timestamp;{edges_string}\n')
-    
-    dir = f'results/results_flows'
-    res_dir = f'results/results_resilient'
-    directory_path = os.path.join(dir, f'{alg_name}_s_{args.n_sessions}_p_{args.n_players}_a_{availability}_c_{number_of_fails}')
-    res_directory_path = os.path.join(res_dir, f'{args.alg}_s_{args.n_sessions}_p_{args.n_players}_a_{availability}_c_{number_of_fails}')
+        file.write(f'timestamp,{edges_string}\n')
+
+    # Diretórios de flows e resiliência
+    flows_dir = 'results/results_flows'
+    resilient_dir = 'results/results_resilient'
+
+    directory_path = os.path.join(
+        flows_dir,
+        f'{alg_name}_s_{args.n_sessions}_p_{args.n_players}_a_{availability}_c_{number_of_fails}'
+    )
+    res_directory_path = os.path.join(
+        resilient_dir,
+        f'{args.alg}_s_{args.n_sessions}_p_{args.n_players}_a_{availability}_c_{number_of_fails}'
+    )
+
     create_directory_if_not_exists(directory_path)
     create_directory_if_not_exists(res_directory_path)
 
     flows_path = os.path.join(directory_path, f'{timestamp}.csv')
-    
     crash_impact_path = os.path.join(res_directory_path, f'crash_impact_{timestamp}.csv')
 
-    # ADICIONE OS CAMPOS DE GPU AQUI
+    # NOVO: arquivo de resultados de resiliência (criado aqui)
+    resilient_path = os.path.join(res_directory_path, f'resilient_results_{timestamp}.csv')
+
+    # Header principal (flows)
     header_fields = [
-        "No.",
-        "timestamp",
-        "time_seconds",
-        "users",
-        "cpu_utilization",
-        "gpu_utilization", # NOVO
-        "bandwidth_utilization",
-        "cache_utilization",
-        "network_cpu_utilization",
-        "network_gpu_utilization", # NOVO
-        "network_cache_utilization",
-        "mobile_cpu_utilization",
-        "mobile_gpu_utilization", # NOVO
-        "mobile_cache_utilization", 
-        "latency",
-        "comp_latency",     
-        "comm_latency",
-        "latency_diff",
-        "queue_time",
-        "decision_time_ms",
-        "success",
-        "fail_reason",
-        "sfc_id",
-        "recovery_time",
-        "sfc_recovered",
-        "cpu_saved",
-        "gpu_saved", # NOVO
-        "cache_saved",
-        "shared_vnfs",
-        "running_sfcs",
-        "running_players",
-        "running_sessions",
-        "trascode_bw",
-        "crashing",
-        "acceptance_rate",
-        "cpu_per_flow",
-        "gpu_per_flow", # NOVO
-        "cache_per_flow",
-        "jain_cpu",
-        "jain_gpu",
-        "jain_cache",
-        "jain_bw",
-        "server_energy_consumption",
-        "mobile_energy_consumption",
-        "total_energy_consumption",
-        "avg_sfc_reliability",
-        "high_risk_sfcs",    # <--- NOVO
-        "medium_risk_sfcs",  # <--- NOVO
-        "low_risk_sfcs"      # <--- NOVO
+        "No.", "timestamp", "time_seconds", "users",
+        "cpu_utilization", "gpu_utilization", "bandwidth_utilization",
+        "cache_utilization", "network_cpu_utilization",
+        "network_gpu_utilization", "network_cache_utilization",
+        "mobile_cpu_utilization", "mobile_gpu_utilization",
+        "mobile_cache_utilization", "latency", "comp_latency",
+        "comm_latency", "latency_diff", "queue_time",
+        "decision_time_ms", "success", "fail_reason",
+        "sfc_id", "recovery_time", "sfc_recovered",
+        "cpu_saved", "gpu_saved", "cache_saved",
+        "shared_vnfs", "running_sfcs", "running_players",
+        "running_sessions", "trascode_bw", "crashing",
+        "acceptance_rate", "cpu_per_flow", "gpu_per_flow",
+        "cache_per_flow", "jain_cpu", "jain_gpu",
+        "jain_cache", "jain_bw",
+        "server_energy_consumption", "mobile_energy_consumption",
+        "total_energy_consumption", "avg_sfc_reliability",
+        "high_risk_sfcs", "medium_risk_sfcs", "low_risk_sfcs"
     ]
-    
+
+    # Header crash impact
     crash_header_fields = [
         "crash_trial",
         "timestamp",
         "nodes_crashed_count",
         "total_affected_sfcs",
-        "affected_by_high_risk_node",    # <--- RENOMEADO: SFCs afetadas por queda de nó ruim 
-        "affected_by_med_risk_node",     # <--- RENOMEADO: SFCs afetadas por queda de nó médio 
-        "affected_by_low_risk_node",     # <--- RENOMEADO: SFCs afetadas por queda de nó bom 
+        "affected_by_high_risk_node",
+        "affected_by_med_risk_node",
+        "affected_by_low_risk_node",
         "avg_latency_before",
         "avg_latency_after",
         "affected_percentage",
@@ -146,76 +125,69 @@ def create_output_dir(args,topology):
     ]
 
     crash_header = ",".join(crash_header_fields) + "\n"
-
     with open(crash_impact_path, "a") as f:
         f.write(crash_header)
 
-            
+    # Header flows
     header = ",".join(header_fields) + "\n"
-
     with open(flows_path, "a") as f:
         f.write(header)
 
-   
-    return file_paths, flows_path, crash_impact_path
+    # NOVO: Header do resilient_results (evita race condition)
+    resilient_header_fields = [
+        "crash_trial", "sfc_id", "recover_success", "backup_success",
+        "backup_efficient", "latency_diff", "time_to_recover",
+        "vnf_id", "latency_degrad", "resource_degrad"
+    ]
+    with open(resilient_path, "a") as f:
+        f.write(",".join(resilient_header_fields) + "\n")
+
+    # retorno atualizado
+    return file_paths, flows_path, crash_impact_path, resilient_path
 
 
 class OutputWritter:
-    def __init__(self,topology,file_paths,flows_file, crash_impact_file):
-        
-        self.processing_nodes = topology.get_topology_info()['ec_servers']
-        self.nodes = topology.get_topology_info()['nodes']
-        self.edges = topology.get_topology_info()['edges']
+    def __init__(self, topology, file_paths, flows_file, crash_impact_file, resilient_file):
+        self.topology = topology
+        self.file_paths = file_paths
+        self.flows_file = flows_file
+        self.crash_impact_file = crash_impact_file
+        self.resilient_file = resilient_file 
 
+        topo_info = topology.get_topology_info()
+        self.processing_nodes = topo_info['ec_servers']
+        self.edges = topo_info['edges']
+
+        # --- FIX: Mapeando os caminhos dos arquivos para atributos da classe ---
+        # Seus métodos (ex: output_cpu_utilization) chamam self.cpu_utilization_file
+        # mas você só tinha salvo o dicionário 'file_paths'.
         self.cpu_utilization_file = file_paths['cpu']
-        self.gpu_utilization_file = file_paths['gpu'] # NOVO
+        self.gpu_utilization_file = file_paths['gpu']
         self.cache_utilization_file = file_paths['cache']
         self.bw_utilization_file = file_paths['bandwidth']
         self.sf_utilization_file = file_paths['sf']
-        
-        self.flows_file = flows_file
-        self.first_time = 0
-        self.sfcs_latency_dict = {}
-        self.counter_users = 0
-        self.crash_impact_file = crash_impact_file
+
+        self.counter_users = 0  # Inicializa o contador de usuários
+        self.first_time = 0 
 
 
     def resilient_output(self, sfc_id, info_log, crash_trials):
-        """
-        Salva os logs de resiliência/falha em um arquivo CSV.
-        """
-        # CORREÇÃO: Pegamos o diretório base a partir do arquivo de crash já existente
-        base_dir = os.path.dirname(self.crash_impact_file)
-        file_path = os.path.join(base_dir, "resilient_results.csv")
-        
-        # As chaves são baseadas no dicionário 'info_log' que você criou no controller
-        keys = [
-            "crash_trial", "sfc_id", "recover_success", "backup_success", 
-            "backup_efficient", "latency_diff", "time_to_recover", 
-            "vnf_id", "latency_degrad", "resource_degrad"
+        file_path = self.resilient_file
+
+        data = [
+            str(crash_trials),
+            str(sfc_id),
+            str(info_log.get("recover_success", False)),
+            str(info_log.get("backup_success", False)),
+            str(info_log.get("backup_efficient", "N/A")),
+            str(info_log.get("latency_diff", 0.0)),
+            str(info_log.get("time_to_recover", 0.0)),
+            str(info_log.get("vnf_id", "N/A")),
+            str(info_log.get("latency_degrad", 0.0)),
+            str(info_log.get("resource_degrad", 0.0))
         ]
-        
-        # Verifica se precisa criar o cabeçalho
-        write_header = not os.path.exists(file_path)
 
         with open(file_path, 'a') as f:
-            if write_header:
-                f.write(",".join(keys) + "\n")
-            
-            # Monta a linha de dados
-            data = [
-                str(crash_trials),
-                str(sfc_id),
-                str(info_log.get("recover_success", "")),
-                str(info_log.get("backup_success", "")),
-                str(info_log.get("backup_efficient", "")),
-                str(info_log.get("latency_diff", "")),
-                str(info_log.get("time_to_recover", "")),
-                str(info_log.get("vnf_id", "")),
-                str(info_log.get("latency_degrad", "")),
-                str(info_log.get("resource_degrad", ""))
-            ]
-            
             f.write(",".join(data) + "\n")
         
     def output_crash_impact(self, crash_trial, nodes_count, affected_count, high, medium, low,
@@ -239,9 +211,12 @@ class OutputWritter:
             file.write(line)
 
 
-    def output_flows(self,substrate_network: Net2,wait_time,running_players_sessions,counter,remaining_time,current_time, sfc_id, 
-                     latency, comp_latency, comm_latency, run_duration, is_success,fail_reason,bw_transcode,acceptance_rate, total_energy_consumption,
-                     server_energy_consumption,mobile_energy_consumption,latency_diff=None,crashing=False,alg_name='ga'):
+    def output_flows(self, substrate_network: Net2, wait_time, running_players_sessions, counter, remaining_time, current_time, sfc_id, 
+                     latency, comp_latency, comm_latency, run_duration, is_success, fail_reason, bw_transcode, acceptance_rate, 
+                     server_energy_consumption, mobile_energy_consumption, total_energy_consumption,
+                     latency_diff=None, crashing=False, alg_name='ga',
+                     
+                     avg_sfc_reliability_override=None):
         
         # Obtenha métricas de CPU
         cpu_utilization = round(substrate_network.get_total_system_utilization_cpu_rate(), 4)
@@ -306,65 +281,94 @@ class OutputWritter:
         decision_time =  str(round(run_duration * 1000, 3))
 
 
-        total_reliability = 0.0
-        active_sfc_count = 0
-        
-        # --- Inicializa contadores de risco (NOVO) ---
+        # ============================================================
+        # LÓGICA DE CONFIABILIDADE (SUBSTITUÍDA PELO NOVO BLOCO)
+        # ============================================================
+
+        avg_sfc_reliability = 0.0
         count_high_risk = 0
         count_medium_risk = 0
         count_low_risk = 0
 
-        # Verifica se há SFCs rodando
-        if substrate_network.sfc_dict:
-            for s_id, sfc in substrate_network.sfc_dict.items():
-                # Apenas se tiver rota definida
-                if s_id in substrate_network.sfc_route_info:
-                    route_info = substrate_network.sfc_route_info[s_id]
+        # CASO 1: Se o Controller mandou o cálculo correto (com backups), use-o.
+        if avg_sfc_reliability_override is not None:
+            avg_sfc_reliability = avg_sfc_reliability_override
+            
+            # Contagem de risco (simplificada, apenas para manter métricas de log)
+            if substrate_network.sfc_dict:
+                for s_id, sfc in substrate_network.sfc_dict.items():
+                    if "backup" in s_id:
+                        continue
                     
-                    unique_nodes = set()
-                    for vnf_id, path in route_info.items():
-                        if vnf_id not in ['src', 'dst'] and path:
-                            unique_nodes.add(path[0])
-                    
-                    sfc_reliability = 1.0
-                    for node in unique_nodes:
-                        sfc_reliability *= substrate_network.get_node_reliability(node)
-                    
-                    # --- ALTERAÇÃO AQUI ---
-                    # Só contabiliza na média se a SFC estiver 'viva' (reliability > 0)
-                    if sfc_reliability > 0.0001: 
-                        total_reliability += sfc_reliability
-                        active_sfc_count += 1 # Conta apenas as funcionais
+                    if s_id in substrate_network.sfc_route_info:
+                        route_info = substrate_network.sfc_route_info[s_id]
                         
-                        # A classificação de risco também deve ficar dentro deste IF
-                        # para não contar SFCs mortas como "High Risk"
+                        unique_nodes = set()
+                        for vnf_id, path in route_info.items():
+                            if vnf_id not in ['src', 'dst'] and path:
+                                unique_nodes.add(path[0])
+                        
+                        sfc_reliability = 1.0
+                        for node in unique_nodes:
+                            sfc_reliability *= substrate_network.get_node_reliability(node)
+                        
                         if sfc_reliability < 0.933:
                             count_high_risk += 1
                         elif 0.933 <= sfc_reliability <= 0.966:
                             count_medium_risk += 1
                         else:
                             count_low_risk += 1
-                    # ----------------------
-        
-        # Média do sistema considerando apenas as VIVAS
-        # Se todas morrerem (active_sfc_count == 0), definimos como 0.0 ou 1.0 (decisão de design)
-        avg_sfc_reliability = total_reliability / active_sfc_count if active_sfc_count > 0 else 0.0
 
-        # ATUALIZE A STRING 'line' com os novos campos
+        # CASO 2: Fallback (Lógica Antiga)
+        else:
+            total_reliability = 0.0
+            active_sfc_count = 0
+            
+            if substrate_network.sfc_dict:
+                for s_id, sfc in substrate_network.sfc_dict.items():
+                    if s_id in substrate_network.sfc_route_info:
+                        route_info = substrate_network.sfc_route_info[s_id]
+                        
+                        unique_nodes = set()
+                        for vnf_id, path in route_info.items():
+                            if vnf_id not in ['src', 'dst'] and path:
+                                unique_nodes.add(path[0])
+                        
+                        sfc_reliability = 1.0
+                        for node in unique_nodes:
+                            sfc_reliability *= substrate_network.get_node_reliability(node)
+                        
+                        if sfc_reliability > 0.0001:
+                            total_reliability += sfc_reliability
+                            active_sfc_count += 1
+                            
+                            if sfc_reliability < 0.9:
+                                count_high_risk += 1
+                            elif 0.9 <= sfc_reliability <= 0.95:
+                                count_medium_risk += 1
+                            else:
+                                count_low_risk += 1
+            
+            avg_sfc_reliability = total_reliability / active_sfc_count if active_sfc_count > 0 else 0.0
+
+        # ============================================================
+        # CONTINUA O CÓDIGO ORIGINAL
+        # ============================================================
+
         line = (
             f"{counter},"
             f"{current_time},"
             f"{time_value},"
             f"{self.counter_users},"
             f"{cpu_utilization},"
-            f"{gpu_utilization}," # NOVO
+            f"{gpu_utilization},"
             f"{bw_utilization},"
             f"{cache_utilization},"
             f"{network_cpu_utilization},"
-            f"{network_gpu_utilization}," # NOVO
+            f"{network_gpu_utilization},"
             f"{network_cache_utilization},"
             f"{mobile_cpu_utilization},"
-            f"{mobile_gpu_utilization}," # NOVO
+            f"{mobile_gpu_utilization},"
             f"{mobile_cache_utilization},"
             f"{latency},"
             f"{comp_latency},"     
@@ -378,7 +382,7 @@ class OutputWritter:
             f"{sfc_recovery_time},"
             f"{sfc_recovered},"
             f"{cpu_saved},"
-            f"{gpu_saved}," # NOVO
+            f"{gpu_saved},"
             f"{cache_saved},"
             f"{shared_vnfs_count},"
             f"{running_sfcs},"
@@ -388,7 +392,7 @@ class OutputWritter:
             f"{crashing},"
             f"{acceptance_rate},"
             f"{cpu_per_flow},"
-            f"{gpu_per_flow}," # NOVO
+            f"{gpu_per_flow},"
             f"{cache_per_flow},"
             f"{jain_cpu},"
             f"{jain_gpu},"
@@ -398,9 +402,9 @@ class OutputWritter:
             f"{server_energy_consumption},"
             f"{mobile_energy_consumption},"
             f"{avg_sfc_reliability},"
-            f"{count_high_risk},"     # NOVO
-            f"{count_medium_risk},"   # NOVO
-            f"{count_low_risk}\n"     # NOVO
+            f"{count_high_risk},"
+            f"{count_medium_risk},"
+            f"{count_low_risk}\n"
         )
 
         with open(self.flows_file, "a") as file:

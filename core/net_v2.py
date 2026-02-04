@@ -211,6 +211,8 @@ class Net2:
         session = sfc_id.split("_")[-1]
         mobile = False
 
+        
+
         # Verifica grafos
         if node_id in self.md_graph:
             node = self.md_graph.nodes[node_id]
@@ -282,6 +284,10 @@ class Net2:
             node['sfcs_list'].append(sfc_id)
 
         service_key = (service_id, session)
+
+        if service_key in node['services'] and sfc_id not in node['sfcs_list']:
+            # Isso indica um estado inconsistente: serviço existe, mas SFC não está na lista do nó
+            pass
 
         # CASO 1: Match Exato (Mesmo ID e Mesma Sessão)
         if service_key in node['services']:
@@ -355,16 +361,11 @@ class Net2:
         session_id = sfc_id.split("_")[-1]
         service_key = (service_id, session_id)
         
-        # --- CORREÇÃO PARA REPLICAÇÃO/STITCHING ---
         if service_key not in node['services']:
-            # Se a rota aponta para este nó, mas o serviço com ID original não está aqui,
-            # significa que este é um nó de BACKUP. Os recursos aqui estão sendo 
-            # consumidos/pagos pela SFC de Backup (Mini-SFC) e não pela Original.
-            # Portanto, não precisamos (e não devemos) subtrair recursos aqui, 
-            # pois isso causaria 'double-free' (subtração dupla) ou erro.
+            # [CORREÇÃO] Se o serviço não está aqui, pode ter sido movido por stitching.
+            # Apenas retornamos sem erro para não travar a limpeza de banda.
             if self.verbose:
-                print(f"Aviso: Tentativa de desalocar serviço {service_id} no nó {node_id} ignorada (Nó de Backup/Recuperado).")
-                
+                print(f"ℹ️ Info: Serviço {service_key} não encontrado no nó {node_id} (Já removido/migrado?).")
             return
         # -------------------------------------------
 

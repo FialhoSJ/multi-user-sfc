@@ -95,12 +95,28 @@ class SFCManager:
         if sfc_list_id in self.sfcs_tracker:
             for sfc in self.sfcs_tracker[sfc_list_id]['sfc_list']:
                 
-                # --- [MODIFICAÇÃO] Limpeza de Backups ---
+                # [CORREÇÃO DE ROBUSTEZ]
+                # Primeiro tentamos remover os backups. Se der erro na principal,
+                # pelo menos não deixamos lixo de backup na rede.
                 if take_out_backup and sfc.id in self.backup_manager.sfcs_backups_instatiated:
-                    self.undeploy_sfc_backups(sfc.id, substrate_network)
-                # ----------------------------------------
+                    try:
+                        self.undeploy_sfc_backups(sfc.id, substrate_network)
+                    except Exception as e:
+                        print(f"❌ [ERRO CRÍTICO] Falha ao limpar backups de {sfc.id}: {e}")
 
-                substrate_network.undeploy_sfc(sfc.id)
+                # Agora removemos a SFC principal
+                try:
+                    substrate_network.undeploy_sfc(sfc.id)
+                except ValueError as ve:
+                    # Se o erro for "SFC não encontrada", é o bug do zumbi. 
+                    # Ignoramos para permitir que o loop continue para as próximas SFCs.
+                    if "não encontrada" in str(ve) and self.verbose:
+                        print(f"⚠️ [AVISO] Tentativa de remover SFC Fantasma {sfc.id} ignorada.")
+                    else:
+                        print(f"❌ Erro ao remover SFC {sfc.id}: {ve}")
+                except Exception as e:
+                    print(f"❌ Erro desconhecido ao remover SFC {sfc.id}: {e}")
+
             del self.sfcs_tracker[sfc_list_id]
 
     def deploy_success(self, sfc: object) -> None:
@@ -481,8 +497,21 @@ class SFCManager:
 
         if hasattr(substrate_network, 'sfc_route_info'):
             substrate_network.sfc_route_info[sfc_obj.id] = copy.deepcopy(new_route_info)
+
+        # ==============================================================================
+        # [CORREÇÃO CRÍTICA] Ressuscitar a SFC no dicionário da Rede
+        # ==============================================================================
+        if sfc_obj.id not in substrate_network.sfc_dict:
+            substrate_network.sfc_dict[sfc_obj.id] = sfc_obj
+            if self.verbose:
+                print(f"⚠️ [FIX] SFC {sfc_obj.id} reinserida no sfc_dict para evitar zumbis.")
+        # ==============================================================================
         
-        self.remove_backup_by_id(backup_sfc_id, substrate_network)
+        # IMPORTANTE: Remover o backup da rede mas EVITAR erro se o serviço já foi movido
+        try:
+            self.remove_backup_by_id(backup_sfc_id, substrate_network)
+        except Exception as e:
+            print(f"Aviso: Limpeza do backup {backup_sfc_id} gerou erro não fatal: {e}")
         
         if backup_sfc_id not in self.backup_manager.backups_activated:
             self.backup_manager.backups_activated.append(backup_sfc_id)
@@ -491,6 +520,8 @@ class SFCManager:
             print(f"✅ [STITCH-SUCCESS] {sfc_obj.id}: Recuperada! VNF {affected_vnf_id} movida de {crashed_node_id} -> {backup_node}")
             
         return True
+
+
 
     # ==========================================
     # Helpers & Statistics
