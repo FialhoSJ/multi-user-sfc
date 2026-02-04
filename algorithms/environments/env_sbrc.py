@@ -73,25 +73,25 @@ class SFC_AllocationEnv(gymnasium.Env):
         "cache": 1,
 
         # 1º Prioridade: Banda (O "Dono" da decisão)
-        "band": 5,   
+        "band": 6,   
 
         # 2º Prioridade: Confiabilidade (O "Guarda-Costas")
         # O peso precisa ser alto (10 a 12) para compensar o fato de que 
         # a penalidade base (1 - reliability) é um número muito pequeno (0.01 a 0.1).
-        "rel": 1,   
+        "rel": 5,   
 
         # Outros (Baixa prioridade)
-        "lat": 5,     
+        "lat": 6,     
         "mobile": 0.0,
         }
 
         # --- NOVA CONFIGURAÇÃO DE RECOMPENSAS (MODIFICADO) ---
         self.reward_config = reward_config if reward_config is not None else {
             "success_bonus": 40.0,            # Reduzido de 100 para 40
-            "step_reward": 5.0,               # Recompensa por progresso
-            "invalid_action_penalty": -20.0,  # Penalidade leve
-            "failure_penalty": -80.0,         # Penalidade forte (recurso/banda)
-            "severe_failure_penalty": -100.0  # Fallback
+            "step_reward": 0,               # Recompensa por progresso
+            "invalid_action_penalty": -10.0,  # Penalidade leve
+            "failure_penalty": -40.0,         # Penalidade forte (recurso/banda)
+            "severe_failure_penalty": -50.0  # Fallback
         }
 
         # --- Inicialização de Snapshots (Training) ---

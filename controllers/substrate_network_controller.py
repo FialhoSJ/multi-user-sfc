@@ -233,7 +233,7 @@ class SubstrateNetworkController():
     def check_network_health(self):
         """Verifica se a carga da rede está abaixo de 75%."""
         utilization = self.substrate_network.get_processing_network_used_precise()
-        return utilization < 0.2
+        return utilization < 0.75
 
     def ensure_reliability_target(self, sfc_list, target_reliability=0.99):
         """
@@ -385,7 +385,7 @@ class SubstrateNetworkController():
         solution, is_success = self.sfc_instantiator.search_solution(sfc_list, self.substrate_network)
         if is_success:
             self.sfc_manager.submit_solution(sfc_list, solution, self.substrate_network)
-            target_r = 0.95
+            target_r = 0.83
             self.ensure_reliability_target(sfc_list, target_reliability=target_r)
         else:
             self.remove_mobile_user(mob_player_id)
