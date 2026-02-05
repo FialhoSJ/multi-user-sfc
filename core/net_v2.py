@@ -208,7 +208,13 @@ class Net2:
 
     def allocate_microservice(self, sfc, vnf, node_id):
         sfc_id = sfc.id
-        session = sfc_id.split("_")[-1]
+        parts = sfc_id.split("_")
+        # Se o ID termina em 'backup' (ex: sfc_..._p1_16_backup), a sessão é o penúltimo item ('16')
+        if parts[-1] == "backup":
+            session = parts[-2]
+        else:
+            # Caso contrário (ex: sfc_..._p1_16), a sessão é o último item ('16')
+            session = parts[-1]
         mobile = False
 
         
@@ -348,6 +354,21 @@ class Net2:
             raise ValueError(f"Nó {node_id} não encontrado em nenhum dos grafos (deallocate).")
 
         service_id = vnf.id
+        
+        # --- [INÍCIO DA CORREÇÃO] ---
+        # Extração robusta do ID da sessão (Remove sufixo 'backup')
+        parts = sfc_id.split("_")
+        if parts[-1] == "backup":
+            # Se termina em backup (ex: ..._p4_1_backup), a sessão é o penúltimo item ('1')
+            session_id = parts[-2]
+        else:
+            # Caso normal (ex: ..._p4_1), a sessão é o último item ('1')
+            session_id = parts[-1]
+        # --- [FIM DA CORREÇÃO] ---
+
+        service_key = (service_id, session_id)
+        
+        # Atualização das métricas globais
         cpu_required = vnf.get_cpu_request()
         cache_required = vnf.get_cache_request()
 
@@ -358,12 +379,9 @@ class Net2:
             self.total_cpu_requested = round(self.total_cpu_requested - cpu_required, 2)
         self.total_cache_requested = round(self.total_cache_requested - cache_required, 2)
 
-        session_id = sfc_id.split("_")[-1]
-        service_key = (service_id, session_id)
-        
+        # Verificação e Remoção
         if service_key not in node['services']:
-            # [CORREÇÃO] Se o serviço não está aqui, pode ter sido movido por stitching.
-            # Apenas retornamos sem erro para não travar a limpeza de banda.
+            # Se o serviço não está aqui, pode ter sido movido por stitching ou já removido.
             if self.verbose:
                 print(f"ℹ️ Info: Serviço {service_key} não encontrado no nó {node_id} (Já removido/migrado?).")
             return

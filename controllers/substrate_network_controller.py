@@ -147,8 +147,6 @@ class SubstrateNetworkController():
         
         while not self.is_stopped:
             self.check_duration() 
-            self.check_backup_integrity()
-            self.check_zombies_by_attributes()
             self.handle_mobility()
             self.handle_backups()
             self.handle_fails()
@@ -168,15 +166,23 @@ class SubstrateNetworkController():
                 self.last_mobility_time = time.time()
 
     def handle_backups(self):
-        """Gerencia a criação de backups reativos."""
-
-        if self.alg == 'SBRCMASKABLEPPO':
+        """Gerencia a criação de backups delegando ao Manager."""
+        # Se o backup não estiver ativo na config, sai
+        if not self.sfc_manager.backup_manager.backup_activated:
             return
-        if self.sfc_manager.backup_manager.backup_activated:
-            if time.time() - self.last_backup_time >= self.backup_interval_creation:
-                # [CORREÇÃO] Chamada limpa sem argumentos extras
-                self.sfc_manager.create_backups(self.substrate_network)
-                self.last_backup_time = time.time()
+
+        # Verifica o intervalo de tempo
+        if time.time() - self.last_backup_time >= self.backup_interval_creation:
+            
+            # --- MUDANÇA: Identifica o Agente (se houver) ---
+            agent = None
+            if self.alg == 'SBRCMASKABLEPPO':
+                agent = self.sfc_instantiator.alg
+            
+            # Repassa a responsabilidade (e o agente) para o SFC Manager
+            self.sfc_manager.create_backups(self.substrate_network, agent_ref=agent)
+            
+            self.last_backup_time = time.time()
 
     def handle_fails(self):
         """Gerencia o ciclo de vida (Crash -> Espera -> Recovery) baseado no Schedule."""
@@ -388,8 +394,8 @@ class SubstrateNetworkController():
         solution, is_success = self.sfc_instantiator.search_solution(sfc_list, self.substrate_network)
         if is_success:
             self.sfc_manager.submit_solution(sfc_list, solution, self.substrate_network)
-            target_r = 0.95
-            self.ensure_reliability_target(sfc_list, target_reliability=target_r)
+            # target_r = 0.95
+            # self.ensure_reliability_target(sfc_list, target_reliability=target_r)
         else:
             self.remove_mobile_user(mob_player_id)
         return solution, is_success
@@ -884,7 +890,9 @@ class SubstrateNetworkController():
         # TODO Continuar daqui
         remove_list = []
         current_time = time.time()
-        for sfc_list_id, info in list(self.sfc_manager.sfcs_tracker.items()):
+        
+        list_aux = list(self.sfc_manager.sfcs_tracker.items())
+        for sfc_list_id, info in list_aux:
             elapsed_time = current_time - info["timer"] 
             if elapsed_time >= info["duration"]: # Tempo do user acabou
                 self.sfc_manager.undeploy_sfc(sfc_list_id, self.substrate_network)
@@ -1099,88 +1107,3 @@ class SubstrateNetworkController():
             self.output_writter.print_output_info(self.substrate_network, self.success) 
             print("")
 
-
-
-    def check_backup_integrity(self):
-        """
-        Remove backups órfãos (zumbis) cuja SFC original não existe mais na rede.
-        """
-        backups_to_kill = []
-        
-        # Iteramos sobre uma cópia da lista de chaves para poder deletar durante o loop se precisar
-        active_sfc_ids = list(self.substrate_network.sfc_dict.keys())
-
-        for sfc_id in active_sfc_ids:
-            # Se for backup, verificamos quem é o pai
-            if sfc_id.endswith("_backup"):
-                # Deduz o nome do pai removendo o sufixo
-                parent_id = sfc_id[:-7] # Remove os últimos 7 chars ("_backup")
-                
-                # Se o pai NÃO está na lista de ativos -> É um Zumbi
-                if parent_id not in self.substrate_network.sfc_dict:
-                    backups_to_kill.append(sfc_id)
-
-        # Executa a limpeza em massa
-        for zumbi in backups_to_kill:
-            if self.verbose:
-                print(f"🧟 [ZOMBIE KILLER] Removendo backup órfão: {zumbi}")
-            
-            # Tenta remover bonitinho pelo manager
-            try:
-                self.sfc_manager.remove_backup_by_id(zumbi, self.substrate_network)
-            except:
-                # Se falhar, remove na força bruta da rede
-                self.substrate_network.undeploy_sfc(zumbi)
-
-
-    def check_zombies_by_attributes(self):
-        """
-        Garbage Collector baseado nos atributos internos da SFC.
-        Ignora o sfcs_tracker e olha apenas para a 'validade' estampada no objeto.
-        """
-        current_time = time.time()
-        # Buffer de tolerância (ex: 5 segundos) para não competir com o encerramento normal
-        tolerance = 5.0 
-        
-        zombies_to_kill = []
-
-        # Iteramos sobre uma cópia segura dos itens
-        for sfc_id, sfc_obj in list(self.substrate_network.sfc_dict.items()):
-            
-            # Verificação de segurança: O objeto tem os atributos necessários?
-            if not hasattr(sfc_obj, 'arrival_time') or not hasattr(sfc_obj, 'duration'):
-                # Se não tiver, não podemos julgar pelo tempo (pode ser backup antigo sem data)
-                continue
-
-            # Cálculo da Idade
-            # Ex: Agora (1000) - Chegada (900) = Idade (100)
-            age = current_time - sfc_obj.arrival_time
-            
-            # Verificação de Validade
-            # Ex: Idade (100) > Duração (123) ? Não.
-            # Ex: Idade (200) > Duração (123) ? Sim -> ZUMBI.
-            if age > (sfc_obj.duration + tolerance):
-                zombies_to_kill.append(sfc_id)
-
-        # Execução da Limpeza
-        for zumbi in zombies_to_kill:
-            if self.verbose:
-                print(f"💀 [GC ATRIBUTOS] SFC Zumbi detectada (Expirada fisicamente): {zumbi}")
-            
-            try:
-                # Tenta remover usando a lógica padrão (que limpa banda, cpu, etc)
-                self.substrate_network.undeploy_sfc(zumbi)
-                
-                # Se for uma SFC principal, remove do tracker também pra garantir
-                # (embora provavelmente ela nem esteja mais lá, o que causou o problema)
-                # Precisamos achar o ID do grupo (geralmente o dst_node)
-                try:
-                    if hasattr(self.sfc_manager, 'sfcs_tracker'):
-                        group_id = sfc_obj.dst_node
-                        if group_id in self.sfc_manager.sfcs_tracker:
-                            del self.sfc_manager.sfcs_tracker[group_id]
-                except:
-                    pass
-
-            except Exception as e:
-                print(f"Erro ao remover zumbi {zumbi}: {e}")

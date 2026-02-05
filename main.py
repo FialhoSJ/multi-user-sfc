@@ -57,7 +57,7 @@ def main():
     
     # 1. Configuração MACRO (Gera o Cronograma)
     parser.add_argument('--ava', type=str, default='0.97', help='Meta Global de Disponibilidade')
-    parser.add_argument('--number_of_fails', type=str, default='20', help='Number of node failures')
+    parser.add_argument('--number_of_fails', type=str, default='30', help='Number of node failures')
     parser.add_argument('--min_fail_duration', type=float, default=20, help='Min duration of node failure')
     parser.add_argument('--crash_at', type=float, default=-1, help='Forcar falha em X segundos (Ex: [300, 400, 500]). Use -1 para aleatorio. Respeite o numero de falhas.')
 

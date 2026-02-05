@@ -2,6 +2,7 @@ import copy
 import time
 import random
 from controllers.sfc_generator import SFCGenerator
+from algorithms.environments.env_sbrc import SFC_AllocationEnv
 
 class BackupManager:
     def __init__(self, args):
@@ -23,6 +24,88 @@ class BackupManager:
             print(f"[BackupManager] INFO: Backup proativo desativado. '{args.alg}' não suporta essa estratégia.")
 
         self.standard_reduction_factor = 1.0
+        
+        
+    def rl_based_strategy(self, network, sfc_id_duration, agent):
+        """
+        Usa o Agente RL (SBRC) para decidir onde alocar backups.
+        Retorna uma lista de [Mini-SFCs] com a rota JÁ CALCULADA anexada.
+        """
+        backups_mount = []
+        target_reliability = 0.99  # Meta de confiabilidade (Tier High)
+        
+        # Ordena chaves para determinismo
+        sorted_sfcs = sorted(list(sfc_id_duration.keys()))
+
+        for sfc_id in sorted_sfcs:
+            # 1. Filtros de Elegibilidade
+            if "backup" in sfc_id: continue # Não faz backup de backup
+            if sfc_id in self.sfcs_backups_instatiated: continue # Já protegido
+            if sfc_id not in network.sfc_dict: continue # SFC não existe mais
+            
+            sfc = network.get_sfc_by_id(sfc_id)
+            route_info = network.sfc_route_info.get(sfc_id, {})
+            
+            # 2. Identifica Necessidade (Varredura por elo fraco)
+            needs_backup = False
+            target_vnf = None
+            weak_node = None
+            
+            for vnf_id, path in route_info.items():
+                if vnf_id in ['src', 'dst'] or not path: continue
+                
+                node = path[0]
+                # Usa a métrica de confiabilidade física do nó
+                try:
+                    reliability = network.get_node_reliability(node)
+                except AttributeError:
+                    reliability = 1.0 # Fallback se a rede não suportar confiabilidade
+                
+                if reliability < target_reliability:
+                    needs_backup = True
+                    target_vnf = vnf_id
+                    weak_node = node
+                    break # Foca no primeiro problema crítico encontrado
+            
+            if not needs_backup: continue
+
+            # 3. Cria o Contexto do Backup (Mini-SFC)
+            mini_sfc = self.create_contextual_mini_sfc(network, sfc, target_vnf, weak_node)
+            if not mini_sfc: continue
+
+            # 4. Configura o Ambiente RL para Inserção Única
+            all_servers = [n for n, d in network.graph.nodes(data=True) if d.get('type') != 'router']
+            if hasattr(mini_sfc, 'mobile_node') and mini_sfc.mobile_node:
+                if mini_sfc.mobile_node not in all_servers:
+                    all_servers.append(mini_sfc.mobile_node)
+
+            env = SFC_AllocationEnv(
+                valid_nodes=all_servers,
+                list_graph=[network.graph],
+                list_sfc=[mini_sfc],
+                is_training=False
+            )
+            
+            # Proíbe o nó fraco original (Força diversidade espacial)
+            forbidden = [weak_node]
+            # Tratamento para ids compostos (ex: server 1 e 1.1 são a mesma máquina)
+            if isinstance(weak_node, (int, float)):
+                forbidden.append(weak_node - 0.1 if weak_node % 1 == 0.1 else weak_node + 0.1)
+            env.set_forbidden_nodes(forbidden)
+
+            # 5. Executa o Agente (Inferência)
+            agent.install_SFC(mini_sfc)
+            success = agent.start_algorithm(env)
+
+            if success:
+                # Extrai a rota calculada pela IA
+                route_info_backup = agent.get_route_info()
+                
+                # [TRUQUE] Anexa a rota ao objeto para o SFCManager usar diretamente
+                mini_sfc.pre_calculated_route = route_info_backup
+                backups_mount.append([mini_sfc])
+
+        return backups_mount
 
     def greedy_strategy(self, network, sfc_id_duration, threshold=0):
         backups_mount = []

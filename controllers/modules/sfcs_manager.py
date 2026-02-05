@@ -131,17 +131,43 @@ class SFCManager:
     # Backup Management Methods
     # ==========================================
 
-    def create_backups(self, network):
+    def create_backups(self, network, agent_ref=None):
         backups_mount = []
-        sfc_id_duration = copy.deepcopy(self.sfc_id_duration)
+        
+        # --- [CORREÇÃO] CONSTRUÇÃO DINÂMICA DO SFC_ID_DURATION ---
+        # O dicionário self.sfc_id_duration estava vazio. 
+        # Vamos reconstruí-lo usando as SFCs vivas na rede (network.sfc_dict).
+        sfc_id_duration = {}
+        
+        for sfc_id, sfc_obj in network.sfc_dict.items():
+            # Filtra backups para não criar backup de backup
+            if "backup" in sfc_id:
+                continue
+            
+            # Tenta pegar o arrival_time, se não tiver, usa o tempo atual (fallback)
+            # É ideal que o objeto SFC tenha o atributo 'arrival_time' definido na criação
+            start_time = getattr(sfc_obj, 'arrival_time', time.time())
+            
+            # Pega a duração (assumindo que o objeto SFC tem esse atributo)
+            duration = getattr(sfc_obj, 'duration', 100) 
 
-        # 1. Gera as SFCs de backup (mas elas vêm sem rota definida ainda)
-        if self.alg_name in ['vegeta', 'ga']:
+            sfc_id_duration[sfc_id] = {
+                'timer': start_time,
+                'duration': duration
+            }
+        # ---------------------------------------------------------
+
+        # [NOVO] Se for SBRC e tiver agente, usa a estratégia inteligente (RL)
+        if self.alg_name == 'SBRCMASKABLEPPO' and agent_ref is not None:
+            self.clean_backups(network)
+            # Agora passamos o dicionário preenchido corretamente
+            backups_mount = self.backup_manager.rl_based_strategy(network, sfc_id_duration, agent_ref)
+            
+        elif self.alg_name in ['vegeta', 'ga']:
             self.clean_backups(network)
             backups_mount = self.backup_manager.seletive_strategy(network, sfc_id_duration)
         else:
             backups_mount = self.backup_manager.greedy_strategy(network, sfc_id_duration)
-
         if backups_mount:
             for backup_list in backups_mount:
                 sfc = backup_list[0] # SFC de backup gerada
@@ -160,26 +186,40 @@ class SFCManager:
                 valid_placement_found = False
                 route_info = {}
                 
-                candidates = [n for n, d in network.graph.nodes(data=True) if d.get('type') == 'server']
-                random.shuffle(candidates) 
+                # --- [ETAPA 4: AJUSTE FINAL] ---
+                # Prioridade 1: Se o Agente RL (SBRC) já calculou a rota e anexou ao objeto, usa ela.
+                if hasattr(sfc, 'pre_calculated_route') and sfc.pre_calculated_route:
+                    route_info = sfc.pre_calculated_route
+                    valid_placement_found = True
+                    # (Opcional) Logs de debug para confirmar que a IA está agindo
+                    if self.verbose:
+                        print(f"[Backup] Usando rota inteligente do SBRC para {sfc.id}")
 
-                for server in candidates:
-                    node_data = network.graph.nodes[server]
-                    if (node_data['cpu_used'] + backup_vnf['CPU'] <= node_data['cpu_capacity']) and \
-                       (node_data['cache_used'] + backup_vnf['cache'] <= node_data['cache_capacity']):
+                # Prioridade 2: Fallback para estratégia Greedy (Aleatória + K-Shortest Paths)
+                # (Executa apenas se não houver rota pré-calculada)
+                else:
+                    candidates = [n for n, d in network.graph.nodes(data=True) if d.get('type') == 'server']
+                    random.shuffle(candidates) 
+
+                    for server in candidates:
+                        node_data = network.graph.nodes[server]
                         
-                        try:
-                            # src -> server
-                            path1 = k_shortest_paths(network, sfc.src_substrate_node, server, k=1, weight='latency')[0]
-                            # server -> dst
-                            path2 = k_shortest_paths(network, server, sfc.dst_substrate_node, k=1, weight='latency')[0]
+                        # Verifica capacidade CPU/Cache
+                        if (node_data['cpu_used'] + backup_vnf['CPU'] <= node_data['cpu_capacity']) and \
+                           (node_data['cache_used'] + backup_vnf['cache'] <= node_data['cache_capacity']):
                             
-                            if path1 and path2:
-                                route_info[backup_vnf['name']] = [server] + path2 
-                                valid_placement_found = True
-                                break
-                        except Exception:
-                            continue
+                            try:
+                                # Calcula caminho: src -> server
+                                path1 = k_shortest_paths(network, sfc.src_substrate_node, server, k=1, weight='latency')[0]
+                                # Calcula caminho: server -> dst
+                                path2 = k_shortest_paths(network, server, sfc.dst_substrate_node, k=1, weight='latency')[0]
+                                
+                                if path1 and path2:
+                                    route_info[backup_vnf['name']] = [server] + path2 
+                                    valid_placement_found = True
+                                    break
+                            except Exception:
+                                continue
                 
                 if not valid_placement_found:
                     continue
@@ -460,11 +500,27 @@ class SFCManager:
 
         # B) TRANSFERÊNCIA DE TITULARIDADE (Swap de CPU/RAM)
         backup_vnf_name = key_egress # ex: "vnf1_b"
-        session_backup = backup_sfc_id.split("_")[-1]
+        
+        # --- [CORREÇÃO] Extração Robusta do ID da Sessão do Backup ---
+        parts_b = backup_sfc_id.split("_")
+        if parts_b[-1] == "backup":
+            session_backup = parts_b[-2] # Pega o número (ex: '10')
+        else:
+            session_backup = parts_b[-1]
+        # -------------------------------------------------------------
         
         backup_service_key = (backup_vnf_name, session_backup)
+        
         original_vnf_name = affected_vnf_id
-        session_original = sfc_obj.id.split("_")[-1]
+        
+        # --- [PREVENÇÃO] Fazemos o mesmo para a original, por segurança ---
+        parts_o = sfc_obj.id.split("_")
+        if parts_o[-1] == "backup":
+            session_original = parts_o[-2]
+        else:
+            session_original = parts_o[-1]
+        # -------------------------------------------------------------
+
         original_service_key = (original_vnf_name, session_original)
         
         if backup_service_key in backup_node_obj['services']:
