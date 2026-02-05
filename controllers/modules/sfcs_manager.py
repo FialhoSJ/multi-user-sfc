@@ -229,30 +229,41 @@ class SFCManager:
                 results_dict = self.submit_solution([sfc], solution, network, is_backup=True)
 
                 if results_dict['is_success']:
-                    original_sfc = None
+                    original_sfc_id = None
                     vnf_id = None
 
-                    if self.alg_name == 'ga':
-                        original_sfc = sfc.vnfs_dict[1]['original_sfc']
-                        vnfs_dict = sfc.vnfs_dict[1]
-                        vnf_id = vnfs_dict['name']
-                    else:
-                        split = sfc.id.split("_")
-                        # Reconstrói ID original: sfc_unique_p6_0
-                        original_sfc = f"{split[0]}_{split[1]}_{split[4]}_{split[5]}"
-                        
-                        raw_vnf_name = backup_vnf['name']
-                        vnf_id = raw_vnf_name.removesuffix("_b") if hasattr(raw_vnf_name, 'removesuffix') else raw_vnf_name.replace("_b", "")
+                    # ESTRATÉGIA 1: Metadados Explícitos (O jeito certo)
+                    # Se o objeto já sabe quem é seu pai, usamos essa informação.
+                    if hasattr(sfc, 'original_sfc_id'):
+                        original_sfc_id = sfc.original_sfc_id
+                    
+                    # ESTRATÉGIA 2: Fallback Seguro (Parsing Reverso)
+                    # Se for código antigo ou algo sem metadados, tentamos extrair do ID.
+                    # Usamos rsplit para pegar tudo antes do ÚLTIMO "_backup", evitando erro de índice.
+                    elif "_backup" in sfc.id:
+                        original_sfc_id = sfc.id.rsplit("_backup", 1)[0]
+                    
+                    # Tratamento de erro caso nada funcione
+                    if not original_sfc_id:
+                        print(f"❌ Erro crítico: Não foi possível identificar a SFC original para o backup {sfc.id}")
+                        continue
 
-                    if original_sfc not in self.backup_manager.sfcs_backups_instatiated:
-                        self.backup_manager.sfcs_backups_instatiated[original_sfc] = []
+                    # Extração do ID da VNF (Lógica mantida, mas segura)
+                    # Remove o sufixo _b se existir
+                    vnf_id = backup_vnf['name']
+                    if vnf_id.endswith('_b'):
+                        vnf_id = vnf_id[:-2] # Remove os ultimos 2 chars (_b)
 
-                    self.backup_manager.sfcs_backups_instatiated[original_sfc].append({
+                    # Registro no Dicionário
+                    if original_sfc_id not in self.backup_manager.sfcs_backups_instatiated:
+                        self.backup_manager.sfcs_backups_instatiated[original_sfc_id] = []
+
+                    self.backup_manager.sfcs_backups_instatiated[original_sfc_id].append({
                         "sfc_backup_id": sfc.id,
                         "vnf_id": vnf_id,
                         "route_info": results_dict["route_info"]
                     })
-                    self.backup_manager.backups_sfc_instantiated[sfc.id] = original_sfc
+                    self.backup_manager.backups_sfc_instantiated[sfc.id] = original_sfc_id
 
     def clean_backups(self, network):
         for backup in list(self.backup_manager.backups_sfc_instantiated.keys()):

@@ -32,40 +32,38 @@ class BackupManager:
         Retorna uma lista de [Mini-SFCs] com a rota JÁ CALCULADA anexada.
         """
         backups_mount = []
-        target_reliability = 0.99  # Meta de confiabilidade (Tier High)
+        target_reliability = 0.99
         
-        # Ordena chaves para determinismo
         sorted_sfcs = sorted(list(sfc_id_duration.keys()))
 
         for sfc_id in sorted_sfcs:
-            # 1. Filtros de Elegibilidade
-            if "backup" in sfc_id: continue # Não faz backup de backup
-            if sfc_id in self.sfcs_backups_instatiated: continue # Já protegido
-            if sfc_id not in network.sfc_dict: continue # SFC não existe mais
+            # ... (Lógica de filtro existente: filtros de elegibilidade e identificação de necessidade) ...
+            if "backup" in sfc_id: continue 
+            if sfc_id in self.sfcs_backups_instatiated: continue
+            if sfc_id not in network.sfc_dict: continue
             
             sfc = network.get_sfc_by_id(sfc_id)
             route_info = network.sfc_route_info.get(sfc_id, {})
             
-            # 2. Identifica Necessidade (Varredura por elo fraco)
+            # ... (Lógica de identificação do elo fraco) ...
             needs_backup = False
             target_vnf = None
             weak_node = None
             
+            # (Seu loop de verificação de confiabilidade aqui...)
             for vnf_id, path in route_info.items():
                 if vnf_id in ['src', 'dst'] or not path: continue
-                
                 node = path[0]
-                # Usa a métrica de confiabilidade física do nó
                 try:
                     reliability = network.get_node_reliability(node)
                 except AttributeError:
-                    reliability = 1.0 # Fallback se a rede não suportar confiabilidade
+                    reliability = 1.0
                 
                 if reliability < target_reliability:
                     needs_backup = True
                     target_vnf = vnf_id
                     weak_node = node
-                    break # Foca no primeiro problema crítico encontrado
+                    break
             
             if not needs_backup: continue
 
@@ -73,35 +71,73 @@ class BackupManager:
             mini_sfc = self.create_contextual_mini_sfc(network, sfc, target_vnf, weak_node)
             if not mini_sfc: continue
 
-            # 4. Configura o Ambiente RL para Inserção Única
-            all_servers = [n for n, d in network.graph.nodes(data=True) if d.get('type') != 'router']
-            if hasattr(mini_sfc, 'mobile_node') and mini_sfc.mobile_node:
-                if mini_sfc.mobile_node not in all_servers:
-                    all_servers.append(mini_sfc.mobile_node)
+            # --- CORREÇÃO DO CRASH (KeyError) AQUI ---
+            
+            # 1. Trabalhamos com uma CÓPIA do grafo para não sujar a topologia oficial com nós móveis temporários
+            graph_for_rl = copy.deepcopy(network.graph)
+            
+            # 2. Injeção do Nó Móvel E da Conexão (Link)
+            mobile_node_id = getattr(mini_sfc, 'mobile_node', None)
+            closer_router_id = getattr(mini_sfc, 'closer_router', None)
 
+            if mobile_node_id:
+                # A) Adiciona o Nó (Dispositivo Móvel) se ele existir na rede móvel
+                if mobile_node_id in network.md_graph and mobile_node_id not in graph_for_rl:
+                    md_data = network.md_graph.nodes[mobile_node_id]
+                    # Injeta o nó com todos os seus atributos (cpu, cache, posição, etc)
+                    graph_for_rl.add_node(mobile_node_id, **md_data)
+                
+                # B) Adiciona a Aresta (Conexão Wireless) - Igual ao sfcs_instatiator.py
+                # O nó móvel precisa estar conectado ao seu roteador de borda para ser alcançável
+                if closer_router_id and closer_router_id in graph_for_rl:
+                    router_data = graph_for_rl.nodes[closer_router_id]
+                    
+                    # Calcula a capacidade disponível no canal wireless do roteador
+                    w_cap = router_data.get('w_channel_capacity', 0.0)
+                    w_used = router_data.get('w_channel_used', 0.0)
+                    wireless_free = max(0.0, w_cap - w_used)
+                    
+                    # Adiciona a aresta conectando o Mobile Device ao Roteador
+                    # Usamos signal_latency=1 como padrão, conforme visto no instatiator
+                    graph_for_rl.add_edge(
+                        mobile_node_id, 
+                        closer_router_id, 
+                        bandwidth_capacity=wireless_free, 
+                        bandwidth_used=0.00, 
+                        latency=1, 
+                        services_in_transit={}
+                    )
+
+            # 3. Atualiza a lista de nós válidos para o RL (Servidores + Nó Móvel)
+            all_servers = [n for n, d in graph_for_rl.nodes(data=True) if d.get('type') != 'router']
+
+            # 4. Configura o Ambiente RL usando o grafo modificado
             env = SFC_AllocationEnv(
                 valid_nodes=all_servers,
-                list_graph=[network.graph],
+                list_graph=[graph_for_rl], # <--- Passamos o grafo contendo o nó móvel
                 list_sfc=[mini_sfc],
                 is_training=False
             )
             
-            # Proíbe o nó fraco original (Força diversidade espacial)
+            # ... (Restante da lógica: forbidden nodes, agent execution) ...
             forbidden = [weak_node]
-            # Tratamento para ids compostos (ex: server 1 e 1.1 são a mesma máquina)
             if isinstance(weak_node, (int, float)):
                 forbidden.append(weak_node - 0.1 if weak_node % 1 == 0.1 else weak_node + 0.1)
             env.set_forbidden_nodes(forbidden)
 
-            # 5. Executa o Agente (Inferência)
             agent.install_SFC(mini_sfc)
-            success = agent.start_algorithm(env)
+            
+            # Tratamento de erro robusto caso o agente falhe
+            try:
+                agent.install_substrate_network(graph_for_rl)
+                success = agent.start_algorithm(env)
+            except KeyError as e:
+                print(f"[BackupManager] Erro crítico no RL para SFC {sfc_id}: {e}. Pulando.")
+                success = False
+            
 
             if success:
-                # Extrai a rota calculada pela IA
                 route_info_backup = agent.get_route_info()
-                
-                # [TRUQUE] Anexa a rota ao objeto para o SFCManager usar diretamente
                 mini_sfc.pre_calculated_route = route_info_backup
                 backups_mount.append([mini_sfc])
 
@@ -175,6 +211,8 @@ class BackupManager:
             }
 
             new_sfc = SFCGenerator(player_dict).generate()
+            new_sfc.original_sfc_id = sfc_id
+            new_sfc.is_backup = True
             backups_mount.append([new_sfc])
 
         return backups_mount
@@ -310,6 +348,8 @@ class BackupManager:
                 }
 
                 new_sfc = SFCGenerator(new_sfc_dict).generate()
+                new_sfc.original_sfc_id = sfc_id
+                new_sfc.is_backup = True
                 backups_mount.append([new_sfc])
 
         return backups_mount
@@ -419,7 +459,12 @@ class BackupManager:
             "mobile_node": getattr(original_sfc, 'dst_node', None)
         }
 
-        return SFCGenerator(mini_sfc_dict).generate()
+        mini_sfc = SFCGenerator(mini_sfc_dict).generate()
+
+        mini_sfc.original_sfc_id = original_sfc.id
+        mini_sfc.is_backup = True
+
+        return mini_sfc
 
     def get_backups_instantiated_q(self):
         vnfs_backup_instantiate = 0
