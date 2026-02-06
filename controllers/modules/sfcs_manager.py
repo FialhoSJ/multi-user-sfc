@@ -159,7 +159,7 @@ class SFCManager:
 
         # [NOVO] Se for SBRC e tiver agente, usa a estratégia inteligente (RL)
         if self.alg_name == 'SBRCMASKABLEPPO' and agent_ref is not None:
-            self.clean_backups(network)
+            # self.clean_backups(network)
             # Agora passamos o dicionário preenchido corretamente
             backups_mount = self.backup_manager.rl_based_strategy(network, sfc_id_duration, agent_ref)
             

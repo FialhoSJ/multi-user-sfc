@@ -201,6 +201,81 @@ class Net2:
 
         if self.total_cpu_used < 0 or self.total_cache_used < 0 or self.total_bandwidth_used < 0:
             raise ValueError(f"Recursos com valores Negativos após undeploy")
+        
+    def undeploy_specific_vnf_context(self, sfc_id, vnf_id_to_remove):
+        """
+        Realiza um undeploy CIRÚRGICO:
+        1. Remove recursos (CPU/RAM) apenas da VNF falha.
+        2. Libera banda do caminho de SAÍDA da VNF falha (Falha -> Next).
+        3. Libera banda do caminho de ENTRADA da VNF falha (Prev -> Falha).
+        
+        Isso 'abre um buraco' na rede permitindo que o backup seja costurado
+        sem causar congestionamento por recursos travados.
+        """
+        if sfc_id not in self.sfc_dict:
+            return False # SFC nem existe mais
+
+        sfc = self.sfc_dict[sfc_id]
+        route_info = self.sfc_route_info.get(sfc_id)
+        
+        if not route_info:
+            return False
+
+        
+        vnf_target = sfc.get_vnf_by_id(vnf_id_to_remove)
+        if not vnf_target:
+            return False
+            
+        vnf_prev = sfc.get_previous_vnf(vnf_target)
+        
+        if vnf_id_to_remove in route_info:
+            path = route_info[vnf_id_to_remove]
+            if path:
+                node_allocated = path[0]
+                
+                try:
+                    self.deallocate_microservice(node_allocated, sfc_id, vnf_target)
+                except ValueError:
+                    pass 
+
+                
+                if len(path) > 1:
+                    for u, v in zip(path[:-1], path[1:]):
+                        try:
+                            if isinstance(v, str): # Wireless
+                                self.release_wireless_bandwidth(u, v, vnf_id_to_remove)
+                            elif isinstance(u, str): # Wireless
+                                self.release_wireless_bandwidth(v, u, vnf_id_to_remove)
+                            else: # Wired
+                                self.release_bandwidth(u, v, vnf_id_to_remove)
+                        except ValueError:
+                            pass 
+
+            
+            del route_info[vnf_id_to_remove]
+
+        
+        if vnf_prev and vnf_prev.id != 'src': # Se não for a origem virtual
+             if vnf_prev.id in route_info:
+                path_prev = route_info[vnf_prev.id]
+                
+                if len(path_prev) > 1:
+                    for u, v in zip(path_prev[:-1], path_prev[1:]):
+                        try:
+                            if isinstance(v, str):
+                                self.release_wireless_bandwidth(u, v, vnf_prev.id)
+                            elif isinstance(u, str):
+                                self.release_wireless_bandwidth(v, u, vnf_prev.id)
+                            else:
+                                self.release_bandwidth(u, v, vnf_prev.id)
+                        except ValueError:
+                            pass
+                
+                
+                if path_prev:
+                    route_info[vnf_prev.id] = [path_prev[0]] 
+
+        return True
 
     # =========================================================================
     # 3. ALOCAÇÃO DE RECURSOS (COMPUTACIONAIS E REDE)

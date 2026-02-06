@@ -690,38 +690,94 @@ class SubstrateNetworkController():
         post_crash_latencies = {}
 
         for sfc_id in sorted(affected_sfc_ids):
-            # 1. Identificar o nó que falhou para esta SFC
+            # 1. Identificar o nó que falhou
             failed_nodes = sfc_failed_nodes_map.get(sfc_id, [])
             relevant_server_down = failed_nodes[0] if failed_nodes else None
             
-            # 2. Snapshot: Salvar Objeto e Rota antes de destruir
+            # Recupera dados básicos
             try:
                 sfc_obj = self.substrate_network.get_sfc_by_id(sfc_id)
                 old_route_info = copy.deepcopy(self.sfc_manager.sfcs_routing_info.get(sfc_id))
             except:
-                # Se não conseguir pegar o objeto, não tem como recuperar
                 continue
 
-            # 3. UNDEPLOY IMEDIATO: Libera todos os recursos (Banda e CPU)
-            # Isso garante que a rede esteja limpa para a tentativa de realocação
-            self.sfc_manager.undeploy_sfc(sfc_owners_map.get(sfc_id), self.substrate_network, take_out_backup=False)
+            # ==============================================================================
+            # NOVA LÓGICA: VERIFICAÇÃO ANTECIPADA (Fail Fast)
+            # ==============================================================================
+            
+            # A) Descobre QUAL VNF foi afetada pela queda do servidor
+            affected_vnf_id = None
+            if old_route_info:
+                for vnf, path in old_route_info.items():
+                    if vnf not in ['src', 'dst'] and path and path[0] == relevant_server_down:
+                        affected_vnf_id = vnf
+                        break
+            
+            # B) Verifica se EXISTE backup para essa VNF específica
+            has_viable_backup = False
+            if affected_vnf_id and sfc_id in self.sfc_manager.backup_manager.sfcs_backups_instatiated:
+                backups_list = self.sfc_manager.backup_manager.sfcs_backups_instatiated[sfc_id]
+                for backup_entry in backups_list:
+                    # Limpa o sufixo _b se houver para comparar
+                    b_vnf_clean = backup_entry['vnf_id'].replace("_b", "")
+                    if b_vnf_clean == affected_vnf_id:
+                        has_viable_backup = True
+                        break
 
-            # Marca o tempo inicial da tentativa
-            if sfc_id in self.substrate_network.sfc_dict:
-                debug = 1
+            # ==============================================================================
+            # DECISÃO: TENTAR RECUPERAR OU MANDAR PRA FILA?
+            # ==============================================================================
+
+            # CAMINHO 1: Sem Backup -> Manda direto para a fila (Economiza processamento)
+            if not has_viable_backup:
+                if self.verbose:
+                    print(f"⚠️ [FAIL-FAST] SFC {sfc_id} perdeu VNF {affected_vnf_id} e NÃO tem backup. Enviando para fila.")
+
+                # Registra a falha nas métricas
+                self.sfcs_crash_affected[sfc_id] = {
+                    "fall_time": time.time(),
+                    "old_latency": pre_crash_latencies.get(sfc_id, 0),
+                    "resource_info": 0,
+                    "backup_success": False,
+                    "crash_trial": self.crashs_trials,
+                    "recover_success": False # Falhou no teste de backup
+                }
+
+                # Prepara para re-enfileirar
+                tracker_id = sfc_owners_map.get(sfc_id)
+                if tracker_id and tracker_id in self.sfc_manager.sfcs_tracker:
+                    self.mobility_manager.mark_vehicle_as_redeploying(tracker_id)
+                    sfc_list_tracker = self.sfc_manager.sfcs_tracker[tracker_id]['sfc_list']
+                    
+                    if sfc_list_tracker:
+                        # send_back_to_qeue já faz o undeploy completo internamente
+                        self.send_back_to_qeue(sfc_list_tracker, changed_location=False)
+                        fallen_sfcs_list.extend(sfc_list_tracker)
+                
+                continue # Pula para a próxima SFC afetada
+
+            # CAMINHO 2: Tem Backup -> Tenta a Recuperação Cirúrgica
+            
+            # Usa o novo método cirúrgico do Net2 (que você implementou no net_v2.py)
+            # Se não tiver implementado ainda, use o undeploy_sfc antigo aqui.
+            try:
+                if hasattr(self.substrate_network, 'undeploy_specific_vnf_context'):
+                     self.substrate_network.undeploy_specific_vnf_context(sfc_id, affected_vnf_id)
+                else:
+                    # Fallback para o método antigo se não tiver o net_v2 novo
+                    self.sfc_manager.undeploy_sfc(sfc_owners_map.get(sfc_id), self.substrate_network, take_out_backup=False)
+            except Exception as e:
+                print(f"Erro no undeploy pré-recuperação: {e}")
 
             recovery_start_time = time.time()
-            recovered = False
-
-            # 4. Tenta reconstruir e fazer o Deploy novamente
-            if relevant_server_down and old_route_info:
-                # Chama a nova função de "Costura e Deploy"
-                recovered = self.sfc_manager.reconstruct_and_redeploy(
-                    sfc_obj, 
-                    relevant_server_down, 
-                    old_route_info, 
-                    self.substrate_network
-                )
+            
+            # Chama a costura
+            recovered = self.sfc_manager.reconstruct_and_redeploy(
+                sfc_obj, 
+                relevant_server_down, 
+                old_route_info, 
+                self.substrate_network
+            )
 
             if recovered:
                 # Sucesso: Calcula métricas
@@ -740,28 +796,15 @@ class SubstrateNetworkController():
                     "backup_success": True,
                     "recover_success": True
                 }
-
-                print(f"")
             else:
-                # 5. Falha no Backup: Manda para a fila (Redeploy completo/Migração)
-                self.sfcs_crash_affected[sfc_id] = {
-                    "fall_time": time.time(),
-                    "old_latency": pre_crash_latencies.get(sfc_id, 0),
-                    "resource_info": 0,
-                    "backup_success": False,
-                    "crash_trial": self.crashs_trials
-                }
-                
+                # Se por algum milagre tinha backup mas falhou na hora H (ex: nó de backup também caiu)
+                # Aí mandamos para a fila aqui também
                 tracker_id = sfc_owners_map.get(sfc_id)
                 if tracker_id and tracker_id in self.sfc_manager.sfcs_tracker:
                     self.mobility_manager.mark_vehicle_as_redeploying(tracker_id)
-                    sfc_list = self.sfc_manager.sfcs_tracker[tracker_id]['sfc_list']
-                    
-                    # Como já demos undeploy lá em cima (passo 3), 
-                    # só precisamos mandar para a fila se a lista ainda existir
-                    if sfc_list:
-                        self.send_back_to_qeue(sfc_list, changed_location=False)
-                        fallen_sfcs_list.extend(sfc_list)
+                    sfc_list_tracker = self.sfc_manager.sfcs_tracker[tracker_id]['sfc_list']
+                    self.send_back_to_qeue(sfc_list_tracker, changed_location=False)
+                    fallen_sfcs_list.extend(sfc_list_tracker)
 
         return fallen_sfcs_list, post_crash_latencies
     
