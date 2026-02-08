@@ -2,6 +2,7 @@ import copy
 import time
 import random
 from controllers.sfc_generator import SFCGenerator
+from core.net_v2 import Net2
 from algorithms.environments.env_sbrc import SFC_AllocationEnv
 
 class BackupManager:
@@ -23,7 +24,7 @@ class BackupManager:
 
         self.standard_reduction_factor = 1.0
 
-    def _calc_virtual_reliability(self, network, sfc_id, pending_backups_sfcs):
+    def _calc_virtual_reliability(self, network: Net2, sfc_id, pending_backups_sfcs):
         """
         Calcula a confiabilidade total REAL da SFC, consultando a confiabilidade
         do nó físico onde o backup está (ou será) alocado.
@@ -103,13 +104,13 @@ class BackupManager:
         return total_reliability, sorted_candidates
         
         
-    def rl_based_strategy(self, network, sfc_id_duration, agent):
+    def rl_based_strategy(self, network: Net2, sfc_id_duration, agent):
         """
         Estratégia baseada na Confiabilidade Total da SFC.
         Cria backups iterativamente até que a confiabilidade COMPOSTA (Real) atinja a meta.
         """
         backups_mount = []
-        target_reliability = 0.99
+        target_reliability = 0.95
         
         sorted_sfcs = sorted(list(sfc_id_duration.keys()))
 
@@ -132,6 +133,7 @@ class BackupManager:
                 # Se já atingiu a meta (0.99), paramos de gastar recursos
                 if current_r >= target_reliability:
                     break
+                
                 
                 # Se não tem mais VNFs desprotegidas para melhorar, paramos
                 if not candidates:
@@ -191,6 +193,7 @@ class BackupManager:
                 # Executa o Agente
                 agent.install_SFC(mini_sfc)
                 try:
+                    debub = network.sfc_route_info[sfc_id]
                     agent.install_substrate_network(graph_for_rl)
                     success = agent.start_algorithm(env)
                 except KeyError as e:
@@ -201,6 +204,7 @@ class BackupManager:
                     route_info_backup = agent.get_route_info()
                     # Anexa a rota calculada ao objeto Mini-SFC
                     mini_sfc.pre_calculated_route = route_info_backup
+                    
                     
                     # Adiciona à lista local para o próximo cálculo de _calc_virtual_reliability
                     pending_sfcs_this_cycle.append(mini_sfc)
@@ -490,8 +494,8 @@ class BackupManager:
         backup_vnf_name = vnf_to_replicate_id + "_b"
         
         mini_sfc_vnfs = [
-            {"type": 2, "name": "src_virt", "CPU": 0, "cache": 0, "in_bw": 0, 
-            "out_bw": 0, "latency": 0, "location": prev_node},
+            # {"type": 2, "name": "src_virt", "CPU": 0, "cache": 0, "in_bw": 0, 
+            # "out_bw": 0, "latency": 0, "location": prev_node},
             
             # --- [MODIFICAÇÃO 2] BANDA ZERO (Cold Standby) ---
             {"type": 2, "name": vnf_to_replicate_id + "_b", 
@@ -502,8 +506,8 @@ class BackupManager:
             "latency": 0, "original_sfc": sfc_id},
             # -------------------------------------------------
             
-            {"type": 2, "name": "dst_virt", "CPU": 0, "cache": 0, 
-            "in_bw": 0, "out_bw": 0, "latency": 0, "location": next_node}
+            # {"type": 2, "name": "dst_virt", "CPU": 0, "cache": 0, 
+            # "in_bw": 0, "out_bw": 0, "latency": 0, "location": next_node}
         ]
         
         # --- CORREÇÃO 1: DURAÇÃO DINÂMICA ---
