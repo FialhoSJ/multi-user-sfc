@@ -20,7 +20,6 @@ def create_directory_if_not_exists(path):
         os.makedirs(path)
 
 def create_output_dir(args, topology):
-    # Topology info (evita chamadas duplicadas)
     top_info = topology.get_topology_info()
     ec_servers = top_info['ec_servers']
     edges = top_info['edges']
@@ -38,7 +37,6 @@ def create_output_dir(args, topology):
     paths = ['cache', 'cpu', 'gpu', 'bandwidth', 'sf']
     directories = {}
 
-    # Criação dos diretórios principais
     for path in paths:
         dir_path = os.path.join(base_dir, f'results_{path}')
         create_directory_if_not_exists(dir_path)
@@ -50,22 +48,18 @@ def create_output_dir(args, topology):
         create_directory_if_not_exists(alg_path)
         directories[path] = alg_path
 
-    # Caminhos dos arquivos principais
     file_paths = {path: os.path.join(directories[path], timestamp + '.csv') for path in paths}
 
     nodes_string = format_nodes_to_string(np.array(sorted(ec_servers)))
     edges_string = format_edges_to_string(edges)
 
-    # Inicialização dos arquivos CPU / CACHE / GPU / SF
     for key in ['cache', 'cpu', 'gpu', 'sf']:
         with open(file_paths[key], "a") as file:
             file.write(f'timestamp,{nodes_string[1:-1]}\n')
 
-    # Bandwidth usa edges
     with open(file_paths['bandwidth'], "a") as file:
         file.write(f'timestamp,{edges_string}\n')
 
-    # Diretórios de flows e resiliência
     flows_dir = 'results/results_flows'
     resilient_dir = 'results/results_resilient'
 
@@ -83,11 +77,8 @@ def create_output_dir(args, topology):
 
     flows_path = os.path.join(directory_path, f'{timestamp}.csv')
     crash_impact_path = os.path.join(res_directory_path, f'crash_impact_{timestamp}.csv')
-
-    # NOVO: arquivo de resultados de resiliência (criado aqui)
     resilient_path = os.path.join(res_directory_path, f'resilient_results_{timestamp}.csv')
 
-    # Header principal (flows)
     header_fields = [
         "No.", "timestamp", "time_seconds", "users",
         "cpu_utilization", "gpu_utilization", "bandwidth_utilization",
@@ -109,7 +100,6 @@ def create_output_dir(args, topology):
         "high_risk_sfcs", "medium_risk_sfcs", "low_risk_sfcs"
     ]
 
-    # Header crash impact
     crash_header_fields = [
         "crash_trial",
         "timestamp",
@@ -128,12 +118,10 @@ def create_output_dir(args, topology):
     with open(crash_impact_path, "a") as f:
         f.write(crash_header)
 
-    # Header flows
     header = ",".join(header_fields) + "\n"
     with open(flows_path, "a") as f:
         f.write(header)
 
-    # NOVO: Header do resilient_results (evita race condition)
     resilient_header_fields = [
         "crash_trial", "sfc_id", "recover_success", "backup_success",
         "backup_efficient", "latency_diff", "time_to_recover",
@@ -142,7 +130,6 @@ def create_output_dir(args, topology):
     with open(resilient_path, "a") as f:
         f.write(",".join(resilient_header_fields) + "\n")
 
-    # retorno atualizado
     return file_paths, flows_path, crash_impact_path, resilient_path
 
 
@@ -158,16 +145,13 @@ class OutputWritter:
         self.processing_nodes = topo_info['ec_servers']
         self.edges = topo_info['edges']
 
-        # --- FIX: Mapeando os caminhos dos arquivos para atributos da classe ---
-        # Seus métodos (ex: output_cpu_utilization) chamam self.cpu_utilization_file
-        # mas você só tinha salvo o dicionário 'file_paths'.
         self.cpu_utilization_file = file_paths['cpu']
         self.gpu_utilization_file = file_paths['gpu']
         self.cache_utilization_file = file_paths['cache']
         self.bw_utilization_file = file_paths['bandwidth']
         self.sf_utilization_file = file_paths['sf']
 
-        self.counter_users = 0  # Inicializa o contador de usuários
+        self.counter_users = 0  
         self.first_time = 0 
 
 
@@ -201,9 +185,9 @@ class OutputWritter:
             f"{high},"
             f"{medium},"
             f"{low},"
-            f"{lat_before:.4f},"    # <--- NOVO
-            f"{lat_after:.4f},"     # <--- NOVO
-            f"{affected_pct:.2f}," # <--- NOVO
+            f"{lat_before:.4f}," 
+            f"{lat_after:.4f},"  
+            f"{affected_pct:.2f},"
             f"{avg_lat_diff:.4f}\n"
         )
         
@@ -215,20 +199,47 @@ class OutputWritter:
                      latency, comp_latency, comm_latency, run_duration, is_success, fail_reason, bw_transcode, acceptance_rate, 
                      server_energy_consumption, mobile_energy_consumption, total_energy_consumption,
                      latency_diff=None, crashing=False, alg_name='ga',
-                     
                      avg_sfc_reliability_override=None):
         
-        # Obtenha métricas de CPU
+        # --- [CORREÇÃO] Recálculo dinâmico de players e sessions ---
+        # Em vez de confiar no argumento running_players_sessions, calculamos via Net2
+        # para garantir a integridade dos dados (Single Source of Truth).
+        
+        running_sfcs = substrate_network.get_number_actives_sfcs()
+        
+        unique_players = set()
+        unique_sessions = set()
+        
+        if substrate_network.sfc_dict:
+            for active_sfc_id in substrate_network.sfc_dict.keys():
+                # Formato esperado: sfc_xxxx_p{PLAYER}_{SESSION} ou similar
+                # Ex: sfc_unique_p1_10
+                try:
+                    parts = active_sfc_id.split('_')
+                    # Tenta extrair player (pX)
+                    for part in parts:
+                        if part.startswith('p') and part[1:].isdigit():
+                            unique_players.add(part)
+                    
+                    # Tenta extrair session (último digito)
+                    if parts[-1].isdigit():
+                        unique_sessions.add(parts[-1])
+                except:
+                    continue
+        
+        running_players = len(unique_players)
+        running_sessions = len(unique_sessions)
+        
+        # -----------------------------------------------------------
+
         cpu_utilization = round(substrate_network.get_total_system_utilization_cpu_rate(), 4)
         network_cpu_utilization = round(substrate_network.get_network_cpu_utilization_percentage(), 4)
         mobile_cpu_utilization = round(substrate_network.get_mobile_cpu_utilization_percentage(), 4)
         
-        # Obtenha as NOVAS métricas de GPU
         gpu_utilization = round(substrate_network.get_total_system_utilization_gpu_rate(), 4)
         network_gpu_utilization = round(substrate_network.get_network_gpu_utilization_percentage(), 4)
         mobile_gpu_utilization = round(substrate_network.get_mobile_gpu_utilization_percentage(), 4)
 
-        # Métricas de Cache e BW (inalteradas)
         cache_utilization = round(substrate_network.get_total_system_utilization_cache_rate(), 4)
         bw_utilization = round(substrate_network.get_bandwidth_utilization_rate(), 4)
         network_cache_utilization = round(substrate_network.get_network_cache_utilization_percentage(), 4)
@@ -237,26 +248,20 @@ class OutputWritter:
         total_cpu_request = round(substrate_network.get_total_cpu_request(), 4)
         total_cache_request = round(substrate_network.get_total_cache_request(), 4)
 
-        running_sfcs, running_players, running_sessions = running_players_sessions
-        running_sfcs = substrate_network.get_number_actives_sfcs()
-
-        # Obtenha uso total e por fluxo de CPU
         cpu_used = substrate_network.get_cpu_total_used()
         cpu_per_flow = cpu_used/running_sfcs if running_sfcs else 0
         
-        # Obtenha uso total e por fluxo de GPU (NOVO)
         gpu_used = substrate_network.get_gpu_total_used()
         gpu_per_flow = gpu_used/running_sfcs if running_sfcs else 0
 
-        # Obtenha uso total e por fluxo de Cache
         cache_used = substrate_network.get_cache_total_used()
         cache_per_flow = cache_used/running_sfcs if running_sfcs else 0
 
-        # Obtenha economia de CPU, GPU e Cache
-        cpu_saved =  substrate_network.total_cpu_saved
-        gpu_saved =  substrate_network.total_gpu_saved # NOVO
-        cache_saved =  substrate_network.total_cache_saved
-        shared_vnfs_count = substrate_network.shared_vnfs_count
+        cpu_saved = substrate_network.get_total_cpu_saved()
+        gpu_saved = substrate_network.get_total_gpu_saved()
+        cache_saved = substrate_network.get_total_cache_saved()
+        
+        shared_vnfs_count = substrate_network.metrics.shared_vnfs_count
         
         jain_cpu = round(substrate_network.get_cpu_jain_fairness(), 4)
         jain_gpu = round(substrate_network.get_gpu_jain_fairness(), 4)
@@ -266,8 +271,6 @@ class OutputWritter:
         sfc_recovery_time = 0
         sfc_recovered = None
         
-        crashed_sfcs = []
-
         self.update_user_count(sfc_id)
 
         first_loop = (self.first_time == 0)
@@ -281,59 +284,40 @@ class OutputWritter:
         decision_time =  str(round(run_duration * 1000, 3))
 
 
-        # ============================================================
-        # LÓGICA DE CONFIABILIDADE (SUBSTITUÍDA PELO NOVO BLOCO)
-        # ============================================================
-
         avg_sfc_reliability = 0.0
         count_high_risk = 0
         count_medium_risk = 0
         count_low_risk = 0
 
-        # CASO 1: Se o Controller mandou o cálculo correto (com backups), use-o.
         if avg_sfc_reliability_override is not None:
             avg_sfc_reliability = avg_sfc_reliability_override
-            
-            # Contagem de risco (simplificada, apenas para manter métricas de log)
             if substrate_network.sfc_dict:
                 for s_id, sfc in substrate_network.sfc_dict.items():
-                    if "backup" in s_id:
-                        continue
-                    
+                    if "backup" in s_id: continue
                     if s_id in substrate_network.sfc_route_info:
                         route_info = substrate_network.sfc_route_info[s_id]
-                        
                         unique_nodes = set()
                         for vnf_id, path in route_info.items():
                             if vnf_id not in ['src', 'dst'] and path:
                                 unique_nodes.add(path[0])
-                        
                         sfc_reliability = 1.0
                         for node in unique_nodes:
                             sfc_reliability *= substrate_network.get_node_reliability(node)
                         
-                        if sfc_reliability < 0.933:
-                            count_high_risk += 1
-                        elif 0.933 <= sfc_reliability <= 0.966:
-                            count_medium_risk += 1
-                        else:
-                            count_low_risk += 1
-
-        # CASO 2: Fallback (Lógica Antiga)
+                        if sfc_reliability < 0.933: count_high_risk += 1
+                        elif 0.933 <= sfc_reliability <= 0.966: count_medium_risk += 1
+                        else: count_low_risk += 1
         else:
             total_reliability = 0.0
             active_sfc_count = 0
-            
             if substrate_network.sfc_dict:
                 for s_id, sfc in substrate_network.sfc_dict.items():
                     if s_id in substrate_network.sfc_route_info:
                         route_info = substrate_network.sfc_route_info[s_id]
-                        
                         unique_nodes = set()
                         for vnf_id, path in route_info.items():
                             if vnf_id not in ['src', 'dst'] and path:
                                 unique_nodes.add(path[0])
-                        
                         sfc_reliability = 1.0
                         for node in unique_nodes:
                             sfc_reliability *= substrate_network.get_node_reliability(node)
@@ -341,19 +325,11 @@ class OutputWritter:
                         if sfc_reliability > 0.0001:
                             total_reliability += sfc_reliability
                             active_sfc_count += 1
-                            
-                            if sfc_reliability < 0.9:
-                                count_high_risk += 1
-                            elif 0.9 <= sfc_reliability <= 0.95:
-                                count_medium_risk += 1
-                            else:
-                                count_low_risk += 1
+                            if sfc_reliability < 0.9: count_high_risk += 1
+                            elif 0.9 <= sfc_reliability <= 0.95: count_medium_risk += 1
+                            else: count_low_risk += 1
             
             avg_sfc_reliability = total_reliability / active_sfc_count if active_sfc_count > 0 else 0.0
-
-        # ============================================================
-        # CONTINUA O CÓDIGO ORIGINAL
-        # ============================================================
 
         line = (
             f"{counter},"
@@ -412,146 +388,66 @@ class OutputWritter:
 
 
     def update_user_count(self, sfc_id):
-        # Extrair o número do player e da sessão
-        player = int(sfc_id.split("_")[-2][1])
-        session = int(sfc_id.split("_")[-1])
-        
-        # Verificar se a sessão atual é um backup (sessões pares são backups)
-        users = self.counter_users
-
-        users = (session - 1) * 5 + player
-        
-        if users > self.counter_users:
-            self.counter_users = users
-
+        try:
+            player = int(sfc_id.split("_")[-2][1])
+            session = int(sfc_id.split("_")[-1])
+            users = (session - 1) * 5 + player
+            if users > self.counter_users:
+                self.counter_users = users
+        except (IndexError, ValueError):
+            pass
 
     def output_cpu_utilization(self, substrate_network, deploy_time, crashed_nodes=[]) -> None:
-        """
-        Outputs the CPU utilization of nodes to a specified file.
-        Will only log nodes that are NOT GPU nodes (do not end in .1).
-
-        Args:
-            deploy_time (float): The deployment time to record with the utilization data.
-            crashed_nodes (list): List of nodes that are crashed and should not report CPU usage.
-        """
         processing_nodes = sorted(self.processing_nodes)
-        
-        # Modificado para registrar 'None' se for um nó de GPU
         cpu_nodes_util = []
         for node in processing_nodes:
             if node in crashed_nodes:
                 cpu_nodes_util.append(None)
-            elif str(node).endswith(".1"): # Se for GPU, não registre no arquivo de CPU
+            elif str(node).endswith(".1"): 
                 cpu_nodes_util.append(None)
             else:
                 cpu_nodes_util.append(round(substrate_network.get_node_cpu_used(node), 2))
-
-        # Format the array to a string
         string_cpu_nodes_util = ','.join(['None' if value is None else f"{value:.2f}" for value in cpu_nodes_util])
-
-        # Write the result to the file
         with open(self.cpu_utilization_file, "a") as file:
             file.write(f"{deploy_time},{string_cpu_nodes_util}\n")
 
     def output_cache_utilization(self, substrate_network, deploy_time, crashed_nodes=[]) -> None:
-        """
-        Outputs the cache utilization of nodes to a specified file.
-
-        Args:
-            deploy_time (float): The deployment time to record with the utilization data.
-            crashed_nodes (list): List of nodes that are crashed and should not report cache usage.
-        """
         processing_nodes = sorted(self.processing_nodes)
-
         cache_nodes_util = [
             None if node in crashed_nodes else round(substrate_network.get_node_cache_used(node), 2)
             for node in processing_nodes
         ]
-
-        # Format the array to a string
         string_cache_nodes_util = ','.join(['None' if value is None else f"{value:.2f}" for value in cache_nodes_util])
-
-        # Write the result to the file
         with open(self.cache_utilization_file, "a") as file:
             file.write(f"{deploy_time},{string_cache_nodes_util}\n")
 
     def output_gpu_utilization(self, substrate_network, deploy_time, crashed_nodes=[]) -> None:
-        """
-        Outputs the GPU utilization of nodes to a specified file.
-        Will only log nodes that ARE GPU nodes (end in .1).
-
-        Args:
-            deploy_time (float): The deployment time to record with the utilization data.
-            crashed_nodes (list): List of nodes that are crashed and should not report CPU usage.
-        """
         processing_nodes = sorted(self.processing_nodes)
-        
-        # Modificado para registrar 'None' se for um nó de CPU
         gpu_nodes_util = []
         for node in processing_nodes:
             if node in crashed_nodes:
                 gpu_nodes_util.append(None)
-            elif not str(node).endswith(".1"): # Se for CPU, não registre no arquivo de GPU
+            elif not str(node).endswith(".1"): 
                 gpu_nodes_util.append(None)
-            else: # É um nó GPU, registre seu uso (que está em 'cpu_used' do nó)
+            else: 
                 gpu_nodes_util.append(round(substrate_network.get_node_cpu_used(node), 2))
-
-        # Format the array to a string
         string_gpu_nodes_util = ','.join(['None' if value is None else f"{value:.2f}" for value in gpu_nodes_util])
-
-        # Write the result to the file
         with open(self.gpu_utilization_file, "a") as file:
             file.write(f"{deploy_time},{string_gpu_nodes_util}\n")
-# --- FIM DA NOVA FUNÇÃO ---
-
 
     def output_bandwidth_utilization(self, substrate_network, deploy_time: float) -> None:
-        """
-        Outputs the bandwidth utilization of network edges to a specified file.
-
-        Args:
-            deploy_time (float): The deployment time to record with the utilization data.
-        """
         nodes_one = [node_one for node_one, node_two in self.edges]
         nodes_two = [node_two for node_one, node_two in self.edges]
-
         bw_edges_util = np.array(list(map(substrate_network.get_link_bandwidth_used, nodes_one, nodes_two)))
-
         string_bw_edges_util = np.array2string(bw_edges_util, suppress_small=True,
                                                precision=3, separator=';', 
                                                formatter={'float_kind': lambda x: "%.2f" % x})
-
         string_bw_edges_util = re.sub(' ', '', string_bw_edges_util)
         string_bw_edges_util = re.sub('\n', '', string_bw_edges_util)
-
         with open(self.bw_utilization_file, "a") as file:
             file.write(str(deploy_time) + ';' + string_bw_edges_util[1:-1] + '\n')
 
     def output_nodes_sf_utilization(self, substrate_network, deploy_time: float) -> None:
-        """
-        Outputs the service function (SF) utilization of nodes to a specified file.
-
-        This function calculates the number of service functions running on each node in the network.
-        The results are formatted as a string and appended to the SF utilization file.
-
-        Args:
-            deploy_time (float): The deployment time to record with the utilization data.
-            substrate_network (object): The substrate network object containing node information.
-
-        Returns:
-            None
-        """
-        # sf_nodes_util = np.array([len(substrate_network.get_node_sfc_vnf_list(node)) for node in self.nodes])
-
-        # string_sf_nodes_util = np.array2string(sf_nodes_util, suppress_small=True,
-        #                                        precision=3, separator=',', 
-        #                                        formatter={'float_kind': lambda x: "%.2f" % x})
-
-        # string_sf_nodes_util = re.sub(' ', '', string_sf_nodes_util)
-        # string_sf_nodes_util = re.sub('\n', '', string_sf_nodes_util)
-
-        # with open(self.sf_utilization_file, "a") as file:
-        #     file.write(str(deploy_time) + ',' + string_sf_nodes_util[1:-1] + '\n')
         pass
 
     def output_nodes_information(self, substrate_network,*args) -> None:
@@ -564,10 +460,6 @@ class OutputWritter:
         substrate_network.print_out_acceptance_information(success)
 
     def print_output_info(self, substrate_network,success) -> None:
-        """
-        Outputs information about nodes and edges' 
-        resource utilization. 
-        """
         self.output_nodes_information(substrate_network,None, None)
         self.output_edges_information(substrate_network,None)
         self.output_acceptance_information(substrate_network,success)

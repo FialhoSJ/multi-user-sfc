@@ -170,16 +170,19 @@ class SFCManager:
     # Backup Delegation
     # ==========================================
 
-    def create_backups(self, network: Net2, agent_ref=None):
-        """
-        Delega a criação de backups para o BackupManager.
-        Mantém a interface para compatibilidade com o Controller.
+    def create_backups(self, network: Net2, agent_ref: Any = None) -> Tuple[List[Any], str]:
+        """Delega a criação de backups para o BackupManager.
+
+        Args:
+            network: A rede de substrato.
+            agent_ref: O agente de aprendizado (opcional).
+
+        Returns:
+            Tupla com (lista de backups, nome da estratégia). Retorna vazio se falhar.
         """
         if self.backup_manager:
-            # A lógica de implantação real (deploy) é tratada dentro do BackupManager
-            # ou retornada por ele. Assumindo que o Controller chama isso.
-            self.backup_manager.create_backups(network, agent_ref)
-
+            return self.backup_manager.create_backups(network, agent_ref)
+        return [], "none"
     # ==========================================
     # Risk Assessment & Recovery Methods
     # ==========================================

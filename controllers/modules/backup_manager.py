@@ -126,42 +126,82 @@ class BackupManager:
     # Creation Strategies
     # ==========================================
 
-    def create_backups(self, network: Net2, agent_ref=None) -> Tuple[List[Any], str]:
-        """
-        Ponto de entrada para criação de backups.
-        Retorna a lista de SFCs a serem implantadas e o nome da estratégia usada.
+    def create_backups(self, network: Net2, agent_ref: Any = None) -> Tuple[List[Any], str]:
+        """Orquestra a criação e o registro de backups baseado na estratégia definida.
+        
+        Atua como uma fachada para as estratégias de alocação, garantindo que
+        qualquer backup gerado seja imediatamente registrado no estado interno.
+
+        Args:
+            network: A instância da rede de substrato atual.
+            agent_ref: Referência opcional para o agente de RL (se aplicável).
+
+        Returns:
+            Uma tupla contendo a lista de SFCs de backup criadas e o nome da estratégia.
         """
         if not self.backup_activated:
             return [], "none"
 
-        # Cria dicionário auxiliar necessário para as estratégias
-        sfc_id_duration = {}
+        # ... (código de preparação do sfc_id_duration mantém-se igual) ...
+        # Apenas para contexto, mantive a lógica de dicionário auxiliar aqui
+        sfc_id_duration = {} 
         for sfc_id, sfc in network.sfc_dict.items():
-            # Evita criar backup de um backup
-            if "backup" in sfc_id:
-                continue
-                
+            if "backup" in sfc_id: continue
             start_t = getattr(sfc, 'arrival_time', time.time())
-            sfc_id_duration[sfc_id] = {
-                "timer": start_t,
-                "duration": getattr(sfc, 'duration', 100)
-            }
+            sfc_id_duration[sfc_id] = {"timer": start_t, "duration": getattr(sfc, 'duration', 100)}
 
-        # Seleção de Estratégia
+        # 1. Seleção e Execução da Estratégia
+        backups_mount: List[List[Any]] = []
+        strategy_name: str = "greedy"
+
         if self.alg == 'SBRCMASKABLEPPO' and agent_ref is not None:
-            # Estratégia RL (Deep Reinforcement Learning)
             backups_mount = self.rl_based_strategy(network, sfc_id_duration, agent_ref)
-            return backups_mount, 'rl_based'
-            
+            strategy_name = 'rl_based'
         elif self.alg in ['vegeta', 'ga']:
-            # Estratégia Seletiva
             backups_mount = self.seletive_strategy(network, sfc_id_duration)
-            return backups_mount, 'seletive'
-            
+            strategy_name = 'seletive'
         else:
-            # Estratégia Greedy (Padrão)
             backups_mount = self.greedy_strategy(network, sfc_id_duration)
-            return backups_mount, 'greedy'
+            strategy_name = 'greedy'
+
+        # 2. Persistência de Estado (Correção do Bug)
+        # O Manager assume a responsabilidade de registrar o que acabou de criar.
+        self._commit_backup_state(backups_mount)
+
+        return backups_mount, strategy_name
+    
+
+    def _commit_backup_state(self, backups_groups: List[List[Any]]) -> None:
+        """Registra internamente os backups recém-criados para evitar duplicidade.
+        
+        Este método privado encapsula a lógica de atualização de estado,
+        impedindo que detalhes de implementação vazem para o Controller.
+
+        Args:
+            backups_groups: Lista de listas contendo objetos SFC de backup.
+        """
+        if not backups_groups:
+            return
+
+        for group in backups_groups:
+            for backup_sfc in group:
+                # Extração segura de atributos usando getattr para robustez [cite: 198]
+                original_id = getattr(backup_sfc, 'original_sfc_id', None)
+                target_vnf = getattr(backup_sfc, 'target_vnf_id', None)
+                route_info = getattr(backup_sfc, 'pre_calculated_route', None)
+
+                # Validação estrita antes do registro
+                if original_id and target_vnf:
+                    # Se não houver rota pré-calculada (ex: greedy), usamos um dict vazio
+                    # ou a lógica específica da sua implementação greedy
+                    final_route = route_info if route_info else {}
+                    
+                    self.register_backup_deployment(
+                        original_sfc_id=original_id,
+                        backup_sfc_id=backup_sfc.id,
+                        vnf_id=target_vnf,
+                        route_info=final_route
+                    )
 
     def _calc_virtual_reliability(self, network: Net2, sfc_id: str, 
                                 pending_backups_sfcs: List[Any]) -> Tuple[float, List[Dict]]:
@@ -237,7 +277,7 @@ class BackupManager:
         Cria backups iterativamente até que a confiabilidade atinja a meta.
         """
         backups_mount = []
-        target_reliability = 0.9
+        target_reliability = 0.85
         
         sorted_sfcs = sorted(list(sfc_id_duration.keys()))
 
