@@ -1,19 +1,39 @@
 import copy
 import time
 import random
+from typing import List, Dict, Optional, Tuple, Any, Set
+
 from controllers.sfc_generator import SFCGenerator
 from core.net_v2 import Net2
 from core.sfc import SFC
+# Assumindo que o ambiente RL esteja disponível neste caminho
 from algorithms.environments.env_sbrc import SFC_AllocationEnv
 
 class BackupManager:
+    """
+    Gerencia o ciclo de vida lógico e as estratégias de criação de backups.
+    
+    Responsabilidades:
+    1. Definir estratégias de alocação (Greedy, RL, Seletiva).
+    2. Identificar backups obsoletos para coleta de lixo.
+    3. Manter o registro lógico de quais backups pertencem a quais SFCs.
+    
+    Nota: Esta classe NÃO deve manipular a rede física diretamente (undeploy).
+    """
+
     def __init__(self, args):
-        self.sfcs_backups_instatiated = {}
-        self.backups_sfc_instantiated = {}
-        self.backups_activated = []
+        # Mapeia: ID da SFC Original -> Lista de metadados dos backups
+        # Ex: {'sfc_1': [{'sfc_backup_id': 'sfc_1_bk', 'vnf_id': 'vnf1', ...}]}
+        self.sfcs_backups_instatiated: Dict[str, List[Dict[str, Any]]] = {}
+        
+        # Mapeia: ID do Backup -> ID da SFC Original
+        # Ex: {'sfc_1_bk': 'sfc_1'}
+        self.backups_sfc_instantiated: Dict[str, str] = {}
+        
+        # Lista de backups que estão ativos (assumiram o lugar do primário)
+        self.backups_activated: List[str] = []
         
         target_algorithm = 'SBRCMASKABLEPPO'
-        
         is_target_alg = (args.alg == target_algorithm)
         user_wants_backup = (args.backup == 'y') and (args.ava != '1.0')
         
@@ -25,13 +45,129 @@ class BackupManager:
 
         self.standard_reduction_factor = 1.0
 
-    def _calc_virtual_reliability(self, network: Net2, sfc_id, pending_backups_sfcs):
+    # ==========================================
+    # Lifecycle & State Management (Refatorado)
+    # ==========================================
+
+    def identify_obsolete_backups(self) -> List[str]:
+        """
+        Identifica backups que podem ser removidos com base na estratégia do algoritmo
+        (ex: estratégia probabilística do Vegeta/GA).
+        
+        Returns:
+            List[str]: Lista de IDs de backups que devem ser removidos pelo Controller.
+        """
+        backups_to_remove = []
+        
+        # Se o algoritmo não for um destes, não fazemos limpeza proativa probabilística
+        if self.alg not in ['vegeta', 'ga']:
+            return []
+
+        # Itera sobre uma cópia das chaves para segurança
+        for backup_id in list(self.backups_sfc_instantiated.keys()):
+            # Se o backup já foi ativado (está segurando o tráfego), não remova!
+            if backup_id in self.backups_activated:
+                continue
+            
+            # Estratégia probabilística: 70% de chance de limpar backups ociosos
+            if random.random() < 0.7:
+                backups_to_remove.append(backup_id)
+                
+        return backups_to_remove
+
+    def cleanup_internal_state(self, backup_id: str) -> None:
+        """
+        Remove os registros lógicos de um backup. Deve ser chamado pelo Controller
+        SOMENTE APÓS a remoção física ter sido bem sucedida.
+        
+        Args:
+            backup_id (str): O ID da SFC de backup que foi removida.
+        """
+        # 1. Identifica a SFC original dona deste backup
+        original_sfc = self.backups_sfc_instantiated.get(backup_id)
+
+        # 2. Remove da lista da SFC original
+        if original_sfc and original_sfc in self.sfcs_backups_instatiated:
+            backups_list = self.sfcs_backups_instatiated[original_sfc]
+            
+            # Filtra a lista mantendo apenas os OUTROS backups
+            self.sfcs_backups_instatiated[original_sfc] = [
+                b for b in backups_list if b.get("sfc_backup_id") != backup_id
+            ]
+
+            # Se a lista ficar vazia, remove a entrada da SFC original para economizar memória
+            if not self.sfcs_backups_instatiated[original_sfc]:
+                del self.sfcs_backups_instatiated[original_sfc]
+        
+        # 3. Remove o mapeamento reverso
+        if backup_id in self.backups_sfc_instantiated:
+            del self.backups_sfc_instantiated[backup_id]
+            
+        # 4. Remove da lista de ativados, se estiver lá
+        if backup_id in self.backups_activated:
+            self.backups_activated.remove(backup_id)
+
+    def register_backup_deployment(self, original_sfc_id: str, backup_sfc_id: str, 
+                                 vnf_id: str, route_info: Dict) -> None:
+        """
+        Registra um novo backup implantado com sucesso.
+        """
+        if original_sfc_id not in self.sfcs_backups_instatiated:
+            self.sfcs_backups_instatiated[original_sfc_id] = []
+
+        self.sfcs_backups_instatiated[original_sfc_id].append({
+            "sfc_backup_id": backup_sfc_id,
+            "vnf_id": vnf_id,
+            "route_info": route_info
+        })
+        self.backups_sfc_instantiated[backup_sfc_id] = original_sfc_id
+
+    # ==========================================
+    # Creation Strategies
+    # ==========================================
+
+    def create_backups(self, network: Net2, agent_ref=None) -> Tuple[List[Any], str]:
+        """
+        Ponto de entrada para criação de backups.
+        Retorna a lista de SFCs a serem implantadas e o nome da estratégia usada.
+        """
+        if not self.backup_activated:
+            return [], "none"
+
+        # Cria dicionário auxiliar necessário para as estratégias
+        sfc_id_duration = {}
+        for sfc_id, sfc in network.sfc_dict.items():
+            # Evita criar backup de um backup
+            if "backup" in sfc_id:
+                continue
+                
+            start_t = getattr(sfc, 'arrival_time', time.time())
+            sfc_id_duration[sfc_id] = {
+                "timer": start_t,
+                "duration": getattr(sfc, 'duration', 100)
+            }
+
+        # Seleção de Estratégia
+        if self.alg == 'SBRCMASKABLEPPO' and agent_ref is not None:
+            # Estratégia RL (Deep Reinforcement Learning)
+            backups_mount = self.rl_based_strategy(network, sfc_id_duration, agent_ref)
+            return backups_mount, 'rl_based'
+            
+        elif self.alg in ['vegeta', 'ga']:
+            # Estratégia Seletiva
+            backups_mount = self.seletive_strategy(network, sfc_id_duration)
+            return backups_mount, 'seletive'
+            
+        else:
+            # Estratégia Greedy (Padrão)
+            backups_mount = self.greedy_strategy(network, sfc_id_duration)
+            return backups_mount, 'greedy'
+
+    def _calc_virtual_reliability(self, network: Net2, sfc_id: str, 
+                                pending_backups_sfcs: List[Any]) -> Tuple[float, List[Dict]]:
         """
         Calcula a confiabilidade total REAL da SFC, consultando a confiabilidade
         do nó físico onde o backup está (ou será) alocado.
-        
-        pending_backups_sfcs: Lista de objetos SFC (Mini-SFCs) criados neste ciclo,
-                              que já possuem 'pre_calculated_route' definida pelo agente.
         """
         if sfc_id not in network.sfc_route_info:
             return 0.0, []
@@ -59,12 +195,9 @@ class BackupManager:
             # A) Verifica Backups JÁ Instanciados (Ciclos passados)
             if sfc_id in self.sfcs_backups_instatiated:
                 for b in self.sfcs_backups_instatiated[sfc_id]:
-                    # Verifica se o backup protege ESTA vnf
                     if b['vnf_id'] == vnf_id:
-                        # Extrai o nó da rota do backup
                         bk_route = b.get('route_info', {})
                         for k, v in bk_route.items():
-                            # Procura a VNF de backup (sufixo _b)
                             if k.endswith('_b') and v:
                                 bk_node = v[0]
                                 r_backup = network.get_node_reliability(bk_node)
@@ -72,17 +205,13 @@ class BackupManager:
                                 break
                     if has_backup: break
 
-            # B) Verifica Backups Pendentes (Criados neste loop while)
+            # B) Verifica Backups Pendentes (Criados neste loop)
             if not has_backup:
                 for mini_sfc in pending_backups_sfcs:
-                    # O nome da VNF de backup no mini_sfc deve ser "vnf_id + _b"
                     target_backup_name = f"{vnf_id}_b"
                     
-                    # Verifica se a rota foi calculada pelo agente
                     if hasattr(mini_sfc, 'pre_calculated_route') and mini_sfc.pre_calculated_route:
                         bk_route = mini_sfc.pre_calculated_route
-                        
-                        # Verifica se essa Mini-SFC contém a VNF que estamos procurando
                         if target_backup_name in bk_route and bk_route[target_backup_name]:
                             bk_node = bk_route[target_backup_name][0]
                             r_backup = network.get_node_reliability(bk_node)
@@ -95,20 +224,17 @@ class BackupManager:
                 stage_r = 1.0 - ((1.0 - r_prim) * (1.0 - r_backup))
             else:
                 stage_r = r_prim
-                # Se não tem backup, é candidato a receber um
                 candidates.append({'vnf_id': vnf_id, 'node_rel': r_prim, 'node_id': node_id})
 
             total_reliability *= stage_r
 
-        # Retorna candidatos ordenados pelo nó MENOS confiável (Prioridade)
         sorted_candidates = sorted(candidates, key=lambda x: x['node_rel'])
         return total_reliability, sorted_candidates
         
-        
-    def rl_based_strategy(self, network: Net2, sfc_id_duration, agent):
+    def rl_based_strategy(self, network: Net2, sfc_id_duration: Dict, agent: Any) -> List[List[Any]]:
         """
         Estratégia baseada na Confiabilidade Total da SFC.
-        Cria backups iterativamente até que a confiabilidade COMPOSTA (Real) atinja a meta.
+        Cria backups iterativamente até que a confiabilidade atinja a meta.
         """
         backups_mount = []
         target_reliability = 0.9
@@ -120,72 +246,36 @@ class BackupManager:
             if sfc_id not in network.sfc_dict: continue
             
             sfc = network.get_sfc_by_id(sfc_id)
-            
-            # Lista de objetos SFC (Mini-SFCs) criados nesta sessão para esta SFC
             pending_sfcs_this_cycle = []
             
-            # Loop de Refinamento: Continua protegendo VNFs até bater a meta
             while True:
-                # Calcula confiabilidade considerando o que já existe + o que acabamos de criar
                 current_r, candidates = self._calc_virtual_reliability(
                     network, sfc_id, pending_sfcs_this_cycle
                 )
                 
-                # Se já atingiu a meta (0.99), paramos de gastar recursos
                 if current_r >= target_reliability:
                     break
                 
-                
-                # Se não tem mais VNFs desprotegidas para melhorar, paramos
                 if not candidates:
                     break
 
-                # Pega o pior caso
                 target_info = candidates[0] 
                 target_vnf = target_info['vnf_id']
                 weak_node = target_info['node_id']
 
-                # Cria o Contexto do Backup (Mini-SFC)
                 mini_sfc = self.create_contextual_mini_sfc(network, sfc, target_vnf, weak_node)
                 if not mini_sfc: 
                     break 
 
-                # --- Preparação do Ambiente RL ---
+                # Setup ambiente RL
                 graph_for_rl = copy.deepcopy(network.graph)
-                
-                mobile_node_id = getattr(mini_sfc, 'mobile_node', None)
-                closer_router_id = getattr(mini_sfc, 'closer_router', None)
+                self._enrich_graph_with_mobility(graph_for_rl, network, mini_sfc)
 
-                if mobile_node_id:
-                    if mobile_node_id in network.md_graph and mobile_node_id not in graph_for_rl:
-                        md_data = network.md_graph.nodes[mobile_node_id]
-                        graph_for_rl.add_node(mobile_node_id, **md_data)
-                    
-                    if closer_router_id and closer_router_id in graph_for_rl:
-                        router_data = graph_for_rl.nodes[closer_router_id]
-                        w_cap = router_data.get('w_channel_capacity', 0.0)
-                        w_used = router_data.get('w_channel_used', 0.0)
-                        wireless_free = max(0.0, w_cap - w_used)
-                        
-                        graph_for_rl.add_edge(
-                            mobile_node_id, 
-                            closer_router_id, 
-                            bandwidth_capacity=wireless_free, 
-                            bandwidth_used=0.00, 
-                            latency=1, 
-                            services_in_transit={}
-                        )
-
+                # Identifica nós válidos
                 valid_types = ['server', 'mobile_device']
-                
-                all_servers = [
-                    n for n, d in graph_for_rl.nodes(data=True) 
-                    if d.get('type') in valid_types
-                ]
+                all_servers = [n for n, d in graph_for_rl.nodes(data=True) if d.get('type') in valid_types]
                 
                 if not all_servers:
-                    if self.alg == 'SBRCMASKABLEPPO': # Apenas loga se for debug relevante
-                         pass 
                     break 
 
                 env = SFC_AllocationEnv(
@@ -195,91 +285,89 @@ class BackupManager:
                     is_training=False
                 )
                 
-                # Proíbe o nó fraco original para forçar redundância real
+                # Proíbe o nó fraco original
                 forbidden = [weak_node]
                 if isinstance(weak_node, (int, float)):
+                    # Tratamento para nós com IDs numéricos flutuantes (se houver)
                     forbidden.append(weak_node - 0.1 if weak_node % 1 == 0.1 else weak_node + 0.1)
                 env.set_forbidden_nodes(forbidden)
 
-                # Executa o Agente
                 agent.install_SFC(mini_sfc)
-                
                 try:
-                    debub = network.sfc_route_info[sfc_id]
                     agent.install_substrate_network(graph_for_rl)
                     success = agent.start_algorithm(env)
                 except KeyError as e:
-                    print(f"[BackupManager] Erro crítico no RL para SFC {sfc_id}: {e}. Pulando.")
+                    print(f"[BackupManager] Erro no RL para SFC {sfc_id}: {e}")
                     success = False
                 
                 if success:
                     route_info_backup = agent.get_route_info()
-                    debug = network.sfc_route_info.get(sfc.id)
-                    # Anexa a rota calculada ao objeto Mini-SFC
                     mini_sfc.pre_calculated_route = route_info_backup
-                    
-                    
-                    # Adiciona à lista local para o próximo cálculo de _calc_virtual_reliability
                     pending_sfcs_this_cycle.append(mini_sfc)
-                    
-                    # Adiciona à lista final de retorno
                     backups_mount.append([mini_sfc])
                 else:
-                    # Se falhou em alocar backup para este candidato, removemos ele da lista
-                    # de candidatos no próximo loop implicitamente ou forçamos o break
-                    # para evitar loop infinito tentando alocar o inalocável.
                     break
         
-        if backups_mount:
-            debug = 1
         return backups_mount
 
-    def greedy_strategy(self, network, sfc_id_duration, threshold=0):
+    def _enrich_graph_with_mobility(self, graph, network, mini_sfc):
+        """Helper para adicionar nós móveis ao grafo copiado para o RL."""
+        mobile_node_id = getattr(mini_sfc, 'mobile_node', None)
+        closer_router_id = getattr(mini_sfc, 'closer_router', None)
+
+        if mobile_node_id:
+            if mobile_node_id in network.md_graph and mobile_node_id not in graph:
+                md_data = network.md_graph.nodes[mobile_node_id]
+                graph.add_node(mobile_node_id, **md_data)
+            
+            if closer_router_id and closer_router_id in graph:
+                router_data = graph.nodes[closer_router_id]
+                w_cap = router_data.get('w_channel_capacity', 0.0)
+                w_used = router_data.get('w_channel_used', 0.0)
+                wireless_free = max(0.0, w_cap - w_used)
+                
+                graph.add_edge(
+                    mobile_node_id, 
+                    closer_router_id, 
+                    bandwidth_capacity=wireless_free, 
+                    bandwidth_used=0.00, 
+                    latency=1, 
+                    services_in_transit={}
+                )
+
+    def greedy_strategy(self, network: Net2, sfc_id_duration: Dict) -> List[List[Any]]:
+        """Estratégia gulosa aleatória para criação de backups."""
         backups_mount = []
         sfcs_id = list(sfc_id_duration.keys())
-        
         random.shuffle(sfcs_id)
         
-        if not sfcs_id:
-            return []
+        if not sfcs_id: return []
 
         for sfc_id in sfcs_id:
-            # Validações iniciais
+            # Validações básicas
             parts = sfc_id.split("_")
-            if len(parts) > 2 and parts[2] == 'backup':
-                continue
-
-            if sfc_id not in network.sfc_dict or sfc_id not in sfc_id_duration:
-                continue
-
-            if sfc_id in self.sfcs_backups_instatiated:
-                continue
-
-            if random.random() < 0.6:
-                continue
+            if len(parts) > 2 and parts[2] == 'backup': continue
+            if sfc_id not in network.sfc_dict: continue
+            if sfc_id in self.sfcs_backups_instatiated: continue
+            
+            # Chance aleatória
+            if random.random() < 0.6: continue
 
             name = f"{parts[0]}_{parts[1]}_backup_{parts[2]}_{parts[3]}"
-            if name in self.backups_sfc_instantiated:
-                continue
+            if name in self.backups_sfc_instantiated: continue
 
-            # --- CORREÇÃO DE DURAÇÃO ---
-            # Calcula quanto tempo falta para a SFC acabar
+            # Tempo restante
             current_time = time.time()
             start_time = sfc_id_duration[sfc_id]['timer']
             total_duration = sfc_id_duration[sfc_id]['duration']
-            
             elapsed = current_time - start_time
             remaining_duration = max(10, total_duration - elapsed + 10)
 
-            # Preparação da nova SFC
-            reduction_factor = self.standard_reduction_factor 
-            
+            # Redução de recursos
             sfc = network.get_sfc_by_id(sfc_id)
             vnf_info = sfc.vnfs_dict
-
-            # --- CORREÇÃO DE LATÊNCIA ---
-            # Herda o requisito original ou usa 10ms como fallback seguro
             original_latency_req = getattr(sfc, 'latency_request', 10)
+            reduction_factor = self.standard_reduction_factor 
 
             new_vnfs_dict = []
             for info in vnf_info:
@@ -297,8 +385,8 @@ class BackupManager:
                 'bandwidth': sfc.input_throughput,
                 'src_node': sfc.src.substrate_node,
                 'dst_node': sfc.dst.substrate_node,
-                'duration': remaining_duration, # Valor corrigido
-                'latency': original_latency_req # Valor corrigido (Antes era 7)
+                'duration': remaining_duration,
+                'latency': original_latency_req
             }
 
             new_sfc = SFCGenerator(player_dict).generate()
@@ -308,17 +396,16 @@ class BackupManager:
 
         return backups_mount
     
-    def escolher_src_dst(self, dicionario, vnf_escolhida, latency_limit=10):
+    def escolher_src_dst(self, dicionario: Dict, vnf_escolhida: str, 
+                        latency_limit: int = 10) -> Tuple[Optional[str], Optional[str], int]:
+        """Seleciona nós de origem e destino baseados na topologia da SFC."""
         chaves = list(dicionario.keys())
-        
         if vnf_escolhida not in chaves:
             return None, None, None
 
         idx = chaves.index(vnf_escolhida)
         latency_dismiss = 0
-        src = None
-        dst = None
-
+        
         if idx == 0:  # Primeira VNF
             dst = chaves[idx]
             src = chaves[idx + 1]
@@ -335,15 +422,13 @@ class BackupManager:
         src_node = dicionario[src][0]
         dst_node = dicionario[dst][0]
         
-        # --- CORREÇÃO: Usa o limite passado como argumento ---
         latency_requirement = latency_limit - latency_dismiss
-        
         return dst_node, src_node, latency_requirement
 
-    def seletive_strategy(self, network, sfc_id_duration, threshold=0):
+    def seletive_strategy(self, network: Net2, sfc_id_duration: Dict, threshold: float = 0) -> List[List[Any]]:
+        """Estratégia seletiva baseada na confiabilidade dos nós."""
         backups_mount = []
         nodes_fail_p = network.nodes_reliability.copy()
-        
         nodes_highest_p = {node: rel for node, rel in nodes_fail_p.items() if rel > threshold}
         
         if not nodes_highest_p:
@@ -356,8 +441,7 @@ class BackupManager:
             server_info = network.get_node_sfc_vnf_list(server)
             current_time = time.time()
             
-            if not server_info:
-                continue
+            if not server_info: continue
 
             for info in server_info:
                 sfc_id = info[0]
@@ -365,15 +449,11 @@ class BackupManager:
                 vnf_id = vnf.id
                 parts = sfc_id.split("_")
 
-                if len(parts) > 2 and parts[2] == 'backup':
-                    continue
-
-                if sfc_id not in network.sfc_dict or sfc_id not in sfc_id_duration:
-                    continue
+                if len(parts) > 2 and parts[2] == 'backup': continue
+                if sfc_id not in network.sfc_dict or sfc_id not in sfc_id_duration: continue
 
                 name = f"{parts[0]}_{parts[1]}_backup_{vnf_id}_{parts[2]}_{parts[3]}"
-                if name in self.backups_sfc_instantiated:
-                    continue
+                if name in self.backups_sfc_instantiated: continue
 
                 sfc = network.get_sfc_by_id(sfc_id)
                 vnf_info = sfc.vnfs_dict
@@ -383,11 +463,10 @@ class BackupManager:
                 if 'src' in sfc_rf: del sfc_rf['src']
                 if 'dst' in sfc_rf: del sfc_rf['dst']
 
-                # Location pode falhar se vnf_id não estiver na rota (ex: src/dst virtual)
                 if vnf_id not in sfc_rf: continue
                 location = sfc_rf[vnf_id][0]
                 
-                src_out = resources_info['in_bw']
+                # Recursos
                 dst_in = resources_info['out_bw']
                 cpu = resources_info['CPU']
                 cache = resources_info['cache']
@@ -395,10 +474,9 @@ class BackupManager:
                 original_latency = getattr(sfc, 'latency_request', 10)
                 dst_node, src_node, latency_req = self.escolher_src_dst(sfc_rf, vnf_id, original_latency)
                 
-                if latency_req < 0 or dst_node is None:
-                    continue
+                if latency_req < 0 or dst_node is None: continue
 
-                # --- CORREÇÃO AQUI: Adicionado sufixo _b para consistência ---
+                # Definição do Mini-SFC
                 src_name = "src_virt"
                 backup_vnf_name = vnf_id + "_b" 
                 dst_name = "dst_virt"
@@ -407,21 +485,18 @@ class BackupManager:
                 backup_sf_list = [
                     {
                         "type": 2, "name": src_name, "CPU": 0, "cache": 0, 
-                        "in_bw": 0, "out_bw": 0, 
-                        "latency": 0, "location": src_node
+                        "in_bw": 0, "out_bw": 0, "latency": 0, "location": src_node
                     },
                     {
                         "type": 2, "name": backup_vnf_name, 
                         "CPU": cpu * reduction_factor, 
                         "cache": cache * reduction_factor, 
-                        "in_bw": 0, 
-                        "out_bw": dst_in * reduction_factor, 
+                        "in_bw": 0, "out_bw": dst_in * reduction_factor, 
                         "latency": 0, "original_loc": location, "original_sfc": sfc_id
                     },
                     {
                         "type": 2, "name": dst_name, "CPU": 0, "cache": 0, 
-                        "in_bw": 0, "out_bw": 0, 
-                        "latency": 0, "location": dst_node
+                        "in_bw": 0, "out_bw": 0, "latency": 0, "location": dst_node
                     }
                 ]
 
@@ -445,119 +520,69 @@ class BackupManager:
 
         return backups_mount
 
-    def create_backups(self, network):
-        """Método corrigido para gerar backups reativos/base."""
-        if not self.backup_activated:
-            return [], None
-
-        # Cria dicionário auxiliar necessário para as estratégias
-        sfc_id_duration = {}
-        for sfc_id, sfc in network.sfc_dict.items():
-            start_t = getattr(sfc, 'arrival_time', time.time())
-            sfc_id_duration[sfc_id] = {
-                "timer": start_t,
-                "duration": sfc.duration
-            }
-
-        # Se for SBRC ou Vegeta, usa estratégia seletiva como base
-        if self.alg in ['vegeta', 'ga', 'SBRCMASKABLEPPO']:
-            backups_mount = self.seletive_strategy(network, sfc_id_duration)
-            return backups_mount, 'seletive'
-        else:
-            backups_mount = self.greedy_strategy(network, sfc_id_duration)
-            return backups_mount, 'greedy'
-        
-    def create_contextual_mini_sfc(self, network, original_sfc: SFC, vnf_to_replicate_id, primary_node_id):
+    def create_contextual_mini_sfc(self, network: Net2, original_sfc: SFC, 
+                                 vnf_to_replicate_id: str, primary_node_id: str) -> Optional[SFC]:
         """
         Cria uma Mini-SFC (3 saltos) para alocação via DRL.
-        Contexto: A Origem é fixada no nó da VNF Anterior. 
-                  O Destino é fixado no nó da VNF Seguinte.
         """
         sfc_id = original_sfc.id
 
-        # --- [CORREÇÃO 1] Extração Robusta do Session ID ---
-        # Tenta pegar atributo, senão faz o parse uma última vez
         if hasattr(original_sfc, 'session_id'):
             session_id = original_sfc.session_id
         else:
-            # Fallback para o padrão sfc_pX_YYY
             parts = sfc_id.split('_')
             session_id = parts[-1]
 
-        vnf_info = original_sfc.vnfs_dict
-        
-        # Obtém Especificações Técnicas da VNF
         target_vnf_info = next((info for info in original_sfc.vnfs_dict if info['name'] == vnf_to_replicate_id), None)
         
         factor = self.standard_reduction_factor
         
-        if not target_vnf_info:
-            return None
+        if not target_vnf_info: return None
 
-        # Determina Vizinhos (Contexto Físico)
+        # Contexto Físico
         route_info = network.sfc_route_info.get(sfc_id)
         if not route_info: return None
 
-        # Lógica para encontrar Nó Anterior e Próximo
         current_vnf_obj = original_sfc.get_vnf_by_id(vnf_to_replicate_id)
         
-        # ENCONTRA LOCALIZAÇÃO FÍSICA ANTERIOR
+        # Localização Anterior
         prev_vnf = original_sfc.get_previous_vnf(current_vnf_obj)
         if prev_vnf.id == 'src':
             prev_node = original_sfc.src.substrate_node
         else:
             prev_node = route_info[prev_vnf.id][0] 
 
-        # ENCONTRA LOCALIZAÇÃO FÍSICA PRÓXIMA
+        # Localização Próxima
         next_vnf = original_sfc.get_next_vnf(current_vnf_obj)
         if next_vnf.id == 'dst':
             next_node = original_sfc.dst.substrate_node
         else:
             next_node = route_info[next_vnf.id][0]
 
-        # Constrói Dicionário da Mini-SFC
-        backup_vnf_name = vnf_to_replicate_id + "_b"
-        
+        # Constrói VNF List
         mini_sfc_vnfs = [
-            # Nó Virtual de Entrada (Fixo no prev_node)
             {
-                "type": 2, 
-                "name": "src_virt",  # <--- NOME FIXO
-                "CPU": 0, "cache": 0, "in_bw": 0, "out_bw": 0, "latency": 0, 
-                "location": prev_node
+                "type": 2, "name": "src_virt", 
+                "CPU": 0, "cache": 0, "in_bw": 0, "out_bw": 0, "latency": 0, "location": prev_node
             },
-            
-            # A VNF de Backup (O que queremos proteger)
             {
-                "type": 2, 
-                "name": vnf_to_replicate_id + "_b", 
+                "type": 2, "name": vnf_to_replicate_id + "_b", 
                 "CPU": target_vnf_info['CPU'] * factor, 
                 "cache": target_vnf_info['cache'] * factor, 
-                "in_bw": 0,   
-                "out_bw": 0, 
-                "latency": 0, 
-                "original_sfc": sfc_id
+                "in_bw": 0, "out_bw": 0, "latency": 0, "original_sfc": sfc_id
             },
-            
-            # Nó Virtual de Saída (Fixo no next_node)
             {
-                "type": 2, 
-                "name": "dst_virt", # <--- NOME FIXO
-                "CPU": 0, "cache": 0, "in_bw": 0, "out_bw": 0, "latency": 0, 
-                "location": next_node
+                "type": 2, "name": "dst_virt",
+                "CPU": 0, "cache": 0, "in_bw": 0, "out_bw": 0, "latency": 0, "location": next_node
             }
         ]
         
-        # --- CORREÇÃO 1: DURAÇÃO DINÂMICA ---
         current_time = time.time()
         start_time = getattr(original_sfc, 'arrival_time', current_time) 
         elapsed_time = current_time - start_time
         remaining_duration = max(10, original_sfc.duration - elapsed_time + 10)
-
-        # --- CORREÇÃO 3: LATÊNCIA DINÂMICA ---
         latency_constraint = getattr(original_sfc, 'latency_request', 10)
         
-        # --- [CORREÇÃO 2] ID Único e Explícito ---
         backup_name = f"{sfc_id}_backup_{vnf_to_replicate_id}"
         
         mini_sfc_dict = {
@@ -574,21 +599,18 @@ class BackupManager:
 
         mini_sfc = SFCGenerator(mini_sfc_dict).generate()
 
-        # --- Injeção de Metadados ---
         mini_sfc.original_sfc_id = original_sfc.id
         mini_sfc.is_backup = True
         mini_sfc.target_vnf_id = vnf_to_replicate_id
         mini_sfc.session_id = session_id
         
-        # [CORREÇÃO] A lógica estava invertida. 
-        # O fluxo é: Prev Node -> [VNF Backup] -> Next Node
-        mini_sfc.src_virt = prev_node  # O "src" virtual é de onde vem o dado (nó anterior)
-        mini_sfc.dst_virt = next_node  # O "dst" virtual é para onde vai o dado (nó seguinte)
+        mini_sfc.src_virt = prev_node
+        mini_sfc.dst_virt = next_node
 
         return mini_sfc
 
-
-    def get_backups_instantiated_q(self):
+    def get_backups_instantiated_q(self) -> int:
+        """Retorna a quantidade de VNFs de backup instanciadas (para logs)."""
         vnfs_backup_instantiate = 0
         backups = self.backups_sfc_instantiated
         
@@ -597,6 +619,7 @@ class BackupManager:
                 sfc_backups = self.sfcs_backups_instatiated.get(original_sfc, [])
                 vnfs_backup_instantiate += len(sfc_backups)
         else:
+            # Estimativa simples se não for GA
             vnfs_backup_instantiate = len(list(backups.keys())) * 4
 
         return vnfs_backup_instantiate

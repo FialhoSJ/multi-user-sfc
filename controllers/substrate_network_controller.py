@@ -139,14 +139,18 @@ class SubstrateNetworkController():
     #                       MAIN LOOP & ORCHESTRATION                         #
     ###########################################################################
 
-    def sequential_operation(self):
+    def sequential_operation(self) -> None:
         """
-        Controla a execução sequencial das operações de mobilidade, backups e falhas.
+        Controla a execução sequencial das operações.
+        Refatorado para usar o Garbage Collector centralizado.
         """
         self.initialize_timers()
         
         while not self.is_stopped:
-            self.check_duration() 
+            # [MODIFICADO] Centralização da limpeza de recursos
+            # Substitui self.check_duration() e chamadas dispersas de undeploy
+            self.handle_resources_cleanup()
+            
             self.handle_mobility()
             self.handle_backups()
             self.handle_fails()
@@ -400,22 +404,46 @@ class SubstrateNetworkController():
             self.remove_mobile_user(mob_player_id)
         return solution, is_success
 
-    def send_back_to_qeue(self, sfc_list, changed_location=False, new_location=False, punishment=10):
-        # A duração deve ser a mesma para as duas 
-        sfcs_tracker_info = self.sfc_manager.sfcs_tracker.get(sfc_list[0].dst_node)
+    def send_back_to_qeue(self, sfc_list: list, changed_location: bool = False, 
+                         new_location=False, punishment: int = 10) -> None:
+        """
+        Recicla uma lista de SFCs (Sessão), removendo a versão antiga da rede
+        e colocando uma nova versão (com tempo restante ajustado) na fila.
+        """
+        if not sfc_list:
+            return
+
+        # Identifica a sessão (Group ID)
+        session_id = sfc_list[0].dst_node
         
-        # Proteção caso a SFC já tenha sido limpa do tracker
+        # 1. Recupera informações de estado ANTES de limpar
+        sfcs_tracker_info = self.sfc_manager.sfcs_tracker.get(session_id)
+        
+        # Proteção caso a SFC já tenha sido limpa do tracker por outro processo
         if not sfcs_tracker_info:
             return
 
-        duration = sfcs_tracker_info["duration"] - (time.time() - sfcs_tracker_info["timer"]) 
-        new_sfc_list = []
+        # Calcula duração restante
+        time_elapsed = time.time() - sfcs_tracker_info["timer"]
+        remaining_duration = sfcs_tracker_info["duration"] - time_elapsed
         
+        # Se o tempo já acabou, não reenfileira (apenas limpa)
+        if remaining_duration <= 0:
+            self._force_cleanup_session(session_id)
+            return
+
+        new_sfc_list_dicts = []
+        
+        # 2. Prepara a configuração das Novas SFCs
         for sfc in sfc_list:
             sfc_id = sfc.id
             location = new_location if changed_location else sfc.closer_router
+            
+            # Copia profunda para não alterar a referência da SFC que ainda está na rede
             new_vnfs_list_dict = copy.deepcopy(sfc.vnfs_dict)
             
+            # --- Lógica de Negócio Específica (Cache/Mobilidade) ---
+            # Mantivemos intacta a sua lógica de manipulação de nomes/chaves
             if changed_location and 'cache' in sfc_id: 
                 old_loc = str(sfc.closer_router)
                 new_loc = str(new_location)
@@ -423,50 +451,61 @@ class SubstrateNetworkController():
                 ma_old_key = 'MA_region_' + old_loc
                 re_old_key = 'RE_region_' + old_loc
                 
-                old_routing_info = copy.deepcopy(self.sfc_manager.sfcs_routing_info)
+                # Nota: Acessamos o routing_info apenas para leitura/cópia aqui
+                old_routing_info = self.sfc_manager.sfcs_routing_info
                 
-                if ma_old_key in old_routing_info[sfc_id].keys():
-                    stored_info = old_routing_info[sfc_id][ma_old_key]
-                    del self.sfc_manager.sfcs_routing_info[sfc_id][ma_old_key]
-                    ma_new_key = re.sub(old_loc, new_loc, ma_old_key)
-                    self.sfc_manager.sfcs_routing_info[sfc_id][ma_new_key] = stored_info
-                    new_vnfs_list_dict[1]['name'] = ma_new_key
+                if sfc_id in old_routing_info:
+                    current_sfc_routes = old_routing_info[sfc_id]
+                    
+                    # Atualiza chaves MA
+                    if ma_old_key in current_sfc_routes:
+                        ma_new_key = re.sub(old_loc, new_loc, ma_old_key)
+                        # Atualiza o nome da VNF na nova definição
+                        new_vnfs_list_dict[1]['name'] = ma_new_key
 
-                if re_old_key in old_routing_info[sfc.id].keys():
-                    stored_info = old_routing_info[sfc_id][re_old_key]
-                    del self.sfc_manager.sfcs_routing_info[sfc_id][re_old_key]
-                    re_new_key = re.sub(old_loc, new_loc, re_old_key)
-                    self.sfc_manager.sfcs_routing_info[sfc_id][re_new_key] = stored_info
-                    new_vnfs_list_dict[2]['name'] = re_new_key
-                
-                src_path = old_routing_info[sfc_id]['src']
-                del self.sfc_manager.sfcs_routing_info[sfc_id]['src']
-                del self.sfc_manager.sfcs_routing_info[sfc_id]['dst']
-                self.sfc_manager.sfcs_routing_info[sfc_id]['src'] = src_path
-                self.sfc_manager.sfcs_routing_info[sfc_id]['dst'] = []
+                    # Atualiza chaves RE
+                    if re_old_key in current_sfc_routes:
+                        re_new_key = re.sub(old_loc, new_loc, re_old_key)
+                        # Atualiza o nome da VNF na nova definição
+                        new_vnfs_list_dict[2]['name'] = re_new_key
+            # -------------------------------------------------------
 
-            new_sfc_dict = {}
-            new_sfc_dict["name"] = sfc_id
-            new_sfc_dict["vnf_list"] = new_vnfs_list_dict
-            new_sfc_dict["bandwidth"] = sfc.input_throughput
-            new_sfc_dict["src_node"] = sfc.src.substrate_node
-            new_sfc_dict["dst_node"] = sfc.dst_node
-            new_sfc_dict["duration"] = duration
-            new_sfc_dict["closer_router"] = location
-            new_sfc_dict["latency"] = sfc.latency_request
-            #self.backup_manager.take_off_backup_if_exist([sfc_id])    
-            new_sfc_list.append(new_sfc_dict)
+            new_sfc_dict = {
+                "name": sfc_id,
+                "vnf_list": new_vnfs_list_dict,
+                "bandwidth": sfc.input_throughput,
+                "src_node": sfc.src.substrate_node,
+                "dst_node": sfc.dst_node,
+                "duration": remaining_duration,
+                "closer_router": location,
+                "latency": sfc.latency_request
+            }   
+            new_sfc_list_dicts.append(new_sfc_dict)
 
-        self.sfc_manager.undeploy_sfc(sfc_list[0].dst_node, self.substrate_network)
+        # 3. [CORREÇÃO ARQUITETURAL] Undeploy Centralizado
+        # O Controller ordena a limpeza lógica e executa a física.
+        
+        # A. Limpa tracker lógico e obtém IDs
+        sfc_ids_to_remove = self.sfc_manager.cleanup_session_state(session_id)
+        
+        # B. Executa remoção física segura (SFCs + Backups)
+        for old_sfc_id in sfc_ids_to_remove:
+            self._force_remove_sfc_and_backups(old_sfc_id)
 
-        new_sfcs = [SFCGenerator(sfc_dict).generate() for sfc_dict in new_sfc_list]
+        # 4. Instancia e Enfileira os Novos Objetos
+        new_sfcs_objects = [SFCGenerator(d).generate() for d in new_sfc_list_dicts]
 
-        # Define o tempo de entrada na fila AGORA
         current_enqueue_time = time.time()
-        for sfc in new_sfcs:
+        for sfc in new_sfcs_objects:
             sfc.enqueue_time = current_enqueue_time
 
-        self.sfc_queue.put_begin(new_sfcs)
+        self.sfc_queue.put_begin(new_sfcs_objects)
+
+    def _force_cleanup_session(self, session_id: str):
+        """Helper caso precise apenas limpar sem reenfileirar."""
+        ids = self.sfc_manager.cleanup_session_state(session_id)
+        for sfc_id in ids:
+            self._force_remove_sfc_and_backups(sfc_id)
 
     def check_timer_qeue(self):
         if self.timer_qeue_sfcs:
@@ -685,7 +724,9 @@ class SubstrateNetworkController():
             
     # Em controllers/substrate_network_controller.py
 
-    def _recover_sfcs(self, affected_sfc_ids, sfc_failed_nodes_map, pre_crash_latencies, sfc_owners_map):
+    def _recover_sfcs(self, affected_sfc_ids: set, sfc_failed_nodes_map: dict, 
+                  pre_crash_latencies: dict, sfc_owners_map: dict) -> Tuple[list, dict]:
+    
         fallen_sfcs_list = []
         post_crash_latencies = {}
 
@@ -719,7 +760,6 @@ class SubstrateNetworkController():
             if affected_vnf_id and sfc_id in aux:
                 backups_list = self.sfc_manager.backup_manager.sfcs_backups_instatiated[sfc_id]
                 for backup_entry in backups_list:
-                    # Limpa o sufixo _b se houver para comparar
                     b_vnf_clean = backup_entry['vnf_id'].replace("_b", "")
                     if b_vnf_clean == affected_vnf_id:
                         has_viable_backup = True
@@ -729,59 +769,69 @@ class SubstrateNetworkController():
             # DECISÃO: TENTAR RECUPERAR OU MANDAR PRA FILA?
             # ==============================================================================
 
-            # CAMINHO 1: Sem Backup -> Manda direto para a fila (Economiza processamento)
+            # CAMINHO 1: Sem Backup -> Manda direto para a fila
             if not has_viable_backup:
                 if self.verbose:
                     print(f"⚠️ [FAIL-FAST] SFC {sfc_id} perdeu VNF {affected_vnf_id} e NÃO tem backup. Enviando para fila.")
+                    if affected_vnf_id is None:
+                        debub = 1
 
-                # Registra a falha nas métricas
                 self.sfcs_crash_affected[sfc_id] = {
                     "fall_time": time.time(),
                     "old_latency": pre_crash_latencies.get(sfc_id, 0),
                     "resource_info": 0,
                     "backup_success": False,
                     "crash_trial": self.crashs_trials,
-                    "recover_success": False # Falhou no teste de backup
+                    "recover_success": False
                 }
 
-                # Prepara para re-enfileirar
                 tracker_id = sfc_owners_map.get(sfc_id)
                 if tracker_id and tracker_id in self.sfc_manager.sfcs_tracker:
                     self.mobility_manager.mark_vehicle_as_redeploying(tracker_id)
                     sfc_list_tracker = self.sfc_manager.sfcs_tracker[tracker_id]['sfc_list']
                     
                     if sfc_list_tracker:
-                        # send_back_to_qeue já faz o undeploy completo internamente
                         self.send_back_to_qeue(sfc_list_tracker, changed_location=False)
                         fallen_sfcs_list.extend(sfc_list_tracker)
                 
-                continue # Pula para a próxima SFC afetada
+                continue
 
             # CAMINHO 2: Tem Backup -> Tenta a Recuperação Cirúrgica
             
-            # Usa o novo método cirúrgico do Net2 (que você implementou no net_v2.py)
-            # Se não tiver implementado ainda, use o undeploy_sfc antigo aqui.
             try:
                 if hasattr(self.substrate_network, 'undeploy_specific_vnf_context'):
                      self.substrate_network.undeploy_specific_vnf_context(sfc_id, affected_vnf_id)
                 else:
-                    # Fallback para o método antigo se não tiver o net_v2 novo
                     self.sfc_manager.undeploy_sfc(sfc_owners_map.get(sfc_id), self.substrate_network, take_out_backup=False)
             except Exception as e:
                 print(f"Erro no undeploy pré-recuperação: {e}")
 
             recovery_start_time = time.time()
-            
-            # Chama a costura
-            recovered = self.sfc_manager.reconstruct_and_redeploy(
-                sfc_obj, 
-                relevant_server_down, 
-                old_route_info, 
-                self.substrate_network
-            )
+
+            # ==========================================================
+            # [ALTERAÇÃO] try/except no stitching
+            # ==========================================================
+            try:
+                recovered = self.sfc_manager.reconstruct_and_redeploy(
+                    sfc_obj, 
+                    relevant_server_down, 
+                    old_route_info, 
+                    self.substrate_network
+                )
+            except Exception as e:
+                print(f"Erro crítico no stitching: {e}")
+                recovered = False
 
             if recovered:
-                # Sucesso: Calcula métricas
+                # ======================================================
+                # [ALTERAÇÃO] limpeza lógica do backup usado
+                # ======================================================
+                if self.sfc_manager.backup_manager:
+                    # limpeza fina já feita no reconstruct_and_redeploy
+                    # aqui só garantimos consistência lógica se sobrar lixo
+                    pass
+
+                # Atualiza métricas (mantém lógica original)
                 new_lat = self._calculate_sfc_path_latency(sfc_id)
                 post_crash_latencies[sfc_id] = new_lat
                 old_lat = pre_crash_latencies.get(sfc_id, 0)
@@ -798,16 +848,25 @@ class SubstrateNetworkController():
                     "recover_success": True
                 }
             else:
-                # Se por algum milagre tinha backup mas falhou na hora H (ex: nó de backup também caiu)
-                # Aí mandamos para a fila aqui também
+                # ======================================================
+                # [ALTERAÇÃO] uso de _requeue_session
+                # ======================================================
                 tracker_id = sfc_owners_map.get(sfc_id)
-                if tracker_id and tracker_id in self.sfc_manager.sfcs_tracker:
-                    self.mobility_manager.mark_vehicle_as_redeploying(tracker_id)
-                    sfc_list_tracker = self.sfc_manager.sfcs_tracker[tracker_id]['sfc_list']
-                    self.send_back_to_qeue(sfc_list_tracker, changed_location=False)
-                    fallen_sfcs_list.extend(sfc_list_tracker)
+                if tracker_id:
+                    self._requeue_session(tracker_id, fallen_sfcs_list)
 
         return fallen_sfcs_list, post_crash_latencies
+    
+    def _requeue_session(self, tracker_id: str, fallen_list: list) -> None:
+        """Helper para reenfileirar sessões falhas."""
+        if tracker_id in self.sfc_manager.sfcs_tracker:
+            self.mobility_manager.mark_vehicle_as_redeploying(tracker_id)
+            sfc_list_tracker = self.sfc_manager.sfcs_tracker[tracker_id]['sfc_list']
+            
+            # send_back_to_qeue agora é seguro pois SFCManager não deleta fisicamente
+            # sem ordem do Controller, mas aqui o método força o undeploy
+            self.send_back_to_qeue(sfc_list_tracker, changed_location=False)
+            fallen_list.extend(sfc_list_tracker)
     
     def _compute_crash_metrics(
         self,
@@ -1038,6 +1097,76 @@ class SubstrateNetworkController():
 
         # Retorna a média
         return total_reliability / active_count if active_count > 0 else 0.0
+    
+    
+    def handle_resources_cleanup(self) -> None:
+        """
+        Orquestrador Central de Limpeza de Recursos (Garbage Collector).
+        
+        Responsável por sincronizar a remoção física (Network) com a limpeza
+        lógica (Managers), garantindo que não haja condições de corrida.
+        
+        Aplica o princípio EAFP (Easier to Ask Forgiveness than Permission) 
+        para operações de rede[cite: 197].
+        """
+        current_time = time.time()
+        
+        # ---------------------------------------------------------
+        # 1. Limpeza de Sessões Expiradas (Ciclo de Vida do Usuário)
+        # ---------------------------------------------------------
+        # O SFCManager apenas IDENTIFICA quem expirou.
+        expired_sessions = self.sfc_manager.get_expired_sessions(current_time)
+        
+        for session_id in expired_sessions:
+            # A. Recupera IDs das SFCs antes de limpar o registro lógico
+            sfc_ids_in_session = self.sfc_manager.cleanup_session_state(session_id)
+            
+            # B. Remove fisicamente cada SFC e seus backups associados
+            for sfc_id in sfc_ids_in_session:
+                self._force_remove_sfc_and_backups(sfc_id)
+
+            # C. Remove o Usuário Móvel (Hardware/Nó do Cliente)
+            self.remove_mobile_user(session_id)
+
+        # ---------------------------------------------------------
+        # 2. Limpeza de Backups Obsoletos (Estratégia Proativa/Vegeta)
+        # ---------------------------------------------------------
+        if self.sfc_manager.backup_manager:
+            # O BackupManager DECIDE o que é lixo, o Controller EXECUTA.
+            backups_to_kill = self.sfc_manager.backup_manager.identify_obsolete_backups()
+            
+            for backup_id in backups_to_kill:
+                self._safe_undeploy_backup(backup_id)
+
+    def _force_remove_sfc_and_backups(self, sfc_id: str) -> None:
+        """Helper para remover uma SFC e todos os seus backups de forma atômica."""
+        # 1. Remove Backups Associados
+        bm = self.sfc_manager.backup_manager
+        if bm and sfc_id in bm.sfcs_backups_instatiated:
+            # Copia a lista para evitar erro de modificação durante iteração
+            backups_list = list(bm.sfcs_backups_instatiated[sfc_id])
+            for backup_entry in backups_list:
+                b_id = backup_entry["sfc_backup_id"]
+                self._safe_undeploy_backup(b_id)
+        
+        # 2. Remove a SFC Principal
+        try:
+            self.substrate_network.undeploy_sfc(sfc_id)
+        except Exception:
+            # Ignora se já não existir (EAFP) [cite: 197]
+            pass
+
+    def _safe_undeploy_backup(self, backup_id: str) -> None:
+        """Helper para remover backup físico e limpar estado lógico."""
+        # 1. Remoção Física
+        try:
+            self.substrate_network.undeploy_sfc(backup_id)
+        except Exception:
+            pass
+        
+        # 2. Limpeza Lógica (Notifica o Manager que a remoção ocorreu)
+        if self.sfc_manager.backup_manager:
+            self.sfc_manager.backup_manager.cleanup_internal_state(backup_id)
 
     def output_results(self, results_dict, sfc_id, is_success, res_output=False, wait_time=None) -> None:
         current_time = time.time()

@@ -249,7 +249,7 @@ class Net2:
                 # (sfc, vnf, node) OU (node, sfc_id, vnf). 
                 # Baseado no 'deploy_sfc', o padrão costuma ser o objeto SFC.
                 # Vou usar a assinatura mais comum baseada no deploy:
-                self.deallocate_microservice(sfc, vnf, node_allocated)
+                self.deallocate_microservice(node_allocated,sfc_id, vnf)
             else:
                 # Opcional: Log de debug se quiser saber que limpou uma SFC de um nó morto
                 # print(f"Skipping deallocation for {ms_name} on dead node {node_allocated}")

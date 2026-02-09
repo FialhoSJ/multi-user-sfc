@@ -53,7 +53,7 @@ def main():
     parser.add_argument('--allow_delay', type=str, default='n', help='Allow delay (y/n)')
     
    # --- Parâmetros de Confiabilidade e Falhas ---
-    parser.add_argument('--backup', type=str, default='y', help='Backup enabled (y/n). Active only for specific algorithms.')
+    parser.add_argument('--backup', type=str, default='n', help='Backup enabled (y/n). Active only for specific algorithms.')
     
     # 1. Configuração MACRO (Gera o Cronograma)
     parser.add_argument('--ava', type=str, default='0.97', help='Meta Global de Disponibilidade')
