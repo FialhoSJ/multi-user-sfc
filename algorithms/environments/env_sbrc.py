@@ -180,11 +180,22 @@ class SFC_AllocationEnv(gymnasium.Env):
         # if mask[action] == 0:
         #     return self._fail_step('invalid_action')
 
-        # 1. Traduzir a ação para um nó do grafo
-        if action == len(self.valid_nodes) - 1:
-            chosen_server = self.current_sfc.dst_node
-        else: 
-            chosen_server = self.valid_nodes[action]
+        # --- CORREÇÃO DE ROBUSTEZ: Identificação de Nó Fixo ---
+        # Se a VNF atual tem local fixo (ex: src_virt), ignoramos a 'action' do agente
+        # e forçamos o nó correto. Isso garante que o cálculo de custo (Banda/Latência)
+        # seja feito para o link de entrada.
+        if hasattr(self.current_vnf, 'location') and self.current_vnf.location is not None:
+            chosen_server = self.current_vnf.location
+        elif self.current_vnf.id == 'src_virt':  # Fallback pelo nome
+            # Busca no dicionário se o objeto não tiver o atributo direto
+            vnf_data = next((v for v in self.current_sfc.vnfs_dict if v['name'] == 'src_virt'), None)
+            chosen_server = vnf_data['location'] if vnf_data else self.valid_nodes[action]
+        else:
+            # Lógica padrão (Agente decide)
+            if action == len(self.valid_nodes) - 1:
+                chosen_server = self.current_sfc.dst_node
+            else: 
+                chosen_server = self.valid_nodes[action]
 
         vnf = self.current_vnf
         band_req = self.service_requirements[vnf.id]['out_bw']
@@ -262,6 +273,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         obs = self._get_obs()
 
         return obs, reward, done, False, {}
+
 
     def action_masks(self) -> np.ndarray:
         """
@@ -583,6 +595,8 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.reverse_vnf_list = self.define_reverse_vnf_list(sfc)
         self.current_vnf = self.reverse_vnf_list[0]
         self.current_location = self.current_sfc.dst_node
+        # self.current_location = getattr(self.current_sfc, 'dst_virt', self.current_sfc.dst_node)
+
         self.servers_used = []
 
         service_requirements = {} 
@@ -606,11 +620,15 @@ class SFC_AllocationEnv(gymnasium.Env):
 
     def define_reverse_vnf_list(self, sfc: SFC) -> List[VNF]:
         vnf_list = []
-        dst_vnf = sfc.get_dst_vnf()
-        current_vnf = sfc.get_previous_vnf(dst_vnf)
+        if 'backup' not in sfc.id:
+            dst_vnf = sfc.get_dst_vnf()
+            current_vnf = sfc.get_previous_vnf(dst_vnf)
+        else:
+            current_vnf = sfc.vnfs[sfc.vnfs_dict[-1]['name']]
+            current_vnf = sfc.get_previous_vnf(current_vnf)
         while True:
             vnf_list.append(current_vnf)
-            if current_vnf.previous_vnf is None or current_vnf.previous_vnf.id == 'src':
+            if current_vnf.previous_vnf is None or current_vnf.previous_vnf.id == 'src' or "virt" in current_vnf.id:
                 break
             current_vnf = sfc.get_previous_vnf(current_vnf)
         return vnf_list

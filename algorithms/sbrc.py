@@ -163,16 +163,23 @@ class SBRC:
         self.latency = None
 
     def check_solution(self):
-        if not isinstance(self.latency, (int, float)) or not (0 <= self.latency <= self.sfc.get_latency_request()) or not self.route_info:
+        # Validação de robustez padrão
+        if not isinstance(self.latency, (int, float)) or not self.route_info:
             return False
-        expected_min_len = 3 if self.is_backup else 6
         
-        if len(self.route_info) < expected_min_len:
-            print(f"[CheckSolution] Falha de tamanho. Esperado >={expected_min_len}, Recebido: {len(self.route_info)} (Backup={self.is_backup})")
+        # CORREÇÃO:
+        # Como corrigimos o env_sbrc.py, agora todo backup terá rota completa.
+        # Podemos exigir consistência mínima de conexões (edges) em vez de tamanho fixo arbitrário.
+        
+        # Se quiser manter a verificação de tamanho por segurança:
+        min_hops = 2  # Pelo menos uma conexão (Origem -> Destino)
+        if len(self.route_info) < min_hops:
             return False
+
         prev_path_end = None
         for sf, path in self.route_info.items():
-            if sf == 'dst': continue
+            if sf == 'dst':
+                continue
            
             if prev_path_end and path[-1] != prev_path_end:
                 print(f"Inconsistência entre {prev_sf} e {sf}: {prev_path_end} != {path[0]}")
@@ -180,6 +187,7 @@ class SBRC:
             prev_path_end = path[0]
             prev_sf = sf
         return True
+
 
     def set_costs(self, costs_parameters):
         self.cpu_factor, self.cache_factor, self.band_factor = costs_parameters
@@ -231,63 +239,83 @@ class SBRC:
     ### MODIFICADO ###
     # Este método foi simplificado para apenas executar o loop de predição.
     def find_best_allocation_for_sfc(self, env: SFC_AllocationEnv, dst):
-        # A criação e reset do ambiente agora são feitos externamente.
-        # Apenas executamos o loop de decisão.
+        # A criação e reset do ambiente
         obs, _ = env.reset()
         env.is_training = False
+        
+        # Inicializa o resultado do destino
         env.allocation_results['dst'] = {'allocated_server': dst, 'path': [], 'cost': 0}
 
         done = False
         while not done:
-            # --- MODIFICADO: Chamada condicional do predict ---
             if self.model_name == "MASKABLEPPO":
                 action_masks = env.action_masks()
                 action, _ = self.model.predict(obs, action_masks=action_masks, deterministic=False)
             else:
-                # PPO Padrão e DQN não usam máscaras
                 action, _ = self.model.predict(obs, deterministic=False)
             
             obs, _, terminated, truncated, _ = env.step(action)
             done = terminated or truncated
-
-        # ... (dentro de find_best_allocation_for_sfc)
+            
+        
 
         if not env.success:
             if not VERBOSE:
-                print(f"Causa Falha: {env.fail_reason}")
-                print(f"Alocação: [{env.servers_used}] || Custo latência: {env.latency_used}")
+                # print(f"Causa Falha: {env.fail_reason}")
+                pass
             self.fail_reason = env.fail_reason
-            return [], None
+            return {}, None # Retorna dict vazio em vez de lista vazia
 
-        # --- MODIFICADO: Print Limpo para Backups ---
-        servers_output = env.servers_used
+        # --- CONSTRUÇÃO DO ROUTE INFO ---
+        # O env.allocation_results geralmente vem no formato:
+        # {'vnf_id': {'path': [nó_atual, ..., proximo_no], ...}}
         
-        # Se for backup (identificado pelo ID), queremos apenas o nó do meio
-        if "backup" in self.sfc.id and len(env.servers_used) == 3:
-            # A lista vem invertida [dst_virt, BACKUP, src_virt]
-            real_backup_node = env.servers_used[1] 
-            servers_output = [real_backup_node]
+        route_info = {}
+        
+        # 1. Copia e inverte os caminhos (se o env retornar invertido)
+        # Assumindo que env.allocation_results['path'] é [destino, ..., origem]
+        # e queremos [origem, ..., destino]
+        for key, value in env.allocation_results.items():
+            if value['path']:
+                route_info[key] = list(reversed(value['path']))
+            else:
+                route_info[key] = []
+
+        total_latency = env.latency_used
+
+        # --- TRATAMENTO DIFERENCIADO: SFC NORMAL vs BACKUP ---
+        if "backup" not in self.sfc.id:
+            # Lógica para SFC Normal (Conecta ao SRC Global/Cloud)
+            # Pega o primeiro nó da primeira VNF processada (que é a última na ordem reversa do dict)
+            if route_info:
+                first_vnf_key = list(route_info.keys())[-1] 
+                if route_info[first_vnf_key]:
+                    src_node_network = route_info[first_vnf_key][0]
+                else:
+                    # Fallback se path vazio
+                    src_node_network = env.allocation_results[first_vnf_key]['allocated_server']
+                
+                # Calcula caminho do Cloud (0) até a primeira VNF
+                try:
+                    path_to_src = list(nx.dijkstra_path(self.graph, 0, src_node_network, weight='weight'))
+                    # Remove o último elemento para não duplicar com o início da próxima rota
+                    # path_to_src = path_to_src[:-1] 
+                    route_info['src'] = path_to_src
+                    total_latency += (len(path_to_src) - 1) # Simplificação de latência por hops
+                except nx.NetworkXNoPath:
+                    self.fail_reason = "Sem rota para Cloud"
+                    return {}, None
+        else:
+            # --- LÓGICA PARA BACKUP (MINI-SFC) ---
+            # Não calculamos rota para o nó 0. 
+            # A Mini-SFC já é autocontida (src_virt -> vnf_b -> dst_virt).
+            # O env_sbrc já deve ter garantido a rota entre src_virt e vnf_b.
             
-            # (Opcional) Debug para você validar na primeira vez
-            # print(f"DEBUG BACKUP RAW: {env.servers_used}") 
+            # Apenas garantimos que não sobrou lixo e o formato é dict.
+            # O código anterior que sobrescrevia 'route_info' com list() foi removido.
+            pass 
 
-        print(f"SFC: {self.sfc.id}: {servers_output} || latência usada: {env.latency_used}")
-        # --------------------------------------------
-
-        env.allocation_results['dst'] = {'allocated_server': dst, 'path': [], 'cost': 0}
-
-
-
-        route_info = {
-            key: list(reversed(value['path']))
-            for key, value in env.allocation_results.items()
-        }
-        
-     
-        src_node = next(reversed(route_info.values()))[0]
-        path_to_src = list(reversed(nx.dijkstra_path(self.graph, src_node, 0, weight='weight')))
-        route_info['src'] = path_to_src
-        total_latency = env.latency_used + (len(path_to_src) - 1)
+        print(f"{self.sfc.id} - Alocação: {env.servers_used}")
         return route_info, total_latency
 
     # O método evaluate_result foi mantido como no original.

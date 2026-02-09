@@ -709,13 +709,14 @@ class SubstrateNetworkController():
             affected_vnf_id = None
             if old_route_info:
                 for vnf, path in old_route_info.items():
-                    if vnf not in ['src', 'dst'] and path and path[0] == relevant_server_down:
+                    if (vnf not in ['src', 'dst'] and "virt" not in vnf) and path and path[0] == relevant_server_down:
                         affected_vnf_id = vnf
                         break
             
             # B) Verifica se EXISTE backup para essa VNF específica
             has_viable_backup = False
-            if affected_vnf_id and sfc_id in self.sfc_manager.backup_manager.sfcs_backups_instatiated:
+            aux = self.sfc_manager.backup_manager.sfcs_backups_instatiated
+            if affected_vnf_id and sfc_id in aux:
                 backups_list = self.sfc_manager.backup_manager.sfcs_backups_instatiated[sfc_id]
                 for backup_entry in backups_list:
                     # Limpa o sufixo _b se houver para comparar

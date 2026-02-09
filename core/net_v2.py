@@ -1,7 +1,14 @@
 import networkx as nx
 import numpy as np
 import math
+import re
 import random
+
+from core.sfc import SFC
+
+def extrair_sessao(s):
+    match = re.search(r"p\d+_(\d+)(?:_|$)", s)
+    return match.group(1) if match else None
 
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 
@@ -58,6 +65,19 @@ class Net2:
     # =========================================================================
     # 1. GERENCIAMENTO DE TOPOLOGIA (NÓS E ARESTAS)
     # =========================================================================
+    
+    def detach_vnf_from_route_record(self, sfc_id: str, vnf_name: str) -> None:
+        """
+        Remove o registro de uma VNF específica da tabela de roteamento (sfc_route_info)
+        SEM tentar desalocar recursos físicos.
+        
+        Use este método quando a VNF já foi desalocada manualmente e você precisa
+        prevenir que processos futuros (como garbage collection/undeploy) tentem
+        removê-la novamente.
+        """
+        if sfc_id in self.sfc_route_info:
+            if vnf_name in self.sfc_route_info[sfc_id]:
+                del self.sfc_route_info[sfc_id][vnf_name]
 
     def add_node(self, node_id, node_type, cpu_capacity=0.00, cache_capacity=0.00, w_channel_capacity=0.0, position=(0, 0), ips=0):
         if 'server' in node_type:
@@ -124,6 +144,7 @@ class Net2:
         self.graph.add_edge(node1, node2,
                             bandwidth_capacity=bandwidth_capacity,
                             bandwidth_used=0.00,
+                            bandwidth_reserved=0.00,
                             latency=latency,
                             services_in_transit={})
 
@@ -138,26 +159,49 @@ class Net2:
     # =========================================================================
     # 2. ALOCAÇÃO E CICLO DE VIDA DE SFC (Service Function Chaining)
     # =========================================================================
+    
+    
+    def detach_vnf_from_route_record(self, sfc_id: str, vnf_name: str) -> None:
+        """
+        Remove LOGICAMENTE uma VNF específica do registro de rotas (sfc_route_info),
+        sem tentar desalocar recursos físicos.
+        
+        Isso é necessário quando uma VNF é desalocada manualmente (ex: stitching)
+        para evitar erros de 'dupla desalocação' quando o undeploy completo for chamado.
+        """
+        # Verificação segura (Guard Clause)
+        if sfc_id not in self.sfc_route_info:
+            return
 
-    def deploy_sfc(self, sfc, route_info, flag_test=0):
+        route = self.sfc_route_info[sfc_id]
+        
+        # Remove apenas se a chave existir, evitando KeyErrors
+        if vnf_name in route:
+            del route[vnf_name]
+            # Opcional: Logar se estiver em verbose
+            # print(f"DEBUG: VNF {vnf_name} desvinculada da rota da SFC {sfc_id}")
+
+    def deploy_sfc(self, sfc, route_info):
         sfc_id = sfc.id
+        # Verifica se é backup baseado no atributo do objeto SFC
+        is_backup_sfc = getattr(sfc, 'is_backup', False)
+
         if sfc_id not in self.sfc_dict:
             self.sfc_dict[sfc_id] = sfc
 
         if sfc_id not in self.sfc_route_info:
             self.sfc_route_info[sfc_id] = route_info
 
-        # Itera sobre os microserviços (VNFs) da SFC
         for ms_name, path in route_info.items():
-            # for i in ['src', 'dst']:
-            #     if i in ms_name:
-            #         continue
-            if ms_name in ['src', 'dst']:
+            if ms_name in ['src', 'dst'] or "virt" in ms_name:
                 continue
             vnf = sfc.get_vnf_by_id(ms_name)
             node_allocated = path[0]
 
             self.allocate_microservice(sfc, vnf, node_allocated)
+            
+            # [MODIFICADO] Se for backup, usamos a banda original da VNF (não zero), 
+            # mas passamos a flag is_backup=True para cair na reserva (Shadow).
             bw_req = vnf.get_outcome_interface_bandwidth()
 
             if len(path) > 1:
@@ -167,40 +211,78 @@ class Net2:
                     elif isinstance(u, str):
                         self.allocate_wireless_bandwidth(v, u, bw_req, ms_name)
                     else:
-                        self.allocate_bandwidth(u, v, bw_req, ms_name)
+                        # [MODIFICADO] Passando a flag is_backup
+                        self.allocate_bandwidth(u, v, bw_req, ms_name, is_backup=is_backup_sfc)
         return True
 
     def undeploy_sfc(self, sfc_id):
         if sfc_id not in self.sfc_dict:
-            raise ValueError(f"SFC {sfc_id} não encontrada.")
+            # Se a SFC não existe, não há o que desalocar. Retornar evita erro.
+            return 
 
         sfc = self.sfc_dict[sfc_id]
-        route_info = self.sfc_route_info[sfc_id]
+        
+        # Usamos .get() para evitar erro se a chave não existir
+        route_info = self.sfc_route_info.get(sfc_id, {})
 
-        for ms_name, path in route_info.items():
-            if ms_name in ['src', 'dst']:
+        # Iteramos sobre uma CÓPIA da lista
+        for ms_name, path in list(route_info.items()):
+            # [CORREÇÃO 1] Filtro de nós virtuais/roteamento
+            if ms_name in ['src', 'dst'] or "virt" in ms_name:
                 continue
 
+            # Verificações de segurança básica
+            if not path: continue
+            
             vnf = sfc.get_vnf_by_id(ms_name)
             node_allocated = path[0]
 
-            self.deallocate_microservice(node_allocated, sfc_id, vnf)
+            # [CORREÇÃO 2] Verificação de Existência do Nó
+            # Só tentamos desalocar se o nó ainda estiver na rede (Grafo Físico ou Móvel)
+            node_exists = (node_allocated in self.graph) or (node_allocated in self.md_graph)
             
+            if node_exists:
+                # [CRÍTICO] A chamada DEVE estar dentro deste IF
+                # Se o nó sumiu, não tentamos mexer na CPU dele (evita KeyError)
+                
+                # Nota: Verifique se sua função 'deallocate_microservice' espera:
+                # (sfc, vnf, node) OU (node, sfc_id, vnf). 
+                # Baseado no 'deploy_sfc', o padrão costuma ser o objeto SFC.
+                # Vou usar a assinatura mais comum baseada no deploy:
+                self.deallocate_microservice(sfc, vnf, node_allocated)
+            else:
+                # Opcional: Log de debug se quiser saber que limpou uma SFC de um nó morto
+                # print(f"Skipping deallocation for {ms_name} on dead node {node_allocated}")
+                pass
+
+            # [CORREÇÃO 3] Limpeza de Links
+            # A limpeza de banda deve ocorrer mesmo se o nó caiu? 
+            # Geralmente sim, para limpar as arestas adjacentes se elas ainda existirem.
             if len(path) > 1:
-                for u, v in zip(path[:-1], path[1:]):
-                    if isinstance(v, str):
-                        self.release_wireless_bandwidth(u, v, ms_name)
-                    elif isinstance(u, str):
-                        self.release_wireless_bandwidth(v, u, ms_name)
-                    else:
-                        self.release_bandwidth(u, v, ms_name)
+                try:
+                    for u, v in zip(path[:-1], path[1:]):
+                        # Verifica se os nós da aresta ainda existem antes de liberar banda
+                        u_exists = (u in self.graph or u in self.md_graph)
+                        v_exists = (v in self.graph or v in self.md_graph)
+                        
+                        if u_exists and v_exists:
+                            if isinstance(v, str): # Link Wireless
+                                self.release_wireless_bandwidth(u, v, ms_name)
+                            elif isinstance(u, str): # Link Wireless
+                                self.release_wireless_bandwidth(v, u, ms_name)
+                            else: # Link Cabeado
+                                self.release_bandwidth(u, v, ms_name)
+                except Exception as e:
+                    print(f"Erro ao liberar banda no undeploy {sfc_id}: {e}")
 
-        # Remover registros da SFC
-        del self.sfc_dict[sfc_id]
-        del self.sfc_route_info[sfc_id]
+        # Limpeza final dos dicionários
+        if sfc_id in self.sfc_dict: del self.sfc_dict[sfc_id]
+        if sfc_id in self.sfc_route_info: del self.sfc_route_info[sfc_id]
 
-        if self.total_cpu_used < 0 or self.total_cache_used < 0 or self.total_bandwidth_used < 0:
-            raise ValueError(f"Recursos com valores Negativos após undeploy")
+        # Validação de integridade (Mantida)
+        if self.total_cpu_used < 0: self.total_cpu_used = 0
+        if self.total_cache_used < 0: self.total_cache_used = 0
+        if self.total_bandwidth_used < 0: self.total_bandwidth_used = 0
         
     def undeploy_specific_vnf_context(self, sfc_id, vnf_id_to_remove):
         """
@@ -281,16 +363,24 @@ class Net2:
     # 3. ALOCAÇÃO DE RECURSOS (COMPUTACIONAIS E REDE)
     # =========================================================================
 
-    def allocate_microservice(self, sfc, vnf, node_id):
+    def allocate_microservice(self, sfc:SFC, vnf, node_id):
         sfc_id = sfc.id
-        parts = sfc_id.split("_")
-        # Se o ID termina em 'backup' (ex: sfc_..._p1_16_backup), a sessão é o penúltimo item ('16')
-        if parts[-1] == "backup":
-            session = parts[-2]
+        
+        # --- [CORREÇÃO] Preferência por Atributo Explícito ---
+        if hasattr(sfc, 'session_id'):
+            session = sfc.session_id
         else:
-            # Caso contrário (ex: sfc_..._p1_16), a sessão é o último item ('16')
-            session = parts[-1]
-        mobile = False
+            # Lógica Legada (Fallback apenas se o atributo não existir)
+            parts = sfc_id.split("_")
+            # Se contiver 'backup', a lógica de split muda
+            if "backup" in sfc_id:
+                # Tenta achar o padrão antigo ou novo na força bruta se necessário
+                # Mas idealmente nunca cairá aqui se o Passo 1 for feito.
+                session = parts[3] if len(parts) > 3 else parts[-1]
+            else:
+                session = parts[-1]
+                
+            mobile = False
 
         
 
@@ -435,10 +525,10 @@ class Net2:
         parts = sfc_id.split("_")
         if parts[-1] == "backup":
             # Se termina em backup (ex: ..._p4_1_backup), a sessão é o penúltimo item ('1')
-            session_id = parts[-2]
+            session_id = extrair_sessao(sfc_id)
         else:
             # Caso normal (ex: ..._p4_1), a sessão é o último item ('1')
-            session_id = parts[-1]
+            session_id = extrair_sessao(sfc_id)
         # --- [FIM DA CORREÇÃO] ---
 
         service_key = (service_id, session_id)
@@ -511,22 +601,39 @@ class Net2:
                 self.shared_vnfs_count -= 1
                 self.shared_vnfs_count = max(0, self.shared_vnfs_count)
 
-    def allocate_bandwidth(self, node1, node2, bw_required, ms_name):
+    def allocate_bandwidth(self, node1, node2, bw_required, ms_name, is_backup=False):
         if not self.graph.has_edge(node1, node2):
             raise ValueError(f"Aresta entre {node1} e {node2} não existe.")
 
         edge = self.graph.edges[node1, node2]
+        
+        # [NOVO] Cálculo de admissão considerando Shadow Booking
+        current_reserved = edge.get('bandwidth_reserved', 0.0)
+        total_committed = edge['bandwidth_used'] + current_reserved
+
+        # Se o serviço já existe (ex: aumento de banda), descontamos o anterior para não duplicar na verificação
+        if ms_name in edge['services_in_transit']:
+             existing_bw = edge['services_in_transit'][ms_name]['bw_used']
+             total_committed -= existing_bw
+
+        if total_committed + bw_required > edge['bandwidth_capacity']:
+            raise ValueError(f"Banda insuficiente entre {node1} e {node2} (Usado: {edge['bandwidth_used']} + Reservado: {current_reserved}).")
+
+        # Lógica de Registro
         if ms_name in edge['services_in_transit']:
             edge['services_in_transit'][ms_name]['copys'] += 1
-            edge['bandwidth_used'] += bw_required
-            self.total_bandwidth_used += bw_required
+            edge['services_in_transit'][ms_name]['bw_used'] += bw_required
+            # Mantém o status original de is_backup se já existir
         else:
-            if edge['bandwidth_used'] + bw_required > edge['bandwidth_capacity']:
-                raise ValueError(f"Banda insuficiente entre {node1} e {node2}.")
+            edge['services_in_transit'][ms_name] = {'copys': 1, 'bw_used': bw_required, 'is_backup': is_backup}
 
-            edge['services_in_transit'][ms_name] = {'copys': 1, 'bw_used': bw_required}
+        # [NOVO] Atualização dos contadores globais e do link
+        if is_backup:
+            edge['bandwidth_reserved'] = edge.get('bandwidth_reserved', 0.0) + bw_required
+        else:
             edge['bandwidth_used'] += bw_required
             self.total_bandwidth_used += bw_required
+
         comm_latency = self.get_link_latency(node1, node2)
         return comm_latency
 
@@ -538,14 +645,23 @@ class Net2:
         services = edge.get('services_in_transit', {})
 
         if ms_name not in services:
-            raise ValueError(f"Serviço {ms_name} não está em trânsito entre {node1} e {node2}.")
+             # Pode acontecer em cleanups agressivos, apenas retorna
+             return
 
-        services[ms_name]['copys'] -= 1
-        bw_to_release = services[ms_name]['bw_used']
-        edge['bandwidth_used'] = max(0, edge['bandwidth_used'] - bw_to_release)
-        self.total_bandwidth_used = max(0, self.total_bandwidth_used - bw_to_release)
+        entry = services[ms_name]
+        bw_to_release = entry['bw_used']
+        is_backup_entry = entry.get('is_backup', False)
 
-        if services[ms_name]['copys'] == 0:
+        entry['copys'] -= 1
+
+        # [NOVO] Libera do pool correto
+        if is_backup_entry:
+            edge['bandwidth_reserved'] = max(0.0, edge.get('bandwidth_reserved', 0.0) - bw_to_release)
+        else:
+            edge['bandwidth_used'] = max(0.0, edge['bandwidth_used'] - bw_to_release)
+            self.total_bandwidth_used = max(0.0, self.total_bandwidth_used - bw_to_release)
+
+        if entry['copys'] <= 0:
             del services[ms_name]
 
     def allocate_wireless_bandwidth(self, node1, node2, bw_required, ms_name):

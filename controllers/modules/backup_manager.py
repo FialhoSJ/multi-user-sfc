@@ -3,6 +3,7 @@ import time
 import random
 from controllers.sfc_generator import SFCGenerator
 from core.net_v2 import Net2
+from core.sfc import SFC
 from algorithms.environments.env_sbrc import SFC_AllocationEnv
 
 class BackupManager:
@@ -110,7 +111,7 @@ class BackupManager:
         Cria backups iterativamente até que a confiabilidade COMPOSTA (Real) atinja a meta.
         """
         backups_mount = []
-        target_reliability = 0.95
+        target_reliability = 0.9
         
         sorted_sfcs = sorted(list(sfc_id_duration.keys()))
 
@@ -175,7 +176,17 @@ class BackupManager:
                             services_in_transit={}
                         )
 
-                all_servers = [n for n, d in graph_for_rl.nodes(data=True) if d.get('type') != 'router']
+                valid_types = ['server', 'mobile_device']
+                
+                all_servers = [
+                    n for n, d in graph_for_rl.nodes(data=True) 
+                    if d.get('type') in valid_types
+                ]
+                
+                if not all_servers:
+                    if self.alg == 'SBRCMASKABLEPPO': # Apenas loga se for debug relevante
+                         pass 
+                    break 
 
                 env = SFC_AllocationEnv(
                     valid_nodes=all_servers,
@@ -192,6 +203,7 @@ class BackupManager:
 
                 # Executa o Agente
                 agent.install_SFC(mini_sfc)
+                
                 try:
                     debub = network.sfc_route_info[sfc_id]
                     agent.install_substrate_network(graph_for_rl)
@@ -202,6 +214,7 @@ class BackupManager:
                 
                 if success:
                     route_info_backup = agent.get_route_info()
+                    debug = network.sfc_route_info.get(sfc.id)
                     # Anexa a rota calculada ao objeto Mini-SFC
                     mini_sfc.pre_calculated_route = route_info_backup
                     
@@ -216,7 +229,9 @@ class BackupManager:
                     # de candidatos no próximo loop implicitamente ou forçamos o break
                     # para evitar loop infinito tentando alocar o inalocável.
                     break
-
+        
+        if backups_mount:
+            debug = 1
         return backups_mount
 
     def greedy_strategy(self, network, sfc_id_duration, threshold=0):
@@ -452,13 +467,23 @@ class BackupManager:
             backups_mount = self.greedy_strategy(network, sfc_id_duration)
             return backups_mount, 'greedy'
         
-    def create_contextual_mini_sfc(self, network, original_sfc, vnf_to_replicate_id, primary_node_id):
+    def create_contextual_mini_sfc(self, network, original_sfc: SFC, vnf_to_replicate_id, primary_node_id):
         """
         Cria uma Mini-SFC (3 saltos) para alocação via DRL.
         Contexto: A Origem é fixada no nó da VNF Anterior. 
                   O Destino é fixado no nó da VNF Seguinte.
         """
         sfc_id = original_sfc.id
+
+        # --- [CORREÇÃO 1] Extração Robusta do Session ID ---
+        # Tenta pegar atributo, senão faz o parse uma última vez
+        if hasattr(original_sfc, 'session_id'):
+            session_id = original_sfc.session_id
+        else:
+            # Fallback para o padrão sfc_pX_YYY
+            parts = sfc_id.split('_')
+            session_id = parts[-1]
+
         vnf_info = original_sfc.vnfs_dict
         
         # Obtém Especificações Técnicas da VNF
@@ -494,20 +519,33 @@ class BackupManager:
         backup_vnf_name = vnf_to_replicate_id + "_b"
         
         mini_sfc_vnfs = [
-            # {"type": 2, "name": "src_virt", "CPU": 0, "cache": 0, "in_bw": 0, 
-            # "out_bw": 0, "latency": 0, "location": prev_node},
+            # Nó Virtual de Entrada (Fixo no prev_node)
+            {
+                "type": 2, 
+                "name": "src_virt",  # <--- NOME FIXO
+                "CPU": 0, "cache": 0, "in_bw": 0, "out_bw": 0, "latency": 0, 
+                "location": prev_node
+            },
             
-            # --- [MODIFICAÇÃO 2] BANDA ZERO (Cold Standby) ---
-            {"type": 2, "name": vnf_to_replicate_id + "_b", 
-            "CPU": target_vnf_info['CPU'] * factor, 
-            "cache": target_vnf_info['cache'] * factor, 
-            "in_bw": 0,   # Define 0 para não gastar link agora
-            "out_bw": 0,  # Define 0 para não gastar link agora
-            "latency": 0, "original_sfc": sfc_id},
-            # -------------------------------------------------
+            # A VNF de Backup (O que queremos proteger)
+            {
+                "type": 2, 
+                "name": vnf_to_replicate_id + "_b", 
+                "CPU": target_vnf_info['CPU'] * factor, 
+                "cache": target_vnf_info['cache'] * factor, 
+                "in_bw": 0,   
+                "out_bw": 0, 
+                "latency": 0, 
+                "original_sfc": sfc_id
+            },
             
-            # {"type": 2, "name": "dst_virt", "CPU": 0, "cache": 0, 
-            # "in_bw": 0, "out_bw": 0, "latency": 0, "location": next_node}
+            # Nó Virtual de Saída (Fixo no next_node)
+            {
+                "type": 2, 
+                "name": "dst_virt", # <--- NOME FIXO
+                "CPU": 0, "cache": 0, "in_bw": 0, "out_bw": 0, "latency": 0, 
+                "location": next_node
+            }
         ]
         
         # --- CORREÇÃO 1: DURAÇÃO DINÂMICA ---
@@ -517,30 +555,38 @@ class BackupManager:
         remaining_duration = max(10, original_sfc.duration - elapsed_time + 10)
 
         # --- CORREÇÃO 3: LATÊNCIA DINÂMICA ---
-        # Herda o requisito original. O Agente tentará minimizar a latência para caber neste teto.
-        # Se disponível, pegamos request, senão um padrão seguro (ex: 10ms)
         latency_constraint = getattr(original_sfc, 'latency_request', 10)
         
+        # --- [CORREÇÃO 2] ID Único e Explícito ---
+        backup_name = f"{sfc_id}_backup_{vnf_to_replicate_id}"
         
-
         mini_sfc_dict = {
-            "name": f"{sfc_id}_backup",
+            "name": backup_name,
             "vnf_list": mini_sfc_vnfs,
             "bandwidth": original_sfc.input_throughput,
             "src_node": prev_node,
             "dst_node": next_node,
             "duration": remaining_duration, 
-            "latency": latency_constraint, # <--- Valor Corrigido
+            "latency": latency_constraint,
             "closer_router": getattr(original_sfc, 'closer_router', None),
             "mobile_node": getattr(original_sfc, 'dst_node', None)
         }
 
         mini_sfc = SFCGenerator(mini_sfc_dict).generate()
 
+        # --- Injeção de Metadados ---
         mini_sfc.original_sfc_id = original_sfc.id
         mini_sfc.is_backup = True
+        mini_sfc.target_vnf_id = vnf_to_replicate_id
+        mini_sfc.session_id = session_id
+        
+        # [CORREÇÃO] A lógica estava invertida. 
+        # O fluxo é: Prev Node -> [VNF Backup] -> Next Node
+        mini_sfc.src_virt = prev_node  # O "src" virtual é de onde vem o dado (nó anterior)
+        mini_sfc.dst_virt = next_node  # O "dst" virtual é para onde vai o dado (nó seguinte)
 
         return mini_sfc
+
 
     def get_backups_instantiated_q(self):
         vnfs_backup_instantiate = 0
