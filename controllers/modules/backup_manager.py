@@ -632,61 +632,108 @@ class BackupManager:
         return dst_node, src_node, latency_requirement
 
     def seletive_strategy(self, network: Net2, sfc_id_duration: Dict, threshold: float = 0) -> List[List[Any]]:
-        """Estratégia seletiva baseada na confiabilidade dos nós."""
+        """
+        Estratégia seletiva robusta com Anti-Afinidade (Original != Backup) e verificação de capacidade.
+        """
         backups_mount = []
-        nodes_fail_p = network.nodes_reliability.copy()
-        nodes_highest_p = {node: rel for node, rel in nodes_fail_p.items() if rel > threshold}
         
-        if not nodes_highest_p:
+        # 1. Filtra nós candidatos acima do limiar
+        nodes_fail_p = network.nodes_reliability.copy()
+        nodes_candidates = {node: rel for node, rel in nodes_fail_p.items() if rel > threshold}
+        
+        if not nodes_candidates:
             return []
 
-        chosen_server = max(nodes_highest_p, key=nodes_highest_p.get)
-        servers = [chosen_server]
+        # 2. Ordena lista de servidores por confiabilidade (Melhor -> Pior)
+        sorted_reliable_servers = sorted(nodes_candidates, key=nodes_candidates.get, reverse=True)
 
-        for server in servers:
-            server_info = network.get_node_sfc_vnf_list(server)
-            current_time = time.time()
+        # 3. Itera sobre as SFCs ativas na rede (baseado no tempo de vida)
+        active_sfcs = list(sfc_id_duration.keys())
+
+        for sfc_id in active_sfcs:
+            parts = sfc_id.split("_")
+            # Proteção extra contra recursão (não faz backup de backup)
+            if len(parts) > 2 and parts[2] == 'backup': continue
             
-            if not server_info: continue
-
-            for info in server_info:
-                sfc_id = info[0]
-                vnf = info[1]
-                vnf_id = vnf.id
-                parts = sfc_id.split("_")
-
-                if len(parts) > 2 and parts[2] == 'backup': continue
-                if sfc_id not in network.sfc_dict or sfc_id not in sfc_id_duration: continue
-
-                name = f"{parts[0]}_{parts[1]}_backup_{vnf_id}_{parts[2]}_{parts[3]}"
-                if name in self.backups_sfc_instantiated: continue
-
+            # Recupera Objeto SFC
+            try:
                 sfc = network.get_sfc_by_id(sfc_id)
-                vnf_info = sfc.vnfs_dict
-                resources_info = next((i for i in vnf_info if i['name'] == vnf_id), None)
+            except KeyError: continue
+
+            # Itera sobre as VNFs dessa SFC para ver qual precisa de backup
+            for vnf_info in sfc.vnfs_dict:
+                vnf_id = vnf_info['name']
                 
-                sfc_rf = copy.deepcopy(network.sfc_route_info[sfc_id])
+                # Ignora VNFs virtuais (src/dst)
+                if vnf_id in ['src', 'dst', 'src_virt', 'dst_virt']: continue
+                if "virt" in vnf_id: continue
+
+                # Verifica se já existe backup criado para essa VNF específica
+                backup_name_prefix = f"{parts[0]}_{parts[1]}_backup_{vnf_id}"
+                already_exists = False
+                for b_key in self.backups_sfc_instantiated:
+                    if backup_name_prefix in b_key:
+                        already_exists = True
+                        break
+                if already_exists: continue
+
+                # Recupera localização original
+                sfc_rf = copy.deepcopy(network.sfc_route_info.get(sfc_id, {}))
+                if vnf_id not in sfc_rf or not sfc_rf[vnf_id]: continue
+                
+                original_location = sfc_rf[vnf_id][0]
+                
+                # --- SELEÇÃO DO SERVIDOR DE BACKUP (COM ANTI-AFINIDADE) ---
+                target_server = None
+                
+                reduction_factor = self.standard_reduction_factor
+                cpu_req = vnf_info['CPU'] * reduction_factor
+                cache_req = vnf_info['cache'] * reduction_factor
+
+                # Procura o melhor servidor que:
+                # 1. Não seja o nó original (Anti-afinidade)
+                # 2. Tenha recursos suficientes
+                for candidate in sorted_reliable_servers:
+                    # [REGRA DE OURO] Backup não pode estar no mesmo nó da original
+                    if str(candidate) == str(original_location):
+                        continue
+                        
+                    # [REGRA DE PRATA] Tem que ter espaço
+                    if network.get_node_cpu_free(candidate) >= cpu_req and \
+                       network.get_node_cache_free(candidate) >= cache_req:
+                        target_server = candidate
+                        break
+                
+                # Se não achou nenhum servidor válido (diferente do original) para esta VNF, pule
+                if not target_server:
+                    continue
+                # -----------------------------------------------------------
+
+                # Preparação dos dados da Nova SFC
+                name = f"{parts[0]}_{parts[1]}_backup_{vnf_id}_{parts[2]}_{parts[3]}"
+                
+                dst_in = vnf_info['out_bw']
+                original_latency = getattr(sfc, 'latency_request', 10)
+                original_closer_router = getattr(sfc, 'closer_router', None)
+
+                # Limpeza do dicionário de rotas para cálculo
                 if 'src' in sfc_rf: del sfc_rf['src']
                 if 'dst' in sfc_rf: del sfc_rf['dst']
 
-                if vnf_id not in sfc_rf: continue
-                location = sfc_rf[vnf_id][0]
-                
-                # Recursos
-                dst_in = resources_info['out_bw']
-                cpu = resources_info['CPU']
-                cache = resources_info['cache']
-
-                original_latency = getattr(sfc, 'latency_request', 10)
                 dst_node, src_node, latency_req = self.escolher_src_dst(sfc_rf, vnf_id, original_latency)
                 
                 if latency_req < 0 or dst_node is None: continue
 
-                # Definição do Mini-SFC
+                # Roteamento Físico (Net2 calcula o caminho)
+                path_ingress = network.get_shortest_path(src_node, target_server)
+                path_egress = network.get_shortest_path(target_server, dst_node)
+
+                if not path_ingress or not path_egress: continue
+
+                # Construção da Mini-SFC
                 src_name = "src_virt"
                 backup_vnf_name = vnf_id + "_b" 
                 dst_name = "dst_virt"
-                reduction_factor = self.standard_reduction_factor
 
                 backup_sf_list = [
                     {
@@ -695,10 +742,10 @@ class BackupManager:
                     },
                     {
                         "type": 2, "name": backup_vnf_name, 
-                        "CPU": cpu * reduction_factor, 
-                        "cache": cache * reduction_factor, 
+                        "CPU": cpu_req, 
+                        "cache": cache_req, 
                         "in_bw": 0, "out_bw": dst_in * reduction_factor, 
-                        "latency": 0, "original_loc": location, "original_sfc": sfc_id
+                        "latency": 0, "original_loc": original_location, "original_sfc": sfc_id
                     },
                     {
                         "type": 2, "name": dst_name, "CPU": 0, "cache": 0, 
@@ -706,6 +753,7 @@ class BackupManager:
                     }
                 ]
 
+                current_time = time.time()
                 time_elapsed = current_time - sfc_id_duration[sfc_id]["timer"]
                 duration = max(10, sfc_id_duration[sfc_id]["duration"] - time_elapsed + 10)
 
@@ -716,12 +764,21 @@ class BackupManager:
                     "src_node": src_node,
                     "dst_node": dst_node,
                     "duration": duration,
-                    "latency": latency_req
+                    "latency": latency_req,
+                    "closer_router": original_closer_router
                 }
 
                 new_sfc = SFCGenerator(new_sfc_dict).generate()
                 new_sfc.original_sfc_id = sfc_id
                 new_sfc.is_backup = True
+                new_sfc.target_vnf_id = vnf_id
+
+                new_sfc.pre_calculated_route = {
+                    src_name: path_ingress,
+                    backup_vnf_name: path_egress,
+                    dst_name: []
+                }
+
                 backups_mount.append([new_sfc])
 
         return backups_mount
