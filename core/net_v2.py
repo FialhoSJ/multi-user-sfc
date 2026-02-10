@@ -1023,6 +1023,44 @@ class Net2:
     # 7. GETTERS E MÉTRICAS DE RECURSOS (CORRIGIDOS COM self.metrics)
     # =========================================================================
 
+    def get_node_sfc_vnf_list(self, node_id):
+        """
+        Retorna uma lista de tuplas (sfc_id, vnf_obj) para todas as VNFs 
+        alocadas no nó especificado. Usado por estratégias de backup.
+        """
+        if node_id not in self.graph:
+            return []
+        
+        # Recupera a lista de IDs de SFCs que passam por este nó
+        # (Essa lista é mantida pelo método allocate_microservice)
+        node_sfcs = self.graph.nodes[node_id].get('sfcs_list', [])
+        result = []
+        
+        for sfc_id in node_sfcs:
+            # Segurança: verifica se a SFC ainda existe logicamente
+            if sfc_id not in self.sfc_dict: 
+                continue
+            
+            sfc = self.sfc_dict[sfc_id]
+            
+            # Consulta o roteamento para confirmar quais VNFs específicas 
+            # desta SFC estão neste nó
+            if sfc_id in self.sfc_route_info:
+                route_info = self.sfc_route_info[sfc_id]
+                
+                for vnf_id, path in route_info.items():
+                    # Ignora nós virtuais ou caminhos vazios
+                    if vnf_id in ['src', 'dst'] or not path: 
+                        continue
+                    
+                    # path[0] é o nó onde a VNF está processando
+                    if path[0] == node_id:
+                        vnf = sfc.get_vnf_by_id(vnf_id)
+                        if vnf:
+                            result.append((sfc_id, vnf))
+                            
+        return result
+    
     def get_node_cpu_used(self, node_id):
         if node_id not in self.graph: raise ValueError(f"Nó {node_id} inexistente.")
         return self.graph.nodes[node_id]['cpu_used']

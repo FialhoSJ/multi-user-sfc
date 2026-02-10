@@ -33,10 +33,11 @@ class BackupManager:
         # Lista de backups que estão ativos (assumiram o lugar do primário)
         self.backups_activated: List[str] = []
         
-        target_algorithm = 'SBRCMASKABLEPPO'
-        is_target_alg = (args.alg == target_algorithm)
+        valid_backup_algs = ['SBRCMASKABLEPPO', 'ga', 'vegeta'] 
+        is_target_alg = (args.alg in valid_backup_algs)
+
         user_wants_backup = (args.backup == 'y') and (args.ava != '1.0')
-        
+
         self.backup_activated = user_wants_backup and is_target_alg
         self.alg = args.alg
         
@@ -352,7 +353,7 @@ class BackupManager:
         import copy # Garantir import
         
         backups_mount = []
-        target_reliability = 0.90
+        target_reliability = 0.85
         MAX_BACKUPS_PER_SFC = 4
         
         # --- ARQUITETURA: Criação do Shadow State ---
