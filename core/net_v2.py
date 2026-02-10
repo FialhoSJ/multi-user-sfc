@@ -5,6 +5,9 @@ import re
 import random
 from dataclasses import dataclass
 
+from collections import defaultdict
+from typing import Dict, List, Any
+
 from core.vnf import VNF
 
 # =========================================================================
@@ -737,6 +740,137 @@ class Net2:
     # 5. SIMULAÇÃO DE FALHAS E RECUPERAÇÃO
     # =========================================================================
 
+
+    def calculate_average_system_reliability(self, backups_dict: Dict[str, List[Dict]] = None) -> float:
+        """
+        Calcula a confiabilidade média de TODAS as SFCs primárias na rede.
+        
+        Args:
+            backups_dict: Dicionário vindo do BackupManager.sfcs_backups_instatiated
+                        Formato: {'sfc_id': [{'vnf_id': '...', 'route_info': ...}, ...]}
+        
+        Returns:
+            float: Média de confiabilidade do sistema (0.0 a 1.0).
+        """
+        if not self.sfc_dict:
+            return 0.0
+
+        total_reliability_sum = 0.0
+        active_primary_sfcs_count = 0
+        
+        # Se não foi passado dicionário de backups, assume vazio (calcula apenas confiabilidade física)
+        
+        if backups_dict == 0 or {}:
+            backups_dict = {}
+        else: backups_dict = backups_dict or {}
+
+        for sfc_id, sfc in self.sfc_dict.items():
+            # 1. FILTRO: Ignora SFCs que são puramente backups [cite: 7, 23]
+            if "backup" in sfc_id or getattr(sfc, 'is_backup', False):
+                continue
+
+            # Fail-fast: Se a SFC não tem rota definida, confiabilidade é 0 ou ignora
+            if sfc_id not in self.sfc_route_info:
+                continue
+
+            route_info = self.sfc_route_info[sfc_id]
+            
+            # ---------------------------------------------------------
+            # 2. MAPEAMENTO: Quais VNFs desta SFC possuem backup ativo?
+            # ---------------------------------------------------------
+            # Mapa: VNF_ID -> Confiabilidade do Nó de Backup
+            vnf_backup_reliability_map = {}
+
+            if sfc_id in backups_dict:
+                for backup_entry in backups_dict[sfc_id]:
+                    vnf_target_id = backup_entry.get('vnf_id')
+                    bk_route = backup_entry.get('route_info', {})
+                    
+                    # Encontra o nó físico onde o backup reside (busca chave terminada em '_b')
+                    # Exemplo de chave na rota: 'firewall_b' -> ['node_10']
+                    bk_node_list = next((v for k, v in bk_route.items() if k.endswith('_b') and v), None)
+                    
+                    if vnf_target_id and bk_node_list:
+                        bk_node_id = bk_node_list[0]
+                        # Obtém a confiabilidade real do nó de backup
+                        vnf_backup_reliability_map[vnf_target_id] = self.get_node_reliability(bk_node_id)
+
+            # ---------------------------------------------------------
+            # 3. AGRUPAMENTO POR DOMÍNIO DE FALHA (NÓ FÍSICO)
+            # Se um nó cai, todas as VNFs dele caem.
+            # ---------------------------------------------------------
+            node_groups = defaultdict(list)
+            
+            for vnf_id, path in route_info.items():
+                if vnf_id in ['src', 'dst'] or not path:
+                    continue
+                # path[0] é o nó físico primário
+                primary_node = path[0]
+                node_groups[primary_node].append(vnf_id)
+
+            # ---------------------------------------------------------
+            # 4. CÁLCULO DE CONFIABILIDADE DA SFC (Série-Paralelo)
+            # ---------------------------------------------------------
+            sfc_reliability = 1.0
+
+            for primary_node, vnfs_list in node_groups.items():
+                # Confiabilidade do nó primário
+                try:
+                    r_primary = self.get_node_reliability(primary_node)
+                except (KeyError, AttributeError):
+                    r_primary = 1.0 # Fallback seguro
+
+                # Verifica se o GRUPO INTEIRO está protegido
+                # Para o serviço sobreviver à queda do nó, TODAS as VNFs alocadas nele
+                # precisam ter um backup operante em outro lugar.
+                all_vnfs_protected = True
+                
+                # Probabilidade de TODOS os backups falharem simultaneamente
+                # Inicializa com 1.0 (neutro para multiplicação)
+                prob_backups_fail_combined = 1.0 
+                
+                for vnf_id in vnfs_list:
+                    r_backup = vnf_backup_reliability_map.get(vnf_id, 0.0)
+                    
+                    if r_backup > 0.0:
+                        # Se tem backup, acumula a chance de falha dele
+                        # P(Falha Backup) = 1 - R_backup
+                        prob_backups_fail_combined *= (1.0 - r_backup)
+                    else:
+                        # Se uma única VNF do nó não tem backup, o grupo não sobrevive à queda do nó
+                        all_vnfs_protected = False
+                        # Não precisamos verificar o resto das VNFs deste nó para fins de lógica Série
+                        # mas continuamos para consistência se necessário.
+                
+                # APLICAÇÃO DA FÓRMULA RBD
+                if all_vnfs_protected:
+                    # Sistema Paralelo (Redundância):
+                    # O estágio falha apenas se (Primário falhar) E (Backups falharem)
+                    # P(Estágio Falhar) = P(Primário Falhar) * P(Backups Falharem)
+                    prob_primary_fail = 1.0 - r_primary
+                    prob_stage_fail = prob_primary_fail * prob_backups_fail_combined
+                    
+                    stage_reliability = 1.0 - prob_stage_fail
+                else:
+                    # Sistema em Série (Elo mais fraco):
+                    # Se o nó primário cair, o serviço para (pois falta backup para algo)
+                    stage_reliability = r_primary
+
+                # A confiabilidade total da SFC é o produto da confiabilidade de cada estágio (nó físico)
+                sfc_reliability *= stage_reliability
+
+            # Acumula para a média
+            total_reliability_sum += sfc_reliability
+            active_primary_sfcs_count += 1
+
+        # ---------------------------------------------------------
+        # 5. RETORNO DA MÉDIA
+        # ---------------------------------------------------------
+        if active_primary_sfcs_count == 0:
+            return 0.0
+        
+        return total_reliability_sum / active_primary_sfcs_count
+
     def set_node_down(self, node_id):
         if node_id not in self.graph: raise ValueError(f"Nó {node_id} inexistente.")
         node = self.graph.nodes[node_id]
@@ -1243,6 +1377,21 @@ class Net2:
     
     def get_number_actives_sfcs(self):
         return len(self.sfc_dict)
+    
+    def get_number_active_primary_sfcs(self):
+        """
+        Retorna o número de SFCs ativas EXCLUINDO as de backup.
+        Útil para métricas de 'running_sfcs' e cálculos de média por fluxo.
+        """
+        count = 0
+        for sfc_id, sfc_obj in self.sfc_dict.items():
+            # Verifica se é backup pelo ID (padrão de string) E pelo atributo do objeto (se existir)
+            is_backup_id = "backup" in sfc_id
+            is_backup_attr = getattr(sfc_obj, 'is_backup', False)
+            
+            if not is_backup_id and not is_backup_attr:
+                count += 1
+        return count
 
     def get_acceptance_rate(self, success_arr):
         if len(success_arr) != 0:

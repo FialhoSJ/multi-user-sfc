@@ -1060,7 +1060,11 @@ class SubstrateNetworkController():
             mobile_energy_consumption = self.energy_calculator.calculate_total_mobile_device_power(self.substrate_network)
             total_energy_consumption = server_energy_consumption + mobile_energy_consumption
 
-            real_reliability = self.get_effective_system_reliability()
+            if isinstance(self.sfc_manager.backup_manager, int):
+                aux = 0
+            else:
+                aux = self.sfc_manager.backup_manager.sfcs_backups_instatiated
+            real_reliability = self.substrate_network.calculate_average_system_reliability(aux)
 
             self.output_writter.output_flows(
                 self.substrate_network,
