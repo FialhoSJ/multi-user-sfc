@@ -205,7 +205,7 @@ class OutputWritter:
         # Em vez de confiar no argumento running_players_sessions, calculamos via Net2
         # para garantir a integridade dos dados (Single Source of Truth).
         
-        running_sfcs = substrate_network.get_number_actives_sfcs()
+        running_sfcs = substrate_network.get_number_active_primary_sfcs()
         
         unique_players = set()
         unique_sessions = set()

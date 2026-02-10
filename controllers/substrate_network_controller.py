@@ -651,6 +651,9 @@ class SubstrateNetworkController():
         for server in servers_failed:
             sfcs_in_node = self.substrate_network.get_node_sfcs(server)
             for sfc_id in sfcs_in_node:
+                if "backup" in sfc_id:
+                    continue
+                
                 affected_sfc_ids.add(sfc_id)
                 sfc_failed_nodes_map.setdefault(sfc_id, []).append(server)
 
@@ -722,6 +725,7 @@ class SubstrateNetworkController():
                         affected_vnf_id = vnf
                         break
             
+            # [TRECHO MANTIDO] Identificação de Backup Viável
             has_viable_backup = False
             aux = self.sfc_manager.backup_manager.sfcs_backups_instatiated
             if affected_vnf_id and sfc_id in aux:
@@ -742,7 +746,7 @@ class SubstrateNetworkController():
                     "fall_time": time.time(),
                     "old_latency": pre_crash_latencies.get(sfc_id, 0),
                     "resource_info": 0,
-                    "backup_success": False,
+                    "backup_success": False,  # <--- Importante
                     "crash_trial": self.crashs_trials,
                     "recover_success": False
                 }
@@ -757,14 +761,14 @@ class SubstrateNetworkController():
                         fallen_sfcs_list.extend(sfc_list_tracker)
                 continue
 
-            # CAMINHO 2: Tem Backup -> Recuperação Cirúrgica
+            # CAMINHO 2: Tem Backup -> Tenta Stitching
             try:
-                # [Net2 Update] Chama diretamente o método otimizado da nova Net2
                 self.substrate_network.undeploy_specific_vnf_context(sfc_id, affected_vnf_id)
             except Exception as e:
                 print(f"Erro no undeploy pré-recuperação: {e}")
 
             recovery_start_time = time.time()
+            recovered = False  # Default
 
             try:
                 recovered = self.sfc_manager.reconstruct_and_redeploy(
@@ -778,27 +782,45 @@ class SubstrateNetworkController():
                 recovered = False
 
             if recovered:
+                # [CORREÇÃO AQUI] Se recuperou, salvamos IMEDIATAMENTE.
                 new_lat = self._calculate_sfc_path_latency(sfc_id)
                 post_crash_latencies[sfc_id] = new_lat
                 old_lat = pre_crash_latencies.get(sfc_id, 0)
                 
+                info_log = {
+                    "crash_trial": self.crashs_trials,
+                    "recover_success": True,
+                    "backup_success": True,
+                    "backup_efficient": "Yes",
+                    "latency_diff": new_lat - old_lat,
+                    "time_to_recover": time.time() - recovery_start_time,
+                    "vnf_id": affected_vnf_id,
+                    "latency_degrad": new_lat - old_lat,
+                    "resource_degrad": 0
+                }
+                
+                # Escrita Direta no Arquivo (Bypassing output_results)
+                self.output_writter.resilient_output(sfc_id, info_log, self.crashs_trials)
+                
+                # Não adicionamos em self.sfcs_crash_affected para não duplicar
+                
+            else:
+                # Falhou o Stitching -> Vai para a fila
                 self.sfcs_crash_affected[sfc_id] = {
                     "fall_time": time.time(),
-                    "old_latency": old_lat,
-                    "latency_diff": new_lat - old_lat,
-                    "latency_degrad": new_lat - old_lat,
-                    "time_to_recover": time.time() - recovery_start_time,
+                    "old_latency": pre_crash_latencies.get(sfc_id, 0),
                     "resource_info": 0,
-                    "resource_degrad": 0,
-                    "backup_success": True,
-                    "recover_success": True
+                    "backup_success": False,  # Tinha backup mas falhou
+                    "crash_trial": self.crashs_trials,
+                    "recover_success": False
                 }
-            else:
+                
                 tracker_id = sfc_owners_map.get(sfc_id)
                 if tracker_id:
                     self._requeue_session(tracker_id, fallen_sfcs_list)
 
         return fallen_sfcs_list, post_crash_latencies
+
     
     def _requeue_session(self, tracker_id: str, fallen_list: list) -> None:
         if tracker_id in self.sfc_manager.sfcs_tracker:
@@ -808,8 +830,12 @@ class SubstrateNetworkController():
             fallen_list.extend(sfc_list_tracker)
     
     def _compute_crash_metrics(self, servers_failed, affected_sfc_ids, high_risk, med_risk, low_risk, pre_crash_latencies, post_crash_latencies):
+        # affected_sfc_ids já vem limpo do método anterior (sem backups)
         total_affected = len(affected_sfc_ids)
-        total_active_sfcs = len(self.substrate_network.sfc_dict)
+        
+        # [CORREÇÃO] Usar apenas SFCs primárias como universo total
+        # Antes: total_active_sfcs = len(self.substrate_network.sfc_dict)
+        total_active_sfcs = self.substrate_network.get_number_active_primary_sfcs()
 
         avg_lat_before = np.mean(list(pre_crash_latencies.values())) if pre_crash_latencies else 0.0
         avg_lat_after = np.mean(list(post_crash_latencies.values())) if post_crash_latencies else 0.0
@@ -822,6 +848,7 @@ class SubstrateNetworkController():
 
         avg_lat_diff = np.mean(lat_diffs) if lat_diffs else 0.0
 
+        # Agora a porcentagem reflete o impacto real no serviço
         affected_pct = (total_affected / total_active_sfcs * 100) if total_active_sfcs > 0 else 0.0
 
         self.output_writter.output_crash_impact(
@@ -1104,25 +1131,28 @@ class SubstrateNetworkController():
         sfcs_crash_aff = copy.deepcopy(list(self.sfcs_crash_affected.keys())) 
         if sfc_id in sfcs_crash_aff:
             stored_data = self.sfcs_crash_affected[sfc_id]
-            if not stored_data.get('backup_success'):
-                if results_dict:
-                    stored_data["recover_success"] = is_success 
-                    if is_success: 
-                        time_to_recover = time.time() - stored_data["fall_time"] 
-                        latency_diff = results_dict['latency'] - stored_data["old_latency"] 
-                        resource_factor = stored_data["resource_info"] - results_dict['resource_info']
-                        
-                        stored_data["latency_diff"] = latency_diff
-                        stored_data["latency_degrad"] = latency_diff
-                        stored_data["resource_degrad"] = resource_factor
-                        stored_data["time_to_recover"] = time_to_recover
-                    else: pass
-                else:
-                    stored_data["recover_success"] = False
             
-            if stored_data.get("recover_success") or stored_data.get("backup_success"):
-                resilient_output(sfc_id, stored_data)
-                del self.sfcs_crash_affected[sfc_id]
+            # Se chegamos aqui, é porque a SFC foi redeployada via Fila.
+            # Logo, backup_success deve ser False (ou não existia backup).
+
+            if results_dict:  # Se o redeploy na fila funcionou
+                stored_data["recover_success"] = is_success 
+                if is_success: 
+                    # Atualiza métricas de recuperação via fila
+                    time_to_recover = time.time() - stored_data["fall_time"]
+                    latency_diff = results_dict['latency'] - stored_data["old_latency"]
+                    resource_factor = stored_data["resource_info"] - results_dict['resource_info']
+
+                    stored_data["latency_diff"] = latency_diff
+                    stored_data["latency_degrad"] = latency_diff
+                    stored_data["resource_degrad"] = resource_factor
+                    stored_data["time_to_recover"] = time_to_recover
+            else:
+                stored_data["recover_success"] = False
+            
+            # Salva no arquivo
+            resilient_output(sfc_id, stored_data)
+            del self.sfcs_crash_affected[sfc_id]
                     
         if self.verbose:
             print("__________________________________________")
