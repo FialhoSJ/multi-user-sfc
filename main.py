@@ -40,7 +40,7 @@ def main():
     # --- Parâmetros de Topologia e Rede ---
     parser.add_argument('--topology', type=str, default='luxembourgv2', help='Topology name (ex: luxembourgv2, paloalto)')
     parser.add_argument('--eco_effi_ratio', type=float, default=0.7, help='Proporção slots econômicos (ex: 0.7 = 70% eco)')
-    parser.add_argument('--mobility', type=str, default='y', help='Mobility enabled (y/n)')
+    parser.add_argument('--mobility', type=str, default='n', help='Mobility enabled (y/n)')
     
     # --- Parâmetros de Tráfego (Sessões/Jogadores) ---
     parser.add_argument('--n_sessions', type=int, default=50, help='Number of sessions')

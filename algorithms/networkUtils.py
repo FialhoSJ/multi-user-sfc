@@ -17,33 +17,54 @@ def calculate_5g_latency(
     eficiencia_codec=0.5,
     snr_minimo_db=0.0,
     freq_portadora_hz=3.5e9,
-    sigma_shadowing_db=0#6.00, #8.00
+    sigma_shadowing_db=0
 ):
     """
     Calcula latência (ms) para uma dada distância em 5G, considerando path loss com shadowing.
-
-    Parâmetro:
-    - distancia_m: distância em metros (float ou lista/tupla de floats)
-
-    Retorna latência em ms (float ou lista de floats, conforme input)
+    
+    Good Practice applied: Input Sanitization (Clamping) para evitar Math Domain Error.
     """
     BOLTZMANN = 1.380649e-23
 
     # Função de perda de caminho com shadowing
-    def path_loss_5g(distancia_m):
-        pl_db = 28.0 + 22 * math.log10(distancia_m) + 20 * math.log10(freq_portadora_hz / 1e9)
+    def path_loss_5g(dist_entrada):
+        # --- BOA PRÁTICA: Input Sanitization (Clamping) ---
+        # Garante que a distância seja pelo menos 1.0 metro.
+        # Por que 1.0? Porque math.log10(1.0) == 0.
+        # Isso anula o termo da distância na fórmula sem introduzir viés negativo.
+        # Também protege contra distâncias negativas ou zero absoluto.
+        effective_distance = max(float(dist_entrada), 1.0)
+        # --------------------------------------------------
+
+        pl_db = 28.0 + 22 * math.log10(effective_distance) + 20 * math.log10(freq_portadora_hz / 1e9)
         pl_db += random.gauss(0, sigma_shadowing_db)
         return 10 ** (-pl_db / 10)  # ganho linear
 
     def calcular_latencia_um_ponto(dado):
+        # Passa a variável local 'distancia_m' (do escopo de calculate_5g_latency)
         ganho = path_loss_5g(distancia_m)
+        
         potencia_w = 10 ** (potencia_transmissao_dbm / 10) / 1000
         ruido_w_hz = BOLTZMANN * temperatura_kelvin * (10 ** (figura_ruido_db / 10))
+        
+        # Evita divisão por zero se largura_banda_hz for muito pequena (outra proteção)
+        if largura_banda_hz <= 0:
+            return float('inf')
+
         snr_linear = (ganho * potencia_w) / (ruido_w_hz * largura_banda_hz)
+        
+        # Garante SNR mínimo
         snr_linear = max(snr_linear, 10 ** (snr_minimo_db / 10))
+        
+        # Capacidade de Shannon-Hartley aproximada
         taxa_bps = largura_banda_hz * math.log2(1 + snr_linear) * eficiencia_codec
+        
+        if taxa_bps <= 0:
+            return float('inf')
+
         latencia_ms = (dado / taxa_bps) * 1000  
         return latencia_ms
+
     return calcular_latencia_um_ponto(data)
 
 def calculate_computational_latency(graph,node,vnf):

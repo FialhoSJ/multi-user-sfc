@@ -2,7 +2,7 @@ import copy
 import time
 import random
 from typing import List, Dict, Optional, Tuple, Any, Set
-
+from collections import defaultdict
 from controllers.sfc_generator import SFCGenerator
 from core.net_v2 import Net2
 from core.sfc import SFC
@@ -203,82 +203,142 @@ class BackupManager:
                         route_info=final_route
                     )
 
+    
+
     def _calc_virtual_reliability(self, network: Net2, sfc_id: str, 
                                 pending_backups_sfcs: List[Any]) -> Tuple[float, List[Dict]]:
         """
-        Calcula a confiabilidade total REAL da SFC, consultando a confiabilidade
-        do nó físico onde o backup está (ou será) alocado.
+        Calcula a confiabilidade efetiva da SFC, agrupando VNFs por nó físico (Domínio de Falha).
+        
+        Boas Práticas Aplicadas:
+        - O(N) Lookup: Pré-processamento de backups para evitar loops aninhados.
+        - Grouping: Uso de defaultdict para agrupar VNFs por nó.
+        - Math: Lógica de RBD (Reliability Block Diagram) para sistemas Série-Paralelo.
         """
+        # Fail-fast: Se a rota não existe, não há confiabilidade a calcular.
         if sfc_id not in network.sfc_route_info:
             return 0.0, []
 
         route_info = network.sfc_route_info[sfc_id]
-        total_reliability = 1.0
-        candidates = []
+        
+        # ---------------------------------------------------------
+        # 1. OTIMIZAÇÃO: Mapa de Backups (VNF ID -> Confiabilidade do Backup)
+        # Transforma busca linear O(M) em busca constante O(1)
+        # ---------------------------------------------------------
+        backup_reliability_map = {}
 
-        # Itera sobre as VNFs da rota principal
+        # A) Mapeia Backups JÁ Instanciados (Prioridade Alta)
+        if sfc_id in self.sfcs_backups_instatiated:
+            for b in self.sfcs_backups_instatiated[sfc_id]:
+                vnf_id = b.get('vnf_id')
+                # Extrai o nó físico da rota do backup
+                bk_route = b.get('route_info', {})
+                # Busca a chave que termina com '_b' (ex: 'vnf1_b')
+                bk_node_list = next((v for k, v in bk_route.items() if k.endswith('_b') and v), None)
+                
+                if vnf_id and bk_node_list:
+                    node_id = bk_node_list[0]
+                    backup_reliability_map[vnf_id] = network.get_node_reliability(node_id)
+
+        # B) Mapeia Backups Pendentes (Apenas se ainda não houver um instanciado)
+        for mini_sfc in pending_backups_sfcs:
+            target_vnf = getattr(mini_sfc, 'target_vnf_id', None)
+            
+            # Só processa se ainda não temos um backup firme para essa VNF
+            if target_vnf and target_vnf not in backup_reliability_map:
+                route = getattr(mini_sfc, 'pre_calculated_route', {})
+                bk_key = f"{target_vnf}_b"
+                
+                if route and bk_key in route and route[bk_key]:
+                    node_id = route[bk_key][0]
+                    backup_reliability_map[target_vnf] = network.get_node_reliability(node_id)
+
+        # ---------------------------------------------------------
+        # 2. AGRUPAMENTO: Mapeia Nó Físico -> Lista de VNFs
+        # (Domínio de Falha: Se o nó cai, todas as VNFs nele caem)
+        # ---------------------------------------------------------
+        node_groups = defaultdict(list)
+        
         for vnf_id, path in route_info.items():
             if vnf_id in ['src', 'dst'] or not path:
                 continue
-            
-            # 1. Confiabilidade do Nó Principal
-            node_id = path[0]
+            # path[0] é o nó físico onde a VNF está alocada
+            node_groups[path[0]].append(vnf_id)
+
+        # ---------------------------------------------------------
+        # 3. CÁLCULO: Confiabilidade Série-Paralelo
+        # ---------------------------------------------------------
+        total_reliability = 1.0
+        candidates = []
+
+        for node_id, vnfs_list in node_groups.items():
+            # Obtém confiabilidade do nó primário (com fallback seguro)
             try:
-                r_prim = network.get_node_reliability(node_id)
-            except AttributeError:
-                r_prim = 1.0
+                reliability_primary = network.get_node_reliability(node_id)
+            except (AttributeError, KeyError):
+                reliability_primary = 1.0
 
-            # 2. Busca Confiabilidade do Nó de Backup (se existir)
-            r_backup = 0.0
-            has_backup = False
+            # Verifica proteção para o GRUPO
+            all_vnfs_protected = True
+            prod_failure_backups = 1.0 # Probabilidade de falha conjunta dos backups
             
-            # A) Verifica Backups JÁ Instanciados (Ciclos passados)
-            if sfc_id in self.sfcs_backups_instatiated:
-                for b in self.sfcs_backups_instatiated[sfc_id]:
-                    if b['vnf_id'] == vnf_id:
-                        bk_route = b.get('route_info', {})
-                        for k, v in bk_route.items():
-                            if k.endswith('_b') and v:
-                                bk_node = v[0]
-                                r_backup = network.get_node_reliability(bk_node)
-                                has_backup = True
-                                break
-                    if has_backup: break
+            for vnf_id in vnfs_list:
+                reliability_backup = backup_reliability_map.get(vnf_id, 0.0)
+                
+                if reliability_backup > 0.0:
+                    # Se tem backup, acumulamos a probabilidade de falha dele
+                    # P(Falha Backup) = 1 - R_backup
+                    prod_failure_backups *= (1.0 - reliability_backup)
+                else:
+                    # Se UMA VNF do nó não tem backup, o grupo não está totalmente protegido
+                    all_vnfs_protected = False
+                    candidates.append({
+                        'vnf_id': vnf_id,
+                        'node_rel': reliability_primary,
+                        'node_id': node_id
+                    })
 
-            # B) Verifica Backups Pendentes (Criados neste loop)
-            if not has_backup:
-                for mini_sfc in pending_backups_sfcs:
-                    target_backup_name = f"{vnf_id}_b"
-                    
-                    if hasattr(mini_sfc, 'pre_calculated_route') and mini_sfc.pre_calculated_route:
-                        bk_route = mini_sfc.pre_calculated_route
-                        if target_backup_name in bk_route and bk_route[target_backup_name]:
-                            bk_node = bk_route[target_backup_name][0]
-                            r_backup = network.get_node_reliability(bk_node)
-                            has_backup = True
-                            break
-
-            # 3. Cálculo do Estágio (Fórmula Paralela)
-            if has_backup:
-                # 1 - (Prob. Falha Prim * Prob. Falha Backup)
-                stage_r = 1.0 - ((1.0 - r_prim) * (1.0 - r_backup))
+            # FÓRMULA DO GRUPO:
+            if all_vnfs_protected:
+                # Sistema Paralelo: O serviço sobrevive se (Primário Vivo) OU (Backups Vivos)
+                # P(Sistema Falhar) = P(Primário Falhar) * P(Todos Backups Falharem)
+                # R_total = 1 - P(Sistema Falhar)
+                
+                prob_primary_fail = 1.0 - reliability_primary
+                # Nota: prod_failure_backups já é o produtório de (1 - r_backup)
+                
+                group_reliability = 1.0 - (prob_primary_fail * prod_failure_backups)
             else:
-                stage_r = r_prim
-                candidates.append({'vnf_id': vnf_id, 'node_rel': r_prim, 'node_id': node_id})
+                # Sistema Série: Limitado pelo elo mais fraco (o nó primário)
+                # Se o nó cair, a VNF sem backup cai, e a SFC morre.
+                group_reliability = reliability_primary
 
-            total_reliability *= stage_r
+            total_reliability *= group_reliability
 
+        # Ordena candidatos: Prioridade para nós menos confiáveis
         sorted_candidates = sorted(candidates, key=lambda x: x['node_rel'])
-        return total_reliability, sorted_candidates
         
+        return total_reliability, sorted_candidates
+            
     def rl_based_strategy(self, network: Net2, sfc_id_duration: Dict, agent: Any) -> List[List[Any]]:
         """
-        Estratégia baseada na Confiabilidade Total da SFC.
-        Cria backups iterativamente até que a confiabilidade atinja a meta.
+        Estratégia baseada em RL com 'Shadow State' para garantir consistência 
+        de recursos durante o planejamento em lote.
         """
+        import time
+        import copy # Garantir import
+        
         backups_mount = []
         target_reliability = 0.85
+        MAX_BACKUPS_PER_SFC = 4
         
+        # --- ARQUITETURA: Criação do Shadow State ---
+        # Criamos uma cópia MÚTAVEL da topologia atual para simular o consumo
+        # de recursos sequencialmente, sem afetar a rede real (Net2) ainda.
+        # Isso evita que múltiplos backups sejam agendados para o mesmo slot de recurso.
+        simulation_graph = copy.deepcopy(network.graph)
+        
+        # Ordenação para determinismo
         sorted_sfcs = sorted(list(sfc_id_duration.keys()))
 
         for sfc_id in sorted_sfcs:
@@ -288,11 +348,22 @@ class BackupManager:
             sfc = network.get_sfc_by_id(sfc_id)
             pending_sfcs_this_cycle = []
             
-            while True:
+            last_reliability = -1.0 
+            loop_safety_counter = 0
+            MAX_LOOP_ATTEMPTS = 5
+            
+            while len(pending_sfcs_this_cycle) < MAX_BACKUPS_PER_SFC:
+                loop_safety_counter += 1
+                
+                if loop_safety_counter > MAX_LOOP_ATTEMPTS:
+                    break
+
                 current_r, candidates = self._calc_virtual_reliability(
                     network, sfc_id, pending_sfcs_this_cycle
                 )
                 
+                last_reliability = current_r
+
                 if current_r >= target_reliability:
                     break
                 
@@ -307,48 +378,119 @@ class BackupManager:
                 if not mini_sfc: 
                     break 
 
-                # Setup ambiente RL
-                graph_for_rl = copy.deepcopy(network.graph)
-                self._enrich_graph_with_mobility(graph_for_rl, network, mini_sfc)
+                # --- MUDANÇA: Usamos o simulation_graph (estado acumulado) ---
+                # NÃO fazemos deepcopy de network.graph aqui dentro.
+                # Fazemos deepcopy do simulation_graph para o ENV não estragar
+                # o nosso estado sombra caso falhe, mas persistimos se der sucesso.
+                graph_for_env = copy.deepcopy(simulation_graph)
+                
+                self._enrich_graph_with_mobility(graph_for_env, network, mini_sfc)
 
-                # Identifica nós válidos
                 valid_types = ['server', 'mobile_device']
-                all_servers = [n for n, d in graph_for_rl.nodes(data=True) if d.get('type') in valid_types]
+                all_servers = [n for n, d in graph_for_env.nodes(data=True) if d.get('type') in valid_types]
                 
                 if not all_servers:
                     break 
 
                 env = SFC_AllocationEnv(
                     valid_nodes=all_servers,
-                    list_graph=[graph_for_rl],
+                    list_graph=[graph_for_env],
                     list_sfc=[mini_sfc],
                     is_training=False
                 )
                 
-                # Proíbe o nó fraco original
-                forbidden = [weak_node]
-                if isinstance(weak_node, (int, float)):
-                    # Tratamento para nós com IDs numéricos flutuantes (se houver)
-                    forbidden.append(weak_node - 0.1 if weak_node % 1 == 0.1 else weak_node + 0.1)
+                # --- Lógica de Forbidden Nodes (Mantida igual) ---
+                primary_nodes_used = set()
+                original_route_info = network.sfc_route_info.get(sfc_id, {})
+                for vnf_p, path_p in original_route_info.items():
+                    if vnf_p not in ['src', 'dst'] and path_p:
+                        primary_nodes_used.add(path_p[0])
+
+                for pending_bk in pending_sfcs_this_cycle:
+                    if hasattr(pending_bk, 'pre_calculated_route'):
+                        for b_path in pending_bk.pre_calculated_route.values():
+                            if b_path:
+                                primary_nodes_used.add(b_path[0])
+
+                forbidden = []
+                for node in primary_nodes_used:
+                    forbidden.append(node)
+                    if isinstance(node, float):
+                        forbidden.append(int(node))
+                    elif isinstance(node, int):
+                        forbidden.append(float(f"{node}.1"))
+                    elif isinstance(node, str) and node.replace('.', '').isdigit():
+                        try:
+                             val = float(node)
+                             forbidden.append(val)
+                             forbidden.append(int(val))
+                        except: pass
+
                 env.set_forbidden_nodes(forbidden)
 
+                agent.install_substrate_network(graph_for_env)
                 agent.install_SFC(mini_sfc)
+                
                 try:
-                    agent.install_substrate_network(graph_for_rl)
                     success = agent.start_algorithm(env)
-                except KeyError as e:
-                    print(f"[BackupManager] Erro no RL para SFC {sfc_id}: {e}")
+                except Exception as e:
+                    print(f"[BackupManager] Exception no Agent para {sfc_id}: {e}")
                     success = False
                 
                 if success:
                     route_info_backup = agent.get_route_info()
+                    if not route_info_backup:
+                         break
+
                     mini_sfc.pre_calculated_route = route_info_backup
                     pending_sfcs_this_cycle.append(mini_sfc)
                     backups_mount.append([mini_sfc])
+                    
+                    # --- CRÍTICO: Atualiza o Shadow State ---
+                    # Deduzimos os recursos do simulation_graph para que a próxima
+                    # iteração saiba que este nó está ocupado.
+                    self._apply_virtual_reservation(simulation_graph, mini_sfc, route_info_backup)
+                    
                 else:
                     break
         
         return backups_mount
+
+    def _apply_virtual_reservation(self, graph: Any, sfc: SFC, route_info: Dict) -> None:
+        """
+        Aplica a redução de recursos no grafo de simulação (Shadow State).
+        Isso mimetiza a alocação física de forma simplificada.
+        """
+        for vnf_name, path in route_info.items():
+            if vnf_name in ['src', 'dst'] or "virt" in vnf_name:
+                continue
+            
+            if not path: continue
+            
+            # 1. Consumo de Nó
+            node_id = path[0]
+            if node_id in graph.nodes:
+                node = graph.nodes[node_id]
+                vnf_obj = sfc.get_vnf_by_id(vnf_name)
+                
+                # Assume-se sem reuso para ser conservador no backup (Worst Case)
+                if vnf_obj:
+                    cpu_req = vnf_obj.get_cpu_request()
+                    cache_req = vnf_obj.get_cache_request()
+                    
+                    node['cpu_used'] = node.get('cpu_used', 0) + cpu_req
+                    node['cache_used'] = node.get('cache_used', 0) + cache_req
+
+            # 2. Consumo de Banda
+            if len(path) > 1:
+                # Recupera requisito de banda
+                vnf_obj = sfc.get_vnf_by_id(vnf_name)
+                bw_req = vnf_obj.get_outcome_interface_bandwidth() if vnf_obj else 0
+                
+                for u, v in zip(path[:-1], path[1:]):
+                    if graph.has_edge(u, v):
+                        edge = graph.edges[u, v]
+                        edge['bandwidth_used'] = edge.get('bandwidth_used', 0) + bw_req
 
     def _enrich_graph_with_mobility(self, graph, network, mini_sfc):
         """Helper para adicionar nós móveis ao grafo copiado para o RL."""
