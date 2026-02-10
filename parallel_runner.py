@@ -47,7 +47,7 @@ if __name__ == '__main__':
     BATCH_PARALLEL_RUNS = 12
     
     # --- Configurações de Falha ---
-    number_of_fails = ['20'] 
+    number_of_fails = ['22'] 
     CRASH_AT_TIME = -1 
     avas = ['0.97']
 
@@ -79,7 +79,7 @@ if __name__ == '__main__':
                             ' --number_of_fails ' + str(n) + \
                             ' --crash_at ' + str(CRASH_AT_TIME) + \
                             ' --n_players ' + str(args.n_players) + \
-                            ' --time ' + str(args.time) + \
+                            ' --sfc_lifetime ' + str(args.time) + \
                             ' --eco_effi_ratio ' + str(args.eco_effi_ratio) + \
                             ' --verbose n'
                         
