@@ -432,12 +432,21 @@ class SubstrateNetworkController():
         session_id = sfc_list[0].dst_node
         sfcs_tracker_info = self.sfc_manager.sfcs_tracker.get(session_id)
         
+        # Se não há tracker, a sessão já morreu logicamente. Abortar.
         if not sfcs_tracker_info: return
 
-        time_elapsed = time.time() - sfcs_tracker_info["timer"]
-        remaining_duration = sfcs_tracker_info["duration"] - time_elapsed
+        # CÁLCULO DE TEMPO ABSOLUTO (Referência Lógica)
+        # Usamos o timer DA SESSÃO, não do objeto SFC (que pode ter sido reiniciado)
+        session_start_time = sfcs_tracker_info["timer"]
+        original_duration = sfcs_tracker_info["duration"]
         
-        if remaining_duration <= 0:
+        time_elapsed_absolute = time.time() - session_start_time
+        remaining_duration = original_duration - time_elapsed_absolute
+        
+        # Validação Crítica: Se o tempo acabou, force a limpeza e não re-enfileire.
+        if remaining_duration <= 1.0: # Margem de segurança de 1s
+            if self.verbose:
+                print(f"[Queue] Sessão {session_id} expirou durante falha. Cancelando re-deploy.")
             self._force_cleanup_session(session_id)
             return
 
@@ -473,7 +482,7 @@ class SubstrateNetworkController():
                 "bandwidth": sfc.input_throughput,
                 "src_node": sfc.src.substrate_node,
                 "dst_node": sfc.dst_node,
-                "duration": remaining_duration,
+                "duration": remaining_duration, # O novo objeto nasce sabendo que tem pouco tempo
                 "closer_router": location,
                 "latency": sfc.latency_request
             }   
@@ -978,41 +987,40 @@ class SubstrateNetworkController():
 
     def _run_garbage_collector(self):
         """
-        Identifica SFCs que existem na infraestrutura (Net2) mas não são 
-        reconhecidas por nenhum gerenciador lógico (SFCManager ou BackupManager).
+        Remove inconsistências entre a camada lógica (Managers) e física (Net2).
+        Aplica Set Theory para identificar 'Zumbis' de forma agnóstica ao nome.
         """
-        # Obtém IDs ativos na infraestrutura (Apenas leitura)
-        # Isso reduz o acoplamento comparado a acessar o dict diretamente para escrita
+        # 1. Snapshot da Realidade Física (Apenas leitura)
         infra_sfc_ids = set(self.substrate_network.sfc_dict.keys())
         
-        # Constrói conjunto de IDs válidos conhecidos pelos Managers
+        # 2. Construção da Verdade Lógica (Agregação de Fontes Confiáveis)
         valid_logical_ids = set()
         
-        # A) SFCs Primárias
+        # Fonte A: Sessões Ativas (SFCs Primárias)
+        # Desacoplamento: Acessamos os valores, sem saber a estrutura interna da chave
         for session_info in self.sfc_manager.sfcs_tracker.values():
-            for sfc in session_info['sfc_list']:
-                valid_logical_ids.add(sfc.id)
+            # List Comprehension para extração rápida
+            valid_logical_ids.update(sfc.id for sfc in session_info['sfc_list'])
                 
-        # B) SFCs de Backup
+        # Fonte B: Backups Ativos
         if self.sfc_manager.backup_manager:
-            # Acessa chaves do gerenciador de backup
+            # O Manager deve ser a fonte da verdade sobre seus próprios IDs
             valid_logical_ids.update(self.sfc_manager.backup_manager.backups_sfc_instantiated.keys())
 
-        # Diferença: O que está na infraestrutura mas não deveria estar
-        # Zumbi = Infraestrutura - Lógica
+        # 3. Identificação de Zumbis (Lógica Pura: O que está na Infra mas não na Lógica)
         zombie_ids = infra_sfc_ids - valid_logical_ids
 
-        for z_id in zombie_ids:
-            # Filtro de segurança: Remove apenas se parecer um backup ou se for muito antigo
-            # (Aqui assumimos que backups têm '_backup_' no nome conforme padrão do projeto)
-            if "_backup_" in z_id:
-                if self.verbose:
-                    print(f"[GC] Detectada inconsistência: {z_id} é Zumbi. Removendo.")
+        # 4. Execução da Limpeza
+        if zombie_ids:
+            if self.verbose:
+                print(f"[GC] Inconsistência detectada. Removendo {len(zombie_ids)} SFCs órfãs: {zombie_ids}")
+
+            for z_id in zombie_ids:
                 try:
-                    # Delega a remoção para a rede (que agora tem o finally robusto)
+                    # Delegação: O Controller manda a Rede limpar, sem saber como a Rede faz isso.
                     self.substrate_network.undeploy_sfc(z_id)
                 except Exception as e:
-                    print(f"[GC] Erro ao limpar zumbi {z_id}: {e}")
+                    print(f"[GC] Erro crítico ao limpar zumbi {z_id}: {e}")
 
     def _force_remove_sfc_and_backups(self, sfc_id: str) -> None:
         """Remove SFC e backups associados de forma atômica."""

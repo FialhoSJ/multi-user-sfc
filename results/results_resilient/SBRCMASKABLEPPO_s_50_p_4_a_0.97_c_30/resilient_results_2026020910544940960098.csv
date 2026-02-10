@@ -1,5 +1,0 @@
-crash_trial,sfc_id,recover_success,backup_success,backup_efficient,latency_diff,time_to_recover,vnf_id,latency_degrad,resource_degrad
-0,sfc_unique_p4_1,True,False,N/A,-43.72003048491909,0.02147984504699707,N/A,-43.72003048491909,-21.0
-0,sfc_cache_p3_1,True,False,N/A,-44.30776797310268,0.035672903060913086,N/A,-44.30776797310268,-6.0
-0,sfc_cache_p2_1,True,False,N/A,-44.24776797310268,0.050019025802612305,N/A,-44.24776797310268,-1.67
-0,sfc_cache_p1_1,True,False,N/A,-44.317767973102676,0.07042598724365234,N/A,-44.317767973102676,-1.67

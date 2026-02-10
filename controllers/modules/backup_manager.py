@@ -127,45 +127,68 @@ class BackupManager:
     # ==========================================
 
     def create_backups(self, network: Net2, agent_ref: Any = None) -> Tuple[List[Any], str]:
-        """Orquestra a criação e o registro de backups baseado na estratégia definida.
-        
-        Atua como uma fachada para as estratégias de alocação, garantindo que
-        qualquer backup gerado seja imediatamente registrado no estado interno.
-
-        Args:
-            network: A instância da rede de substrato atual.
-            agent_ref: Referência opcional para o agente de RL (se aplicável).
-
-        Returns:
-            Uma tupla contendo a lista de SFCs de backup criadas e o nome da estratégia.
+        """
+        Orquestra a criação de backups.
+        Refatorado para respeitar estritamente o tempo de vida da sessão original.
         """
         if not self.backup_activated:
             return [], "none"
+        
+        GLOBAL_THRESHOLD = 0.75
+        current_utilization = network.get_network_only_processing_utilization()
+        
+        if current_utilization > GLOBAL_THRESHOLD:
+            print(f"[BackupManager] Criação suspensa. Rede saturada: {current_utilization:.2%}")
+            current_utilization = network.get_network_only_processing_utilization()
+            return [], "network_saturated"
 
-        # ... (código de preparação do sfc_id_duration mantém-se igual) ...
-        # Apenas para contexto, mantive a lógica de dicionário auxiliar aqui
-        sfc_id_duration = {} 
+        # Constante de segurança (evita Magic Numbers soltos)
+        MIN_LIFETIME_FOR_BACKUP = 5.0 
+        current_time = time.time()
+        
+        # Mapa auxiliar: SFC ID -> Dados de Tempo
+        sfc_lifecycle_map = {} 
+
+        # 1. Filtragem e Validação (Fail-Fast)
         for sfc_id, sfc in network.sfc_dict.items():
-            if "backup" in sfc_id: continue
-            start_t = getattr(sfc, 'arrival_time', time.time())
-            sfc_id_duration[sfc_id] = {"timer": start_t, "duration": getattr(sfc, 'duration', 100)}
+            # Ignora backups existentes para evitar recursão
+            if getattr(sfc, 'is_backup', False) or "backup" in sfc_id: 
+                continue
+            
+            # Recuperação robusta de atributos (EAFP)
+            start_t = getattr(sfc, 'arrival_time', current_time)
+            # Nota: 'duration' aqui deve ser o tempo RESTANTE se a SFC veio da fila
+            total_duration = getattr(sfc, 'duration', 100) 
+            
+            elapsed = current_time - start_t
+            remaining_time = total_duration - elapsed
+            
+            # REGRA DE OURO: Se a SFC está morrendo, não gaste recursos criando backup.
+            if remaining_time < MIN_LIFETIME_FOR_BACKUP:
+                continue
 
-        # 1. Seleção e Execução da Estratégia
-        backups_mount: List[List[Any]] = []
-        strategy_name: str = "greedy"
+            sfc_lifecycle_map[sfc_id] = {
+                "timer": start_t, 
+                "duration": total_duration,
+                "remaining": remaining_time # Passamos o calculado para evitar recálculo
+            }
+
+        # 2. Seleção de Estratégia (Injeção de Dependência via parâmetros)
+        backups_mount = []
+        strategy_name = "greedy"
 
         if self.alg == 'SBRCMASKABLEPPO' and agent_ref is not None:
-            backups_mount = self.rl_based_strategy(network, sfc_id_duration, agent_ref)
+            # Passamos o mapa limpo, sem zumbis
+            backups_mount = self.rl_based_strategy(network, sfc_lifecycle_map, agent_ref)
             strategy_name = 'rl_based'
         elif self.alg in ['vegeta', 'ga']:
-            backups_mount = self.seletive_strategy(network, sfc_id_duration)
+            backups_mount = self.seletive_strategy(network, sfc_lifecycle_map)
             strategy_name = 'seletive'
         else:
-            backups_mount = self.greedy_strategy(network, sfc_id_duration)
+            backups_mount = self.greedy_strategy(network, sfc_lifecycle_map)
             strategy_name = 'greedy'
 
-        # 2. Persistência de Estado (Correção do Bug)
-        # O Manager assume a responsabilidade de registrar o que acabou de criar.
+        # 3. Commit de Estado
         self._commit_backup_state(backups_mount)
 
         return backups_mount, strategy_name

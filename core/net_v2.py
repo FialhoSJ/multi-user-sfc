@@ -485,6 +485,7 @@ class Net2:
 
         service_id = vnf.id
         session_id = extrair_sessao(sfc_id) 
+        # Mantendo a sua estrutura de chave original
         service_key = (service_id, session_id)
 
         # --- CORREÇÃO EAFP ---
@@ -506,16 +507,33 @@ class Net2:
         else: self.metrics.total_cpu_requested -= cpu_req
         self.metrics.total_cache_requested -= cache_req
 
-        # Atualização Savings
+        # ==============================================================================
+        # ATUALIZAÇÃO SAVINGS (CACHE CORRIGIDO)
+        # ==============================================================================
+        
+        # Verifica se essa instância tinha custo reduzido/zero (subsidiada)
+        # Se stored_cost (ex: 0) < request (ex: 10), ela gerou economia na entrada.
+        stored_cache_cost = service_info.get('cache', 0.0)
+        was_subsidized_cache = stored_cache_cost < cache_req
+
+        # Lógica Específica para Cache:
+        # Decrementa se não vai remover a física (ainda tem cópias) 
+        # OU se vai remover, mas ela era subsidiada (precisa estornar a economia).
+        if not remove_physical_instance or was_subsidized_cache:
+            self.metrics.total_cache_saved -= cache_req
+
+        # Mantém a lógica original para CPU/GPU (dentro do bloco original)
         if not remove_physical_instance:
             if is_gpu_node: self.metrics.total_gpu_saved -= cpu_req
             else: self.metrics.total_cpu_saved -= cpu_req
-            self.metrics.total_cache_saved -= cache_req
+            # Nota: cache_saved foi movido para o bloco acima
             
             if is_shareable_service:
                 self.metrics.shared_vnfs_count = max(0, self.metrics.shared_vnfs_count - 1)
 
-        # Atualização Listas
+        # ==============================================================================
+
+        # Atualização Listas e Remoção Física
         if sfc_id in node['sfcs_list']:
             node['sfcs_list'].remove(sfc_id)
 
@@ -931,6 +949,34 @@ class Net2:
     
     def get_cpu_total_used(self): 
         return self.metrics.total_cpu_used + self.metrics.mobile_cpu_used
+    
+    def get_network_only_processing_utilization(self):
+        """
+        Calcula a utilização combinada (CPU + GPU) APENAS da infraestrutura de servidores.
+        Ignora dispositivos móveis.
+        Retorna float entre 0.0 e >1.0 (se houver sobrecarga).
+        """
+        # 1. Numerador: Uso apenas da Rede (já excluindo mobile nas métricas)
+        # As métricas 'total_*' em Net2 referem-se estritamente à rede fixa/servidores
+        network_used_cpu = self.metrics.total_cpu_used
+        network_used_gpu = self.metrics.total_gpu_used
+        total_load = network_used_cpu + network_used_gpu
+
+        # 2. Denominador: Capacidade Atual dos Servidores (Iterando apenas self.graph)
+        total_capacity = 0.0
+        
+        for node_id, node_data in self.graph.nodes(data=True):
+            # Filtro de segurança: Garante que é um servidor (ignora roteadores se tiverem cap 0)
+            if node_data.get('type') == 'server':
+                # Se o nó estiver caído (is_active=False), a cpu_capacity será 0.
+                # Isso é CORRETO para Admission Control: capacidade cai -> utilização sobe -> bloqueia backups.
+                total_capacity += node_data.get('cpu_capacity', 0.0)
+
+        # Fail-safe: Se a capacidade for 0 (colapso total), retorna saturação máxima (1.0 ou mais)
+        if total_capacity == 0:
+            return 1.0 if total_load == 0 else 999.0
+
+        return total_load / total_capacity
         
     def get_gpu_total_used(self): 
         return self.metrics.total_gpu_used + self.metrics.mobile_gpu_used
@@ -1000,16 +1046,33 @@ class Net2:
     def get_network_cpu_utilization_percentage(self):
         total_network_capacity = 0.0
         for node_id, node_data in self.graph.nodes(data=True):
-            if 'cpu_capacity' in node_data and not self._is_gpu_node(node_id):
-                total_network_capacity += node_data['cpu_capacity']
+            # Filtra apenas servidores, ignorando GPUs
+            if not self._is_gpu_node(node_id):
+                # CORREÇÃO: Se o nó caiu, usa a capacidade original
+                current_cap = node_data.get('cpu_capacity', 0.0)
+                if not node_data.get('is_active', True):
+                    current_cap = node_data.get('original_cpu_capacity', current_cap)
+                
+                total_network_capacity += current_cap
+
         if total_network_capacity == 0: return 0.0
+        
+        # O metrics.total_cpu_used continua contendo a carga dos nós caídos
+        # até que o Controller faça o undeploy.
         return (self.metrics.total_cpu_used / total_network_capacity) * 100
 
     def get_network_gpu_utilization_percentage(self):
         total_network_capacity = 0.0
         for node_id, node_data in self.graph.nodes(data=True):
-            if 'cpu_capacity' in node_data and self._is_gpu_node(node_id):
-                total_network_capacity += node_data['cpu_capacity']
+            # Filtra apenas nós de GPU
+            if self._is_gpu_node(node_id):
+                # CORREÇÃO: Usa capacidade original em caso de falha
+                current_cap = node_data.get('cpu_capacity', 0.0)
+                if not node_data.get('is_active', True):
+                    current_cap = node_data.get('original_cpu_capacity', current_cap)
+                
+                total_network_capacity += current_cap
+
         if total_network_capacity == 0: return 0.0
         return (self.metrics.total_gpu_used / total_network_capacity) * 100
     

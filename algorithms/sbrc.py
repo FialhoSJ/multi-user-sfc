@@ -216,14 +216,16 @@ class SBRC:
 
         if self.check_solution():
             try:
-                logger.info("Finished algorithm, success")
+                if "backup" not in self.sfc.id:
+                    logger.info("Finished algorithm, success")
                 return True  
             except Exception:
                 self.handle_failure()
                 return False
         else:
             self.handle_failure()
-            logger.info(f"End algorithm, failed: {self.fail_reason}")
+            if "backup" not in self.sfc.id:
+                logger.info(f"End algorithm, failed: {self.fail_reason}")
             return False
 
     ### MODIFICADO ###
@@ -314,8 +316,9 @@ class SBRC:
             # Apenas garantimos que não sobrou lixo e o formato é dict.
             # O código anterior que sobrescrevia 'route_info' com list() foi removido.
             pass 
-
-        print(f"{self.sfc.id} - Alocação: {env.servers_used}")
+        
+        if "backup" not in self.sfc.id:
+            print(f"{self.sfc.id} - Alocação: {env.servers_used}")
         return route_info, total_latency
 
     # O método evaluate_result foi mantido como no original.
