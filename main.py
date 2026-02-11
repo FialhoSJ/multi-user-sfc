@@ -33,7 +33,7 @@ def main():
     
     # --- Parâmetros Gerais e de Log ---
     parser.add_argument('--application', type=str, default='muar', help='Type of application')
-    parser.add_argument('--alg', type=str, default='ga', help='Algorithm name')
+    parser.add_argument('--alg', type=str, default='hephaestusMaskablePPO', help='Algorithm name')
     parser.add_argument('--sfc_lifetime', dest='time', type=int, default=120, help='Duration/Lifetime of a single SFC session in seconds')    
     parser.add_argument('--verbose', type=str, default='y', help='Verbose log (y/n)')
     
