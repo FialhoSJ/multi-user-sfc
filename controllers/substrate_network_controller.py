@@ -191,7 +191,7 @@ class SubstrateNetworkController():
 
         # Definição do Agente (se aplicável)
         agent = None
-        if self.alg == 'SBRCMASKABLEPPO':
+        if self.alg == 'SBRCMASKABLEPPO' or 'ga':
             agent = self.sfc_instantiator.alg
         
         # 1. Criação Lógica (Factory)
@@ -232,7 +232,6 @@ class SubstrateNetworkController():
                     self.substrate_network.deploy_sfc(backup_sfc, route_info)
                     
                 except Exception as e:
-                    # Log de erro robusto sem interromper o loop principal [cite: 176]
                     print(f"Erro ao implantar backup {backup_sfc.id}: {e}")
 
     def handle_fails(self):
