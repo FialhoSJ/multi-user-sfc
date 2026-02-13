@@ -304,8 +304,8 @@ class OutputWritter:
                         for node in unique_nodes:
                             sfc_reliability *= substrate_network.get_node_reliability(node)
                         
-                        if sfc_reliability < 0.933: count_high_risk += 1
-                        elif 0.933 <= sfc_reliability <= 0.966: count_medium_risk += 1
+                        if sfc_reliability < 0.8666: count_high_risk += 1
+                        elif 0.8666 <= sfc_reliability <= 0.9333: count_medium_risk += 1
                         else: count_low_risk += 1
         else:
             total_reliability = 0.0
@@ -325,8 +325,8 @@ class OutputWritter:
                         if sfc_reliability > 0.0001:
                             total_reliability += sfc_reliability
                             active_sfc_count += 1
-                            if sfc_reliability < 0.9: count_high_risk += 1
-                            elif 0.9 <= sfc_reliability <= 0.95: count_medium_risk += 1
+                            if sfc_reliability < 0.8666: count_high_risk += 1
+                            elif 0.8666 <= sfc_reliability <= 0.9333: count_medium_risk += 1
                             else: count_low_risk += 1
             
             avg_sfc_reliability = total_reliability / active_sfc_count if active_sfc_count > 0 else 0.0

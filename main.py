@@ -33,7 +33,7 @@ def main():
     
     # --- Parâmetros Gerais e de Log ---
     parser.add_argument('--application', type=str, default='muar', help='Type of application')
-    parser.add_argument('--alg', type=str, default='ga', help='Algorithm name')
+    parser.add_argument('--alg', type=str, default='SBRCMASKABLEPPO', help='Algorithm name')
     parser.add_argument('--sfc_lifetime', dest='time', type=int, default=120, help='Duration/Lifetime of a single SFC session in seconds')    
     parser.add_argument('--verbose', type=str, default='y', help='Verbose log (y/n)')
     
@@ -57,13 +57,13 @@ def main():
     
     # 1. Configuração MACRO (Gera o Cronograma)
     parser.add_argument('--ava', type=str, default='0.97', help='Meta Global de Disponibilidade')
-    parser.add_argument('--number_of_fails', type=str, default='30', help='Number of node failures')
+    parser.add_argument('--number_of_fails', type=str, default='20', help='Number of node failures')
     parser.add_argument('--min_fail_duration', type=float, default=20, help='Min duration of node failure')
     parser.add_argument('--crash_at', type=float, default=-1, help='Forcar falha em X segundos (Ex: [300, 400, 500]). Use -1 para aleatorio. Respeite o numero de falhas.')
 
     # 2. Configuração MICRO (Define a Confiabilidade Base por Nível)
     # Valores entre 0.0 e 1.0 (Ex: 0.99 = 99% confiável)
-    parser.add_argument('--rel_high', type=float, default=0.99, help='Confiabilidade base para Nível Alto (Tier C)')
+    parser.add_argument('--rel_high', type=float, default=0.999, help='Confiabilidade base para Nível Alto (Tier C)')
     parser.add_argument('--rel_normal', type=float, default=0.98, help='Confiabilidade base para Nível Normal (Tier B)')
     parser.add_argument('--rel_low', type=float, default=0.95, help='Confiabilidade base para Nível Baixo (Tier A)')
     
@@ -71,14 +71,13 @@ def main():
     # Define o quanto a carga da CPU penaliza a confiabilidade.
     # Ex: 0.05 significa que 100% de uso reduz a confiabilidade em 5%.
 # Fator de Estresse por Tier (Deltas de Penalidade)
-    # Tier C (High): 0.9999 -> 0.9990 (Delta 0.0009)
-    parser.add_argument('--stress_high', type=float, default=0.1, help='Penalidade por estresse para Tier C (High)')
+    parser.add_argument('--stress_high', type=float, default=0.02, help='Penalidade por estresse para Tier C (High)')
     
     # Tier B (Normal): 0.99 -> 0.95 (Delta 0.04)
-    parser.add_argument('--stress_normal', type=float, default=0.1, help='Penalidade por estresse para Tier B (Normal)')
+    parser.add_argument('--stress_normal', type=float, default=0.08, help='Penalidade por estresse para Tier B (Normal)')
     
     # Tier A (Low): 0.95 -> 0.80 (Delta 0.15)
-    parser.add_argument('--stress_low', type=float, default=0.1, help='Penalidade por estresse para Tier A (Low)')
+    parser.add_argument('--stress_low', type=float, default=0.15, help='Penalidade por estresse para Tier A (Low)')
     
     # Opções: 'all' (qualquer um), 'high_risk' (Tier A), 'med_risk' (Tier B), 'low_risk' (Tier C)
     parser.add_argument('--fail_target', type=str, default='all', help='Alvo das falhas: all, high_risk (Nivel A), med_risk (Nivel B), low_risk (Nivel C)')

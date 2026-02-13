@@ -205,7 +205,7 @@ class SubstrateNetworkController():
         if created_backup_groups:
             self._deploy_backups_to_network(created_backup_groups)
 
-            # Observabilidade Estruturada (Log) [cite: 184]
+            # Observabilidade Estruturada (Log) 
             if self.verbose:
                 count = sum(len(group) for group in created_backup_groups)
                 print(f"[BACKUP] Ciclo concluído. {count} novos backups registrados via {strategy}.")
@@ -286,95 +286,6 @@ class SubstrateNetworkController():
     #                   QUEUE & DEPLOYMENT MANAGEMENT                         #
     ###########################################################################
     
-    def check_network_health(self):
-        """
-        Verifica saúde da rede usando o getter preciso da Net2.
-        Compatível com a nova estrutura de métricas pois usa o método público.
-        """
-        utilization = self.substrate_network.get_processing_network_used_precise()
-        return utilization < 0.75
-
-    # def ensure_reliability_target(self, sfc_list, target_reliability=0.99):
-    #     """
-    #     Garante a confiabilidade alvo aplicando redundância em nós fracos.
-    #     """
-    #     if self.alg != 'SBRCMASKABLEPPO': return
-    #     if not self.sfc_manager.backup_manager.backup_activated: return
-    #     if not self.check_network_health(): return
-
-    #     for sfc in sfc_list:
-    #         max_iterations = 3 
-    #         for _ in range(max_iterations):
-                
-    #             current_r, weak_vnf_id, weak_node = self.sfc_manager.calculate_sfc_reliability(sfc.id, self.substrate_network)
-                
-    #             if current_r >= target_reliability: break
-    #             if not weak_node: break
-
-    #             vnfs_no_no_fraco = []
-    #             route_info = self.sfc_manager.sfcs_routing_info.get(sfc.id, {})
-                
-    #             for vnf_id, path in route_info.items():
-    #                 if vnf_id in ['src', 'dst']: continue
-    #                 if path and path[0] == weak_node:
-    #                     vnfs_no_no_fraco.append(vnf_id)
-
-    #             if not vnfs_no_no_fraco: break
-
-    #             backup_created_in_cycle = False
-                
-    #             for target_vnf in vnfs_no_no_fraco:
-    #                 already_has_backup = False
-    #                 if sfc.id in self.sfc_manager.backup_manager.sfcs_backups_instatiated:
-    #                     for backup in self.sfc_manager.backup_manager.sfcs_backups_instatiated[sfc.id]:
-    #                         if backup['vnf_id'] == target_vnf:
-    #                             already_has_backup = True
-    #                             break
-                    
-    #                 if already_has_backup: continue
-
-    #                 mini_sfc = self.sfc_manager.backup_manager.create_contextual_mini_sfc(
-    #                     self.substrate_network, sfc, target_vnf, weak_node
-    #                 )
-                    
-    #                 if mini_sfc:
-    #                     all_servers = [n for n, d in self.substrate_network.graph.nodes(data=True) if d.get('type') != 'router']
-    #                     all_servers.append(getattr(mini_sfc, 'mobile_node', None))
-                        
-    #                     env = SFC_AllocationEnv(
-    #                         valid_nodes=all_servers,
-    #                         list_graph=[self.substrate_network.graph],
-    #                         list_sfc=[mini_sfc],
-    #                         is_training=False
-    #                     )
-                        
-    #                     forbidden = [weak_node]
-    #                     if isinstance(weak_node, (int, float)):
-    #                         forbidden.append(weak_node - 0.1 if weak_node % 1 == 0.1 else weak_node + 0.1)
-    #                     env.set_forbidden_nodes(forbidden)
-                        
-    #                     agent = self.sfc_instantiator.alg
-    #                     agent.install_SFC(mini_sfc)
-    #                     success = agent.start_algorithm(env)
-
-    #                     if success:
-    #                         route_info_backup = agent.get_route_info()
-    #                         self.substrate_network.deploy_sfc(mini_sfc, route_info_backup)
-
-    #                         if sfc.id not in self.sfc_manager.backup_manager.sfcs_backups_instatiated:
-    #                             self.sfc_manager.backup_manager.sfcs_backups_instatiated[sfc.id] = []
-                            
-    #                         self.sfc_manager.backup_manager.sfcs_backups_instatiated[sfc.id].append({
-    #                             "sfc_backup_id": mini_sfc.id,
-    #                             "vnf_id": target_vnf,
-    #                             "route_info": route_info_backup
-    #                         })
-    #                         backup_created_in_cycle = True
-                            
-    #                         if self.verbose:
-    #                             print(f"[OTIMIZAÇÃO] VNF {target_vnf} protegida. Nó fraco: {weak_node}")
-
-    #             if not backup_created_in_cycle: break
 
     def submit_sfcs(self):
         """Executa a submissão de SFCs."""

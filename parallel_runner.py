@@ -34,7 +34,7 @@ if __name__ == '__main__':
     RUN_MODE = 'batch'
     
     # 1. Lista de Algoritmos (Adicionados GA e GreedyB)
-    BATCH_ALGS = ["hephaestusMaskablePPO","darsppoMaskablePPO"] #['sbrcMaskablePPO']
+    BATCH_ALGS = ["SBRCMASKABLEPPO"] #['sbrcMaskablePPO']
 
     # 2. Cenários de Risco
     BATCH_FAIL_TARGETS = ['low_risk', 'med_risk', 'high_risk']
@@ -47,7 +47,7 @@ if __name__ == '__main__':
     BATCH_PARALLEL_RUNS = 12
     
     # --- Configurações de Falha ---
-    number_of_fails = ['22'] 
+    number_of_fails = ['20'] 
     CRASH_AT_TIME = -1 
     avas = ['0.97']
 

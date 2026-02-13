@@ -229,8 +229,6 @@ class Genetic(Algorithm):
 
         def evaluate(individual):
             # --- ALTERAÇÃO 3: PROTEÇÃO DEFENSIVA ---
-            # Se por algum motivo (mutação futura, erro lógico) o dst aparecer no gene,
-            # retornamos custo infinito imediatamente.
             if dst in individual:
                 return float('inf'),
             # ---------------------------------------
@@ -240,6 +238,7 @@ class Genetic(Algorithm):
             band_cost = 0
             latency_cost = 0
             total_latency = 0
+
             for service_index, server_id in enumerate(individual_w_dst):
                 if service_index >= len(services):
                     break
@@ -250,47 +249,74 @@ class Genetic(Algorithm):
                 cache_request = self.service_requirements[service]['cache']
                 bw_required = self.service_requirements[service]['out_bw']
 
-                cpu_available = self.graph.nodes[server_id]['cpu_capacity'] - self.graph.nodes[server_id]['cpu_used']
-                cache_available = self.graph.nodes[server_id]['cache_capacity'] - self.graph.nodes[server_id]['cache_used']
+                cpu_capacity = self.graph.nodes[server_id]['cpu_capacity']
+                cache_capacity = self.graph.nodes[server_id]['cache_capacity']
+
+                # 🔴 NOVA PROTEÇÃO: capacidade zero => custo infinito
+                if cpu_capacity == 0 or cache_capacity == 0:
+                    return float('inf'),
+
+                cpu_available = cpu_capacity - self.graph.nodes[server_id]['cpu_used']
+                cache_available = cache_capacity - self.graph.nodes[server_id]['cache_used']
                     
-                #TODO can reuse sf functionality missing
                 reuse_sfs = self.graph.nodes[server_id]['reuse']
                 LAMBDA = 0.0001
+
                 if server_id != dst:
                     if cpu_request < cpu_available and cache_request < cache_available:
                         reuse = service in reuse_sfs
-                        node_resource_cost = (self.graph.nodes[server_id]['cpu_used'] + cpu_request + LAMBDA)/ self.graph.nodes[server_id]['cpu_capacity'] + \
-                                            (self.graph.nodes[server_id]['cache_used'] + cache_request + LAMBDA)/ self.graph.nodes[server_id]['cpu_capacity']
+                        node_resource_cost = (
+                            (self.graph.nodes[server_id]['cpu_used'] + cpu_request + LAMBDA) / cpu_capacity +
+                            (self.graph.nodes[server_id]['cache_used'] + cache_request + LAMBDA) / cache_capacity
+                        )
                     else:
                         return float('inf'),
                 else:
                     reuse = True
                     node_resource_cost = 0.2
-                comp_latency = calculate_computational_latency(self.graph,server_id,vnf)
-                node_cost += (self.cpu_weight * node_resource_cost) + (self.cache_weight * node_resource_cost)
+
+                comp_latency = calculate_computational_latency(self.graph, server_id, vnf)
+
+                node_cost += (self.cpu_weight * node_resource_cost) + \
+                            (self.cache_weight * node_resource_cost)
                 
                 edge_latency = 0
+                link_band_cost = 0
+
                 if service_index < len(individual_w_dst) - 1:
                     next_server_id = individual_w_dst[service_index + 1]
-                    path = get_available_shortest_path(self.graph,source=server_id,target=next_server_id,bandwidth_required=bw_required)
+                    path = get_available_shortest_path(
+                        self.graph,
+                        source=server_id,
+                        target=next_server_id,
+                        bandwidth_required=bw_required
+                    )
+
                     if path == []:
                         return float('inf'),
-                    link_band_cost = 0
+
                     if len(path) > 1:
                         for u, v in zip(path[:-1], path[1:]):
-                            edge_latency += calculate_latency_betwen_nodes(self.graph,u,v,vnf)
+                            edge_latency += calculate_latency_betwen_nodes(self.graph, u, v, vnf)
+                            
                             bw_used = self.graph[u][v].get('bandwidth_used')
-                            bw_capacity = self.graph[u][v].get('bandwidth_capacity')  # evitar divisão por zero
-                            bw_cost = (bw_used + bw_required) / bw_capacity  # uso percentual após alocação
+                            bw_capacity = self.graph[u][v].get('bandwidth_capacity')
+
+                            # 🔴 NOVA PROTEÇÃO: banda zero => custo infinito
+                            if bw_capacity == 0:
+                                return float('inf'),
+
+                            bw_cost = (bw_used + bw_required) / bw_capacity
                             link_band_cost += bw_cost
 
-                total_latency =  comp_latency       +  edge_latency
+                total_latency = comp_latency + edge_latency
 
-                band_cost     += self.band_weight      * link_band_cost
-                latency_cost  += self.latency_weight * total_latency
+                band_cost += self.band_weight * link_band_cost
+                latency_cost += self.latency_weight * total_latency
                 
-            total_cost =  node_cost + band_cost + latency_cost
+            total_cost = node_cost + band_cost + latency_cost
             return total_cost,
+
 
         def custom_mutation(individual):
             start_time = time.time()

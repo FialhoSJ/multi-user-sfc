@@ -1143,6 +1143,11 @@ class Net2:
         if node_id not in self.graph:
             raise ValueError(f"Nó {node_id} inexistente.")
         return self.graph.nodes[node_id]['cache_capacity'] - self.graph.nodes[node_id]['cache_used']
+    
+    def get_node_is_active(self, node_id):
+        if node_id not in self.graph:
+            raise ValueError(f"Nó {node_id} inexistente.")
+        return self.graph.nodes[node_id].get('is_active', True)
 
     def get_node_cache_capacity(self, node_id):
         if node_id not in self.graph:
@@ -1519,6 +1524,33 @@ class Net2:
             media = np.mean(success_arr)
             media_porc = media * 100
             return media_porc
+        
+    def get_servers_reliability_dict(self):
+        """
+        Retorna um dicionário {node_id: reliability} contendo todos os servidores.
+        O dicionário mantém a ordem de inserção da MENOR para a MAIOR confiabilidade.
+        
+        Regra: Se a capacidade total do servidor for 0, a confiabilidade é 0.0.
+        """
+        # Lista temporária para permitir a ordenação
+        temp_list = []
+
+        for node_id, data in self.graph.nodes(data=True):
+            if data.get('type') == 'server':
+                
+                # Regra: Capacidade 0 -> Confiabilidade 0
+                if data.get('cpu_capacity', 0) == 0:
+                    reliability = 0.0
+                else:
+                    reliability = self.get_node_reliability(node_id)
+                
+                temp_list.append((node_id, reliability))
+
+        # Ordena a lista temporária pela confiabilidade (menor -> maior)
+        temp_list.sort(key=lambda x: x[1])
+
+        # Converte para dicionário (preservando a ordem de inserção)
+        return {node_id: rel for node_id, rel in temp_list}
 
     def is_shareable(self, service_name):
         if self.shareable_node:
