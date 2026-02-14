@@ -125,7 +125,8 @@ def create_output_dir(args, topology):
     resilient_header_fields = [
         "crash_trial", "sfc_id", "recover_success", "backup_success",
         "backup_efficient", "latency_diff", "time_to_recover",
-        "vnf_id", "latency_degrad", "resource_degrad"
+        "vnf_id", "latency_degrad", "resource_degrad",
+        "risk_level", "final_status"  # <--- NOVAS COLUNAS ADICIONADAS
     ]
     with open(resilient_path, "a") as f:
         f.write(",".join(resilient_header_fields) + "\n")
@@ -168,7 +169,9 @@ class OutputWritter:
             str(info_log.get("time_to_recover", 0.0)),
             str(info_log.get("vnf_id", "N/A")),
             str(info_log.get("latency_degrad", 0.0)),
-            str(info_log.get("resource_degrad", 0.0))
+            str(info_log.get("resource_degrad", 0.0)),
+            str(info_log.get("risk_level", "Medium")),    # <--- NOVA LINHA
+            str(info_log.get("final_status", "Failed"))   # <--- NOVA LINHA
         ]
 
         with open(file_path, 'a') as f:

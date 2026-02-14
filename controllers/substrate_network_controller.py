@@ -26,7 +26,7 @@ from controllers.modules.mobility_manager import MobilityManager
 from controllers.modules.crasher import Crasher
 from utils.manager_results import OutputWritter
 from utils.network_utils import EnergyCalculator
-from algorithms.environments.env_sbrc import SFC_AllocationEnv
+from controllers.utils.utils_controller import _calculate_sfc_risk_level
 
 # --- Logging Setup ---
 logger = logging.getLogger(__name__)
@@ -619,6 +619,9 @@ class SubstrateNetworkController():
         post_crash_latencies = {}
 
         for sfc_id in sorted(affected_sfc_ids):
+            # 1. Calcular Nível de Risco (Antes de mexer na rota)
+            risk_level = _calculate_sfc_risk_level(self.substrate_network, sfc_id)
+
             failed_nodes = sfc_failed_nodes_map.get(sfc_id, [])
             relevant_server_down = failed_nodes[0] if failed_nodes else None
             
@@ -656,9 +659,11 @@ class SubstrateNetworkController():
                     "fall_time": time.time(),
                     "old_latency": pre_crash_latencies.get(sfc_id, 0),
                     "resource_info": 0,
-                    "backup_success": False,  # <--- Importante
+                    "backup_success": False,
                     "crash_trial": self.crashs_trials,
-                    "recover_success": False
+                    "recover_success": False,
+                    "risk_level": risk_level,      # <--- SALVA O RISCO
+                    "final_status": "Processing"   # Será atualizado no output_results
                 }
 
                 tracker_id = sfc_owners_map.get(sfc_id)
@@ -678,7 +683,7 @@ class SubstrateNetworkController():
                 print(f"Erro no undeploy pré-recuperação: {e}")
 
             recovery_start_time = time.time()
-            recovered = False  # Default
+            recovered = False 
 
             try:
                 recovered = self.sfc_manager.reconstruct_and_redeploy(
@@ -692,7 +697,7 @@ class SubstrateNetworkController():
                 recovered = False
 
             if recovered:
-                # [CORREÇÃO AQUI] Se recuperou, salvamos IMEDIATAMENTE.
+                # RECUPERAÇÃO RÁPIDA (BACKUP)
                 new_lat = self._calculate_sfc_path_latency(sfc_id)
                 post_crash_latencies[sfc_id] = new_lat
                 old_lat = pre_crash_latencies.get(sfc_id, 0)
@@ -706,23 +711,25 @@ class SubstrateNetworkController():
                     "time_to_recover": time.time() - recovery_start_time,
                     "vnf_id": affected_vnf_id,
                     "latency_degrad": new_lat - old_lat,
-                    "resource_degrad": 0
+                    "resource_degrad": 0,
+                    "risk_level": risk_level,          # <---
+                    "final_status": "Fast Recover"     # <--- STATUS: RÁPIDO
                 }
                 
-                # Escrita Direta no Arquivo (Bypassing output_results)
+                # Escrita Direta no Arquivo
                 self.output_writter.resilient_output(sfc_id, info_log, self.crashs_trials)
                 
-                # Não adicionamos em self.sfcs_crash_affected para não duplicar
-                
             else:
-                # Falhou o Stitching -> Vai para a fila
+                # Falhou o Stitching -> Vai para a fila (Tentativa Lenta)
                 self.sfcs_crash_affected[sfc_id] = {
                     "fall_time": time.time(),
                     "old_latency": pre_crash_latencies.get(sfc_id, 0),
                     "resource_info": 0,
-                    "backup_success": False,  # Tinha backup mas falhou
+                    "backup_success": False,  
                     "crash_trial": self.crashs_trials,
-                    "recover_success": False
+                    "recover_success": False,
+                    "risk_level": risk_level,      # <--- SALVA O RISCO
+                    "final_status": "Processing"
                 }
                 
                 tracker_id = sfc_owners_map.get(sfc_id)
@@ -1043,12 +1050,11 @@ class SubstrateNetworkController():
             stored_data = self.sfcs_crash_affected[sfc_id]
             
             # Se chegamos aqui, é porque a SFC foi redeployada via Fila.
-            # Logo, backup_success deve ser False (ou não existia backup).
-
+            
             if results_dict:  # Se o redeploy na fila funcionou
                 stored_data["recover_success"] = is_success 
                 if is_success: 
-                    # Atualiza métricas de recuperação via fila
+                    # RECUPERAÇÃO LENTA (Sucesso após Fila)
                     time_to_recover = time.time() - stored_data["fall_time"]
                     latency_diff = results_dict['latency'] - stored_data["old_latency"]
                     resource_factor = stored_data["resource_info"] - results_dict['resource_info']
@@ -1057,9 +1063,19 @@ class SubstrateNetworkController():
                     stored_data["latency_degrad"] = latency_diff
                     stored_data["resource_degrad"] = resource_factor
                     stored_data["time_to_recover"] = time_to_recover
+                    stored_data["final_status"] = "Slow Recover"  # <--- DEFINIDO
+                else:
+                    # FALHA (Não conseguiu realocar)
+                    stored_data["final_status"] = "Failed"        # <--- DEFINIDO
             else:
+                # Falha por timeout ou erro
                 stored_data["recover_success"] = False
+                stored_data["final_status"] = "Failed"            # <--- DEFINIDO
             
+            # Garantir que risco exista (caso venha de legado)
+            if "risk_level" not in stored_data:
+                stored_data["risk_level"] = "Medium"
+
             # Salva no arquivo
             resilient_output(sfc_id, stored_data)
             del self.sfcs_crash_affected[sfc_id]
