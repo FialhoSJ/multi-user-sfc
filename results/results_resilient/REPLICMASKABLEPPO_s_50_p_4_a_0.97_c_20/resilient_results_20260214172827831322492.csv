@@ -1,0 +1,26 @@
+crash_trial,sfc_id,recover_success,backup_success,backup_efficient,latency_diff,time_to_recover,vnf_id,latency_degrad,resource_degrad,risk_level,final_status
+0,sfc_cache_p2_8,True,True,Yes,0.4384251777032162,9.751319885253906e-05,RE_region_17,0.4384251777032162,0,High,Fast Recover
+0,sfc_cache_p3_8,True,True,Yes,0.9277175385142513,6.628036499023438e-05,EC_TC_region_3_8,0.9277175385142513,0,High,Fast Recover
+0,sfc_unique_p2_8,True,True,Yes,0.9277175385142584,4.8160552978515625e-05,EC_TC_p2_8,0.9277175385142584,0,High,Fast Recover
+0,sfc_unique_p4_8,True,True,Yes,0.9277175385142513,4.9591064453125e-05,EC_TC_p4_8,0.9277175385142513,0,High,Fast Recover
+1,sfc_cache_p3_11,True,True,Yes,2.2693053772336356,0.00011086463928222656,EC_TC_region_3_11,2.2693053772336356,0,High,Fast Recover
+1,sfc_cache_p3_8,True,True,Yes,-1.8036723391489033,9.918212890625e-05,RE_region_17,-1.8036723391489033,0,High,Fast Recover
+1,sfc_unique_p2_11,True,True,Yes,2.2693053772336356,8.559226989746094e-05,EC_TC_p2_11,2.2693053772336356,0,High,Fast Recover
+2,sfc_cache_p2_11,True,True,Yes,0.0,9.608268737792969e-05,EC_TC_region_2_11,0.0,0,High,Fast Recover
+2,sfc_unique_p1_11,True,True,Yes,1.6388063480608999,7.486343383789062e-05,EC_TC_p1_11,1.6388063480608999,0,High,Fast Recover
+3,sfc_unique_p3_14,True,True,Yes,0.0,6.914138793945312e-05,EC_TC_p3_14,0.0,0,High,Fast Recover
+4,sfc_cache_p3_24,True,True,Yes,0.0,6.651878356933594e-05,EC_TC_region_3_24,0.0,0,High,Fast Recover
+7,sfc_cache_p2_30,True,True,Yes,0.8923263237136325,9.775161743164062e-05,EC_TC_region_2_30,0.8923263237136325,0,High,Fast Recover
+7,sfc_unique_p1_30,True,True,Yes,1.6029628867503547,7.152557373046875e-05,EC_TC_p1_30,1.6029628867503547,0,High,Fast Recover
+8,sfc_unique_p3_31,True,True,Yes,0.0,8.511543273925781e-05,EC_TC_p3_31,0.0,0,High,Fast Recover
+8,sfc_unique_p3_35,True,False,N/A,-30.320154536212595,0.07276797294616699,N/A,-30.320154536212595,-21.0,High,Slow Recover
+9,sfc_cache_p4_34,True,True,Yes,0.5994660963252159,0.00011324882507324219,RE_region_26,0.5994660963252159,0,High,Fast Recover
+10,sfc_cache_p4_37,True,False,N/A,-24.438923183886146,0.07682251930236816,N/A,-24.438923183886146,-10.0,High,Slow Recover
+10,sfc_cache_p3_37,True,False,N/A,-27.13509089775305,0.3891744613647461,N/A,-27.13509089775305,-6.0,High,Slow Recover
+10,sfc_cache_p2_37,True,False,N/A,-27.808923183886144,0.4623117446899414,N/A,-27.808923183886144,-6.0,High,Slow Recover
+12,sfc_cache_p4_44,True,False,N/A,-29.843480807953174,0.3229079246520996,N/A,-29.843480807953174,-1.67,High,Slow Recover
+13,sfc_unique_p2_39,True,True,Yes,0.0,8.058547973632812e-05,EC_TC_p2_39,0.0,0,High,Fast Recover
+13,sfc_unique_p3_39,True,True,Yes,0.0,7.915496826171875e-05,EC_TC_p3_39,0.0,0,High,Fast Recover
+13,sfc_unique_p4_39,True,True,Yes,0.2343261462110462,6.961822509765625e-05,EC_TC_p4_39,0.2343261462110462,0,High,Fast Recover
+13,sfc_unique_p3_45,True,False,N/A,-26.35308591446364,0.08415389060974121,N/A,-26.35308591446364,-21.0,High,Slow Recover
+13,sfc_cache_p4_45,True,False,N/A,-27.575816681603406,0.16620492935180664,N/A,-27.575816681603406,-10.0,High,Slow Recover
