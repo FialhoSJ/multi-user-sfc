@@ -1,10 +1,11 @@
 import os
+from typing import Dict
 import numpy as np
 import re
 from datetime import datetime
 import random
 import time
-from typing import Dict
+from collections import defaultdict
 from core.net_v2 import Net2
 
 def format_nodes_to_string(nodes):
@@ -196,13 +197,73 @@ class OutputWritter:
         
         with open(self.crash_impact_file, "a") as file:
             file.write(line)
+            
+    def _calculate_sfc_reliability_with_backups(self, network: Net2, sfc_id: str, backups_dict: Dict) -> float:
+        """Calcula a confiabilidade real (SFC + Backups) usando lógica Paralela/Série."""
+        if sfc_id not in network.sfc_route_info:
+            return 0.0
+
+        route_info = network.sfc_route_info[sfc_id]
+        
+        # 1. Mapear Backups Instanciados para esta SFC
+        backup_reliability_map = {}
+        if sfc_id in backups_dict:
+            for b in backups_dict[sfc_id]:
+                vnf_id = b.get('vnf_id')
+                bk_route = b.get('route_info', {})
+                # Procura nó onde está o backup (ex: vnf1_b) no dicionário da rota
+                bk_node_list = next((v for k, v in bk_route.items() if k.endswith('_b') and v), None)
+                if vnf_id and bk_node_list:
+                    node_id = bk_node_list[0]
+                    # Pega confiabilidade do nó de backup
+                    backup_reliability_map[vnf_id] = network.get_node_reliability(node_id)
+
+        # 2. Agrupar VNFs por Nó Físico (Domínio de Falha)
+        node_groups = defaultdict(list)
+        for vnf_id, path in route_info.items():
+            if vnf_id in ['src', 'dst'] or not path:
+                continue
+            # path[0] é o servidor físico
+            node_groups[path[0]].append(vnf_id)
+
+        # 3. Calcular Confiabilidade Série-Paralelo
+        total_reliability = 1.0
+
+        for node_id, vnfs_list in node_groups.items():
+            try:
+                reliability_primary = network.get_node_reliability(node_id)
+            except:
+                reliability_primary = 1.0
+
+            # Verifica se TODO o grupo está protegido por backups
+            all_vnfs_protected = True
+            prod_failure_backups = 1.0 
+            
+            for vnf_id in vnfs_list:
+                reliability_backup = backup_reliability_map.get(vnf_id, 0.0)
+                if reliability_backup > 0.0:
+                    prod_failure_backups *= (1.0 - reliability_backup)
+                else:
+                    all_vnfs_protected = False
+            
+            if all_vnfs_protected:
+                # Sistema Paralelo: Falha apenas se Primário E Backups falharem
+                prob_primary_fail = 1.0 - reliability_primary
+                group_reliability = 1.0 - (prob_primary_fail * prod_failure_backups)
+            else:
+                # Sistema Série: Limitado pelo nó primário
+                group_reliability = reliability_primary
+
+            total_reliability *= group_reliability
+
+        return total_reliability
 
 
     def output_flows(self, substrate_network: Net2, wait_time, running_players_sessions, counter, remaining_time, current_time, sfc_id, 
                      latency, comp_latency, comm_latency, run_duration, is_success, fail_reason, bw_transcode, acceptance_rate, 
                      server_energy_consumption, mobile_energy_consumption, total_energy_consumption,
                      latency_diff=None, crashing=False, alg_name='ga',
-                     avg_sfc_reliability_override=None):
+                     backups_dict: Dict = {}):
         
         # --- [CORREÇÃO] Recálculo dinâmico de players e sessions ---
         # Em vez de confiar no argumento running_players_sessions, calculamos via Net2
@@ -291,48 +352,34 @@ class OutputWritter:
         count_high_risk = 0
         count_medium_risk = 0
         count_low_risk = 0
+        
+        total_reliability_sum = 0.0
+        active_sfc_count = 0
 
-        if avg_sfc_reliability_override is not None:
-            avg_sfc_reliability = avg_sfc_reliability_override
-            if substrate_network.sfc_dict:
-                for s_id, sfc in substrate_network.sfc_dict.items():
-                    if "backup" in s_id: continue
-                    if s_id in substrate_network.sfc_route_info:
-                        route_info = substrate_network.sfc_route_info[s_id]
-                        unique_nodes = set()
-                        for vnf_id, path in route_info.items():
-                            if vnf_id not in ['src', 'dst'] and path:
-                                unique_nodes.add(path[0])
-                        sfc_reliability = 1.0
-                        for node in unique_nodes:
-                            sfc_reliability *= substrate_network.get_node_reliability(node)
-                        
-                        if sfc_reliability < 0.8666: count_high_risk += 1
-                        elif 0.8666 <= sfc_reliability <= 0.9333: count_medium_risk += 1
-                        else: count_low_risk += 1
-        else:
-            total_reliability = 0.0
-            active_sfc_count = 0
-            if substrate_network.sfc_dict:
-                for s_id, sfc in substrate_network.sfc_dict.items():
-                    if s_id in substrate_network.sfc_route_info:
-                        route_info = substrate_network.sfc_route_info[s_id]
-                        unique_nodes = set()
-                        for vnf_id, path in route_info.items():
-                            if vnf_id not in ['src', 'dst'] and path:
-                                unique_nodes.add(path[0])
-                        sfc_reliability = 1.0
-                        for node in unique_nodes:
-                            sfc_reliability *= substrate_network.get_node_reliability(node)
-                        
-                        if sfc_reliability > 0.0001:
-                            total_reliability += sfc_reliability
-                            active_sfc_count += 1
-                            if sfc_reliability < 0.8666: count_high_risk += 1
-                            elif 0.8666 <= sfc_reliability <= 0.9333: count_medium_risk += 1
-                            else: count_low_risk += 1
-            
-            avg_sfc_reliability = total_reliability / active_sfc_count if active_sfc_count > 0 else 0.0
+        if substrate_network.sfc_dict:
+            for s_id, sfc in substrate_network.sfc_dict.items():
+                # Ignora backups e SFCs sem rota
+                if "backup" in s_id or s_id not in substrate_network.sfc_route_info: 
+                    continue
+                
+                # Calcula Confiabilidade REAL (Considerando Backups)
+                sfc_reliability = self._calculate_sfc_reliability_with_backups(
+                    substrate_network, s_id, backups_dict
+                )
+                
+                if sfc_reliability > 0.0001:
+                    total_reliability_sum += sfc_reliability
+                    active_sfc_count += 1
+                    
+                    # Classificação de Risco Baseada na Confiabilidade Real
+                    if sfc_reliability < 0.8666: 
+                        count_high_risk += 1
+                    elif 0.8666 <= sfc_reliability <= 0.9333: 
+                        count_medium_risk += 1
+                    else: 
+                        count_low_risk += 1
+        
+        avg_sfc_reliability = total_reliability_sum / active_sfc_count if active_sfc_count > 0 else 0.0
 
         line = (
             f"{counter},"

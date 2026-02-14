@@ -8,7 +8,7 @@ import random
 import threading
 import _thread
 from queue import Queue
-from collections import deque
+from collections import defaultdict, deque
 from typing import Any, Tuple, List, Optional
 
 # --- Third Party Imports ---
@@ -611,6 +611,83 @@ class SubstrateNetworkController():
     def _crash_servers(self, servers_failed):
         for server in servers_failed:
             self.substrate_network.set_node_down(server)
+            
+    def _get_real_risk_with_backups(self, sfc_id: str) -> str:
+        """
+        Calcula o risco REAL da SFC no momento do crash, considerando a 
+        confiabilidade combinada da rota primária + backups ativos.
+        """
+        network = self.substrate_network
+        
+        # 1. Recupera Backups Ativos
+        backups_dict = {}
+        if self.sfc_manager.backup_manager and not isinstance(self.sfc_manager.backup_manager, int):
+            backups_dict = self.sfc_manager.backup_manager.sfcs_backups_instatiated
+
+        # Se não tem rota (já caiu antes ou erro), assume risco médio por segurança
+        if sfc_id not in network.sfc_route_info:
+            return "Medium"
+
+        route_info = network.sfc_route_info[sfc_id]
+        
+        # 2. Mapeia Confiabilidade dos Backups (VNF -> Reliability)
+        backup_reliability_map = {}
+        if sfc_id in backups_dict:
+            for b in backups_dict[sfc_id]:
+                vnf_id = b.get('vnf_id')
+                bk_route = b.get('route_info', {})
+                # Acha o nó onde o backup está (ex: vnf1_b está no node 5)
+                bk_node_list = next((v for k, v in bk_route.items() if k.endswith('_b') and v), None)
+                
+                if vnf_id and bk_node_list:
+                    node_id = bk_node_list[0]
+                    backup_reliability_map[vnf_id] = network.get_node_reliability(node_id)
+
+        # 3. Agrupa Primários por Nó Físico (Domínio de Falha)
+        node_groups = defaultdict(list)
+        for vnf_id, path in route_info.items():
+            if vnf_id in ['src', 'dst'] or not path:
+                continue
+            node_groups[path[0]].append(vnf_id)
+
+        # 4. Cálculo Matemático (RBD: Reliability Block Diagram)
+        total_reliability = 1.0
+
+        for node_id, vnfs_list in node_groups.items():
+            # Confiabilidade do nó primário
+            try:
+                rel_primary = network.get_node_reliability(node_id)
+            except:
+                rel_primary = 1.0
+
+            # Verifica redundância paralela para este grupo
+            all_vnfs_protected = True
+            prod_fail_backups = 1.0 # Produtório das falhas dos backups
+            
+            for vnf_id in vnfs_list:
+                rel_bk = backup_reliability_map.get(vnf_id, 0.0)
+                if rel_bk > 0.0:
+                    prod_fail_backups *= (1.0 - rel_bk)
+                else:
+                    all_vnfs_protected = False
+            
+            if all_vnfs_protected:
+                # Sistema Paralelo: 1 - (Prob_Falha_Pri * Prob_Falha_Bks)
+                prob_fail_primary = 1.0 - rel_primary
+                group_rel = 1.0 - (prob_fail_primary * prod_fail_backups)
+            else:
+                # Sistema Série (Sem backup completo): Confiabilidade do nó primário
+                group_rel = rel_primary
+
+            total_reliability *= group_rel
+
+        # 5. Classificação baseada nos seus thresholds
+        if total_reliability < 0.8666:
+            return "High"
+        elif 0.8666 <= total_reliability <= 0.9333:
+            return "Medium"
+        else:
+            return "Low"
 
     def _recover_sfcs(self, affected_sfc_ids: set, sfc_failed_nodes_map: dict, 
                   pre_crash_latencies: dict, sfc_owners_map: dict) -> Tuple[list, dict]:
@@ -620,7 +697,7 @@ class SubstrateNetworkController():
 
         for sfc_id in sorted(affected_sfc_ids):
             # 1. Calcular Nível de Risco (Antes de mexer na rota)
-            risk_level = _calculate_sfc_risk_level(self.substrate_network, sfc_id)
+            risk_level = self._get_real_risk_with_backups(sfc_id)
 
             failed_nodes = sfc_failed_nodes_map.get(sfc_id, [])
             relevant_server_down = failed_nodes[0] if failed_nodes else None
@@ -1010,6 +1087,11 @@ class SubstrateNetworkController():
                 aux = self.sfc_manager.backup_manager.sfcs_backups_instatiated
             real_reliability = self.substrate_network.calculate_average_system_reliability(aux)
 
+            backups_dict_ref = {}
+            if self.sfc_manager.backup_manager and not isinstance(self.sfc_manager.backup_manager, int):
+                backups_dict_ref = self.sfc_manager.backup_manager.sfcs_backups_instatiated
+            # ---------------------------------------------------------------
+
             self.output_writter.output_flows(
                 self.substrate_network,
                 wait_time,
@@ -1029,7 +1111,8 @@ class SubstrateNetworkController():
                 server_energy_consumption, mobile_energy_consumption, total_energy_consumption,
                 latency_diff,
                 len(self.fail_manager.nodes_crashed) != 0,
-                avg_sfc_reliability_override=real_reliability
+                # avg_sfc_reliability_override removido
+                backups_dict=backups_dict_ref  # <--- PASSANDO O DICIONÁRIO AQUI
             )
 
         def resilient_output(sfc_id, info):
