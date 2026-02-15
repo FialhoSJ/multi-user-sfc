@@ -1,0 +1,18 @@
+crash_trial,sfc_id,recover_success,backup_success,backup_efficient,latency_diff,time_to_recover,vnf_id,latency_degrad,resource_degrad,risk_level,final_status
+0,sfc_unique_p3_6,True,True,Yes,-1.3762489100402249,6.842613220214844e-05,UNI_p3_6,-1.3762489100402249,0,Medium,Fast Recover
+2,sfc_unique_p4_9,True,False,N/A,-35.53814165486627,0.03536415100097656,N/A,-35.53814165486627,-21.0,Medium,Slow Recover
+3,sfc_unique_p2_19,True,True,Yes,-1.929558689121322,9.751319885253906e-05,RE_p2_19,-1.929558689121322,0,Low,Fast Recover
+4,sfc_cache_p4_14,True,True,Yes,-0.5018661420056105,8.726119995117188e-05,EC_TC_region_4_14,-0.5018661420056105,0,Medium,Fast Recover
+4,sfc_cache_p4_19,True,True,Yes,0.49974253616368713,9.1552734375e-05,RE_region_24,0.49974253616368713,0,Medium,Fast Recover
+4,sfc_unique_p2_13,True,True,Yes,-2.289911505232965,8.368492126464844e-05,RE_p2_13,-2.289911505232965,0,Low,Fast Recover
+4,sfc_unique_p3_19,True,True,Yes,-0.21479102093480407,8.749961853027344e-05,UNI_p3_19,-0.21479102093480407,0,Medium,Fast Recover
+5,sfc_cache_p4_14,True,True,Yes,0.0,8.893013000488281e-05,EC_TC_region_4_14,0.0,0,Low,Fast Recover
+5,sfc_unique_p4_19,True,True,Yes,-1.1723221717650034,8.749961853027344e-05,RE_p4_19,-1.1723221717650034,0,Low,Fast Recover
+7,sfc_unique_p4_24,True,True,Yes,0.716237418258423,5.5789947509765625e-05,UNI_p4_24,0.716237418258423,0,Low,Fast Recover
+8,sfc_unique_p4_29,True,True,Yes,-1.110493860077959,9.632110595703125e-05,RE_p4_29,-1.110493860077959,0,High,Fast Recover
+9,sfc_unique_p3_36,True,True,Yes,-1.219537709047131,5.364418029785156e-05,RE_p3_36,-1.219537709047131,0,Low,Fast Recover
+9,sfc_unique_p3_39,True,True,Yes,-1.6531376633667278,4.792213439941406e-05,UNI_p3_39,-1.6531376633667278,0,Low,Fast Recover
+10,sfc_unique_p4_41,True,True,Yes,0.33097085040193264,6.532669067382812e-05,UNI_p4_41,0.33097085040193264,0,Low,Fast Recover
+11,sfc_cache_p2_44,True,True,Yes,-2.485974655774271,0.00010585784912109375,RE_region_16,-2.485974655774271,0,Low,Fast Recover
+11,sfc_cache_p4_44,True,True,Yes,-1.495958734801718,9.965896606445312e-05,RE_region_16,-1.495958734801718,0,Low,Fast Recover
+11,sfc_unique_p3_43,True,True,Yes,-1.7370694537237839,7.367134094238281e-05,UNI_p3_43,-1.7370694537237839,0,Low,Fast Recover
