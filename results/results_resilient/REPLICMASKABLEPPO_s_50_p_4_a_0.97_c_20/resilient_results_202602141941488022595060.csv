@@ -1,0 +1,20 @@
+crash_trial,sfc_id,recover_success,backup_success,backup_efficient,latency_diff,time_to_recover,vnf_id,latency_degrad,resource_degrad,risk_level,final_status
+0,sfc_cache_p1_15,True,True,Yes,0.0,8.273124694824219e-05,IA_DET_FT_15,0.0,0,Medium,Fast Recover
+0,sfc_cache_p4_15,True,True,Yes,0.2699011460104117,7.176399230957031e-05,EC_TC_region_4_15,0.2699011460104117,0,Low,Fast Recover
+0,sfc_unique_p1_15,True,True,Yes,0.0,6.318092346191406e-05,EC_TC_p1_15,0.0,0,Low,Fast Recover
+0,sfc_unique_p4_13,True,True,Yes,0.6038245997236373,5.888938903808594e-05,RE_p4_13,0.6038245997236373,0,Medium,Fast Recover
+0,sfc_unique_p4_15,True,True,Yes,0.0,6.222724914550781e-05,EC_TC_p4_15,0.0,0,Low,Fast Recover
+2,sfc_cache_p2_15,True,True,Yes,0.8511376633667354,6.651878356933594e-05,EC_TC_region_2_15,0.8511376633667354,0,Low,Fast Recover
+2,sfc_cache_p3_15,True,True,Yes,0.8511376633667354,5.1021575927734375e-05,EC_TC_region_3_15,0.8511376633667354,0,Low,Fast Recover
+3,sfc_cache_p4_22,True,True,Yes,0.9294660963252142,8.511543273925781e-05,EC_TC_region_4_22,0.9294660963252142,0,Low,Fast Recover
+3,sfc_cache_p4_23,True,True,Yes,-0.5916365630367153,6.771087646484375e-05,EC_TC_region_4_23,-0.5916365630367153,0,High,Fast Recover
+5,sfc_cache_p3_30,True,True,Yes,1.0168369924075478,6.937980651855469e-05,EC_TC_region_3_30,1.0168369924075478,0,High,Fast Recover
+7,sfc_cache_p1_30,True,True,Yes,-0.8511376633667282,7.081031799316406e-05,RE_region_21,-0.8511376633667282,0,Low,Fast Recover
+7,sfc_cache_p3_30,True,True,Yes,0.5812365173563165,6.079673767089844e-05,EC_TC_region_3_30,0.5812365173563165,0,High,Fast Recover
+7,sfc_unique_p3_35,True,True,Yes,0.17204597147273404,6.0558319091796875e-05,UNI_p3_35,0.17204597147273404,0,Medium,Fast Recover
+8,sfc_cache_p2_36,True,True,Yes,1.2623053772336448,0.00010561943054199219,EC_TC_region_2_36,1.2623053772336448,0,Low,Fast Recover
+8,sfc_cache_p4_36,True,True,Yes,-0.010400045680398762,8.082389831542969e-05,EC_TC_region_4_36,-0.010400045680398762,0,Medium,Fast Recover
+9,sfc_unique_p1_35,True,True,Yes,0.12451987974417023,8.726119995117188e-05,UNI_p1_35,0.12451987974417023,0,Low,Fast Recover
+9,sfc_unique_p2_35,True,True,Yes,0.0,7.176399230957031e-05,EC_TC_p2_35,0.0,0,Low,Fast Recover
+9,sfc_unique_p2_36,True,True,Yes,1.033583680519861,7.987022399902344e-05,EC_TC_p2_36,1.033583680519861,0,High,Fast Recover
+10,sfc_unique_p2_36,True,True,Yes,-0.016746688112320385,9.369850158691406e-05,EC_TC_p2_36,-0.016746688112320385,0,High,Fast Recover

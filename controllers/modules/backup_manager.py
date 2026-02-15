@@ -136,7 +136,7 @@ class BackupManager:
         if not self.backup_activated:
             return [], "none"
         
-        GLOBAL_THRESHOLD = 0.7
+        GLOBAL_THRESHOLD = 1.0
         current_utilization = network.get_network_only_processing_utilization()
         
         if current_utilization > GLOBAL_THRESHOLD:
