@@ -89,7 +89,7 @@ if __name__ == '__main__':
 
     # ===== GERAÇÃO DINÂMICA DO NOME DO MODELO =====
     algorithm_name = ModelClass.__name__        # MaskablePPO ou PPO
-    project_name = "SBRC"
+    project_name = "REPLIC"
     task_name = "allocation_model"
 
     model_name = f"{algorithm_name.upper()}_{project_name}_{task_name}.zip"

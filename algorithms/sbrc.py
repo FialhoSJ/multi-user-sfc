@@ -194,7 +194,7 @@ class SBRC:
 
     ### MODIFICADO ###
     # O método principal agora RECEBE a instância do ambiente.
-    def start_algorithm(self, env: SFC_AllocationEnv):
+    def start_algorithm(self, env: SFC_AllocationEnv, args=None):
         if not self.valid_nodes or not self.sfc or not self.graph:
             self.fail_reason = "Erro: Rede ou SFC não foram instalados..."
             logger.error(self.fail_reason)
@@ -206,11 +206,29 @@ class SBRC:
         env.valid_nodes = self.valid_nodes
         env._set_list_graph_sfcs([self.graph], [self.sfc])
 
-        # --- ALTERAÇÃO AQUI ---
-        # Silencia o print "Wrapping the env..." apenas nesta execução
+        # --- NOVA LÓGICA: Injeção de Configuração de Confiabilidade ---
+        if args:
+            # Monta o dicionário com base nos argumentos do main.py
+            reliability_config = {
+                'tiers': {
+                    'default': getattr(args, 'rel_normal', 0.99),
+                    'a': getattr(args, 'rel_low', 0.95),
+                    'b': getattr(args, 'rel_normal', 0.98),
+                    'c': getattr(args, 'rel_high', 0.999)
+                },
+                'stress': {
+                    'default': getattr(args, 'stress_normal', 0.04),
+                    'a': getattr(args, 'stress_low', 0.15),
+                    'b': getattr(args, 'stress_normal', 0.08),
+                    'c': getattr(args, 'stress_high', 0.02)
+                }
+            }
+            # Atualiza o env
+            env.reliability_config = reliability_config
+        # -------------------------------------------------------------
+
         with suppress_output():
             self.model.set_env(env) 
-        # ----------------------
 
         self.algorithm(env)
 

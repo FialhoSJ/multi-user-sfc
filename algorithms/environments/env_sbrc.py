@@ -1,5 +1,5 @@
 import math
-from typing import Union, List, Dict, Optional, Tuple
+from typing import Any, Union, List, Dict, Optional, Tuple
 
 import gymnasium
 from gymnasium import spaces
@@ -51,6 +51,7 @@ class SFC_AllocationEnv(gymnasium.Env):
                  list_sfc: List[SFC],
                  pesos_fatores: Dict[str, float] = None,
                  reward_config: Dict[str, float] = None,
+                 reliability_config: Dict[str, Any] = None, # <--- NOVO PARÂMETRO
                  is_training: bool = True):
         """
         Inicializa o ambiente de alocação de SFC.
@@ -69,8 +70,8 @@ class SFC_AllocationEnv(gymnasium.Env):
         # --- Configuração de Pesos e Recompensas ---
         self.pesos_fatores = pesos_fatores if pesos_fatores is not None else {
         # 3º Prioridade: Recursos (Baixo impacto, apenas desempate)
-        "cpu": 3,
-        "cache": 3,
+        "cpu": 1,
+        "cache": 1,
 
         # 1º Prioridade: Banda (O "Dono" da decisão)
         "band": 3,   
@@ -78,7 +79,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         # 2º Prioridade: Confiabilidade (O "Guarda-Costas")
         # O peso precisa ser alto (10 a 12) para compensar o fato de que 
         # a penalidade base (1 - reliability) é um número muito pequeno (0.01 a 0.1).
-        "rel": 3,   
+        "rel": 6,   
 
         # Outros (Baixa prioridade)
         "lat": 3,     
@@ -92,6 +93,11 @@ class SFC_AllocationEnv(gymnasium.Env):
             "invalid_action_penalty": -10.0,  # Penalidade leve
             "failure_penalty": -40.0,         # Penalidade forte (recurso/banda)
             "severe_failure_penalty": -50.0  # Fallback
+        }
+        
+        self.reliability_config = reliability_config if reliability_config else {
+            'tiers': {'default': 0.98, 'a': 0.95, 'b': 0.98, 'c': 0.999}, # Base Reliability
+            'stress': {'default': 0.08, 'a': 0.15, 'b': 0.08, 'c': 0.02}  # Alpha Stress
         }
 
         # --- Inicialização de Snapshots (Training) ---
@@ -177,13 +183,6 @@ class SFC_AllocationEnv(gymnasium.Env):
         # Verificação de segurança: Ação Inválida (MODIFICADO)
         # Se o agente escolher um nó mascarado, penaliza suavemente.
         mask = self.action_masks()
-        # if mask[action] == 0:
-        #     return self._fail_step('invalid_action')
-
-        # --- CORREÇÃO DE ROBUSTEZ: Identificação de Nó Fixo ---
-        # Se a VNF atual tem local fixo (ex: src_virt), ignoramos a 'action' do agente
-        # e forçamos o nó correto. Isso garante que o cálculo de custo (Banda/Latência)
-        # seja feito para o link de entrada.
         if hasattr(self.current_vnf, 'location') and self.current_vnf.location is not None:
             chosen_server = self.current_vnf.location
         elif self.current_vnf.id == 'src_virt':  # Fallback pelo nome
@@ -223,7 +222,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         
         # Obter confiabilidade do nó escolhido
         node_data = self.graph.nodes[chosen_server]
-        reliability = node_data.get('reliability', 1.0)
+        reliability = self.get_dynamic_reliability(node_data)
 
         # Normalizar o custo total (evita gradientes explosivos)
         # Assumindo que o custo total geralmente fica entre 0 e ~10 dependendo dos pesos
@@ -231,11 +230,9 @@ class SFC_AllocationEnv(gymnasium.Env):
         
         # Base: Custo normalizado negativo
         reward = -normalized_cost
-        
-        # Adicionar recompensa por progresso (passo bem sucedido)
         reward += self.reward_config['step_reward']
         
-        # Adicionar incentivo extra de confiabilidade
+        # Recompensa baseada na confiabilidade real calculada
         reward += 4.0 * reliability
 
         # Debug de recompensa (mantido)
@@ -381,8 +378,8 @@ class SFC_AllocationEnv(gymnasium.Env):
                 features[i, 4] = bd_cost
                 features[i, 5] = latency_cost
 
-            reliability = node_data.get('reliability', 1.0)
-            features[i, 3] = reliability 
+            reliability = self.get_dynamic_reliability(node_data)
+            features[i, 3] = reliability
             if node_id in self.forbidden_nodes:
                 features[i, 6] = 1
 
@@ -485,7 +482,7 @@ class SFC_AllocationEnv(gymnasium.Env):
     def _compute_allocation_cost(self, vnf, server_id, path, bw_required) -> float:
         node_data = self.graph.nodes[server_id]
         factor_weights = self.pesos_fatores
-
+        
         # --- Verificar reutilização ---
         is_reusable = self.is_reusable_at_node(self.current_sfc, self.graph, server_id, vnf)
 
@@ -512,7 +509,8 @@ class SFC_AllocationEnv(gymnasium.Env):
         bw_cost = min(bw_cost_raw / BW_MAX, 1.0)
 
         # --- Confiabilidade (normalizada em [0,1]) ---
-        reliability = node_data.get('reliability', 1.0)
+        reliability = self.get_dynamic_reliability(node_data)
+        
         reliability_cost = (1.0 - reliability)
 
         # --- Incentivo para nós móveis ---
@@ -663,6 +661,36 @@ class SFC_AllocationEnv(gymnasium.Env):
             self.list_graph = list_graph
             self.list_sfc = list_sfc
             self.reset()
+            
+    def get_dynamic_reliability(self, node_data: dict) -> float:
+        """
+        Calcula a confiabilidade baseada no Tier do servidor e no Estresse (uso de CPU).
+        """
+        # 1. Identificar capacidade e uso
+        cpu_cap = node_data.get("cpu_capacity", 1.0)
+        # Proteção contra divisão por zero
+        if cpu_cap <= 0: 
+            cpu_cap = node_data.get("original_cpu_capacity", 1.0) or 1.0
+            
+        cpu_used = node_data.get("cpu_used", 0.0)
+        
+        # 2. Identificar Tier (Nível)
+        # O Net2 salva isso como 'level_server' (ex: 'a', 'b', 'c')
+        server_level = str(node_data.get('level_server', 'default')).lower()
+        
+        # 3. Buscar parâmetros configurados
+        base_r = self.reliability_config['tiers'].get(server_level, self.reliability_config['tiers']['default'])
+        alpha = self.reliability_config['stress'].get(server_level, self.reliability_config['stress']['default'])
+        
+        # 4. Cálculo do Estresse
+        utilization = cpu_used / cpu_cap
+        # Garante que não ultrapasse 1.0 no cálculo matemático
+        utilization = min(utilization, 1.0) 
+        
+        stress_penalty = utilization * alpha
+        
+        # 5. Confiabilidade Final
+        return max(0.0, base_r - stress_penalty)
 
 
 # =================================================================================

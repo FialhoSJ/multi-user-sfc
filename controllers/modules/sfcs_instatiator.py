@@ -30,8 +30,9 @@ SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 
 
 class SFCInstatiator:
-    def __init__(self, alg):
+    def __init__(self, alg, args=None):  
         self.alg = alg
+        self.args = args                 # <--- Armazena os args
         self.sfc_list = []
         self.sfc_queue = []
         self.sfcs_routing_info = {}
@@ -153,7 +154,14 @@ class SFCInstatiator:
             
             if isinstance(algorithm, (Kuririn, DARSPPO, hephaestus, SBRC)):
                 if self.env:
-                    alg_success = algorithm.start_algorithm(self.env)
+                    # --- ALTERAÇÃO AQUI ---
+                    # Se for SBRC, passamos os args para configurar a confiabilidade dinâmica
+                    if isinstance(algorithm, SBRC):
+                        alg_success = algorithm.start_algorithm(self.env, args=self.args)
+                    else:
+                        # Para os outros, mantém a chamada padrão
+                        alg_success = algorithm.start_algorithm(self.env)
+                    # ----------------------
                 else:
                     logging.error(f"Tentativa de usar {algorithm.name} sem um ambiente inicializado.")
                     alg_success = False

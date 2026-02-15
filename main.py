@@ -185,7 +185,7 @@ def main():
     # Gerenciadores Auxiliares
     sbn_controller.mobility_manager = MobilityManager(args)
     sbn_controller.sfc_manager = SFCManager(args, backup_manager=BackupManager(args=args), alg=ALG)
-    sbn_controller.sfc_instantiator = SFCInstatiator(ALG)
+    sbn_controller.sfc_instantiator = SFCInstatiator(ALG, args=args)
     
     # Configurações Finais
     sbn_controller.sfc_manager.alg_name = args.alg
