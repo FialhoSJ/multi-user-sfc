@@ -1,0 +1,18 @@
+crash_trial,sfc_id,recover_success,backup_success,backup_efficient,latency_diff,time_to_recover,vnf_id,latency_degrad,resource_degrad,risk_level,final_status
+0,sfc_cache_p1_27,True,True,Yes,-0.5735377090471303,6.985664367675781e-05,EC_TC_region_1_27,-0.5735377090471303,0,Low,Fast Recover
+0,sfc_unique_p2_27,True,True,Yes,-0.5735377090471303,5.555152893066406e-05,UNI_p2_27,-0.5735377090471303,0,Low,Fast Recover
+1,sfc_unique_p4_30,True,True,Yes,-0.8725114218566361,5.936622619628906e-05,UNI_p4_30,-0.8725114218566361,0,Medium,Fast Recover
+3,sfc_cache_p1_37,True,True,Yes,1.6400735097638588,6.461143493652344e-05,RE_region_7,1.6400735097638588,0,High,Fast Recover
+3,sfc_cache_p1_39,True,True,Yes,0.0,5.555152893066406e-05,IA_DET_FT_39,0.0,0,Low,Fast Recover
+3,sfc_unique_p1_37,True,True,Yes,0.8732333622183432,4.863739013671875e-05,EC_TC_p1_37,0.8732333622183432,0,Low,Fast Recover
+4,sfc_cache_p1_37,True,True,Yes,-2.515974655774272,6.937980651855469e-05,RE_region_7,-2.515974655774272,0,Low,Fast Recover
+4,sfc_cache_p2_37,True,True,Yes,0.0,5.698204040527344e-05,EC_TC_region_2_37,0.0,0,Medium,Fast Recover
+4,sfc_cache_p4_36,True,True,Yes,7.105427357601002e-15,5.626678466796875e-05,IA_DET_FT_36,7.105427357601002e-15,0,Medium,Fast Recover
+4,sfc_unique_p3_37,True,True,Yes,0.20026251181641186,5.173683166503906e-05,EC_TC_p3_37,0.20026251181641186,0,Medium,Fast Recover
+5,sfc_cache_p2_42,True,True,Yes,-0.6519761700639464,9.1552734375e-05,EC_TC_region_2_42,-0.6519761700639464,0,Medium,Fast Recover
+5,sfc_cache_p3_42,True,True,Yes,-0.6519761700639464,7.915496826171875e-05,EC_TC_region_3_42,-0.6519761700639464,0,Medium,Fast Recover
+6,sfc_cache_p2_42,True,True,Yes,7.105427357601002e-15,9.441375732421875e-05,IA_DET_FT_42,7.105427357601002e-15,0,Medium,Fast Recover
+6,sfc_cache_p2_43,True,True,Yes,0.20026251181642607,9.632110595703125e-05,IA_DET_FT_43,0.20026251181642607,0,Medium,Fast Recover
+7,sfc_cache_p2_44,True,True,Yes,1.8403360215802849,0.00010395050048828125,RE_region_17,1.8403360215802849,0,Medium,Fast Recover
+7,sfc_cache_p3_44,True,True,Yes,0.5274035739690461,8.20159912109375e-05,EC_TC_region_3_44,0.5274035739690461,0,Medium,Fast Recover
+7,sfc_unique_p4_44,True,True,Yes,0.0,7.152557373046875e-05,RE_p4_44,0.0,0,Medium,Fast Recover

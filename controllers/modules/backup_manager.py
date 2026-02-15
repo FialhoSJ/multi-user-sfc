@@ -136,7 +136,7 @@ class BackupManager:
         if not self.backup_activated:
             return [], "none"
         
-        GLOBAL_THRESHOLD = 0.8
+        GLOBAL_THRESHOLD = 0.80
         current_utilization = network.get_network_only_processing_utilization()
         
         if current_utilization > GLOBAL_THRESHOLD:
@@ -354,7 +354,7 @@ class BackupManager:
         import copy # Garantir import
         
         backups_mount = []
-        target_reliability = 0.925
+        target_reliability = 0.95
         MAX_BACKUPS_PER_SFC = 4
         
         # --- ARQUITETURA: Criação do Shadow State ---

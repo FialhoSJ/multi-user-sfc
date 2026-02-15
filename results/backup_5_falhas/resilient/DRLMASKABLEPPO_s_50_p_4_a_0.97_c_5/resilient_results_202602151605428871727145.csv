@@ -1,0 +1,18 @@
+crash_trial,sfc_id,recover_success,backup_success,backup_efficient,latency_diff,time_to_recover,vnf_id,latency_degrad,resource_degrad,risk_level,final_status
+0,sfc_unique_p3_3,True,True,Yes,-0.30874280784559005,6.246566772460938e-05,RE_p3_3,-0.30874280784559005,0,Low,Fast Recover
+1,sfc_unique_p1_13,True,True,Yes,0.0,0.00012826919555664062,EC_TC_p1_13,0.0,0,High,Fast Recover
+1,sfc_unique_p2_14,True,True,Yes,1.3508661420056107,0.00013637542724609375,EC_TC_p2_14,1.3508661420056107,0,High,Fast Recover
+2,sfc_unique_p3_26,True,True,Yes,0.7796102758462293,6.246566772460938e-05,UNI_p3_26,0.7796102758462293,0,High,Fast Recover
+2,sfc_unique_p3_29,True,True,Yes,0.8049737128095109,5.030632019042969e-05,EC_TC_p3_29,0.8049737128095109,0,Medium,Fast Recover
+3,sfc_cache_p1_34,True,True,Yes,0.9257257457340522,6.389617919921875e-05,EC_TC_region_1_34,0.9257257457340522,0,Low,Fast Recover
+3,sfc_cache_p3_34,True,True,Yes,0.0,5.173683166503906e-05,EC_TC_region_3_34,0.0,0,Medium,Fast Recover
+3,sfc_cache_p4_34,True,True,Yes,1.0702099220299552,5.0067901611328125e-05,EC_TC_region_4_34,1.0702099220299552,0,Low,Fast Recover
+3,sfc_unique_p2_32,True,True,Yes,-0.12358718146521142,4.982948303222656e-05,RE_p2_32,-0.12358718146521142,0,Low,Fast Recover
+3,sfc_unique_p3_32,True,True,Yes,1.4538375680676907,4.982948303222656e-05,EC_TC_p3_32,1.4538375680676907,0,High,Fast Recover
+3,sfc_unique_p3_33,True,True,Yes,1.7958052198683898,5.53131103515625e-05,RE_p3_33,1.7958052198683898,0,High,Fast Recover
+3,sfc_unique_p3_34,True,True,Yes,-0.4294876395138427,4.839897155761719e-05,EC_TC_p3_34,-0.4294876395138427,0,Medium,Fast Recover
+3,sfc_unique_p4_34,True,True,Yes,0.0,3.8623809814453125e-05,EC_TC_p4_34,0.0,0,Medium,Fast Recover
+4,sfc_cache_p1_34,True,True,Yes,0.09320817674045223,6.699562072753906e-05,RE_region_3,0.09320817674045223,0,Medium,Fast Recover
+4,sfc_cache_p3_34,True,True,Yes,0.0,5.1975250244140625e-05,EC_TC_region_3_34,0.0,0,Low,Fast Recover
+4,sfc_cache_p4_34,True,True,Yes,1.387743262590302,5.7220458984375e-05,MA_region_3,1.387743262590302,0,Low,Fast Recover
+4,sfc_unique_p4_34,True,True,Yes,0.8021385642688399,4.839897155761719e-05,EC_TC_p4_34,0.8021385642688399,0,Low,Fast Recover
