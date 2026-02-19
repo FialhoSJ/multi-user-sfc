@@ -74,11 +74,11 @@ if __name__ == '__main__':
     # Cria o ambiente de treino como um ambiente único e o envolve com Monitor
     # para registrar estatísticas de recompensa, passos, etc.
     train_env = carregar_dados_do_ambiente()
-    train_env = Monitor(train_env)
+    train_env = Monitor(train_env, os.path.join(log_dir, "train"))
     
     # O ambiente de avaliação já era único, mantemos como está.
     eval_env = carregar_dados_do_ambiente()
-    eval_env = Monitor(eval_env)
+    eval_env = Monitor(eval_env, os.path.join(log_dir, "eval"))
     
     if USE_MASKING:
         ModelClass = MaskablePPO
