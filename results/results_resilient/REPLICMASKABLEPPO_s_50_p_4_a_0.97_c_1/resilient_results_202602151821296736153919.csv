@@ -1,2 +1,0 @@
-crash_trial,sfc_id,recover_success,backup_success,backup_efficient,latency_diff,time_to_recover,vnf_id,latency_degrad,resource_degrad,risk_level,final_status
-0,sfc_unique_p1_21,True,True,Yes,-2.4556791357235443,0.00013828277587890625,EC_TC_p1_21,-2.4556791357235443,0,Medium,Fast Recover

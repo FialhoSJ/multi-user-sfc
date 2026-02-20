@@ -17,7 +17,7 @@ from algorithms.vegeta import Vegeta
 from algorithms.kuririn import Kuririn
 from algorithms.darsppo import DARSPPO
 from algorithms.hephaestus import hephaestus
-from algorithms.sbrc import SBRC
+from algorithms.replic import REPLIC
 
 class AlgorithmInstantiator:
     def instantiate_algorithm(self, type):
@@ -75,14 +75,14 @@ class AlgorithmInstantiator:
             
             if "DQN" in type:
                 alg = hephaestus('DQN')
-        elif 'SBRC' in type:
+        elif 'REPLIC' in type:
             if "MASKABLEPPO" in type:
-                alg = SBRC('MASKABLEPPO')
+                alg = REPLIC('MASKABLEPPO')
             elif "PPO" in type:
-                alg = SBRC('PPO')
+                alg = REPLIC('PPO')
             
             if "DQN" in type:
-                alg = SBRC('DQN')        
+                alg = REPLIC('DQN')        
     
         else:
             raise ValueError('algorithm not found')

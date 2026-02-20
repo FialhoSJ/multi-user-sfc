@@ -8,7 +8,7 @@ from controllers.sfc_generator import SFCGenerator
 from core.net_v2 import Net2
 from core.sfc import SFC
 # Assumindo que o ambiente RL esteja disponível neste caminho
-from algorithms.environments.env_sbrc import SFC_AllocationEnv
+from algorithms.environments.env_replic import SFC_AllocationEnv
 
 class BackupManager:
     """
@@ -34,7 +34,7 @@ class BackupManager:
         # Lista de backups que estão ativos (assumiram o lugar do primário)
         self.backups_activated: List[str] = []
         
-        valid_backup_algs = ['SBRCMASKABLEPPO', 'ga', 'vegeta'] 
+        valid_backup_algs = ['REPLICMASKABLEPPO', 'ga', 'vegeta'] 
         is_target_alg = (args.alg in valid_backup_algs)
 
         user_wants_backup = (args.backup == 'y') and (args.ava != '1.0')
@@ -179,7 +179,7 @@ class BackupManager:
         backups_mount = []
         strategy_name = "greedy"
 
-        if self.alg == 'SBRCMASKABLEPPO' and agent_ref is not None:
+        if self.alg == 'REPLICMASKABLEPPO' and agent_ref is not None:
             # Passamos o mapa limpo, sem zumbis
             backups_mount = self.rl_based_strategy(network, sfc_lifecycle_map, agent_ref)
             strategy_name = 'rl_based'
@@ -354,7 +354,7 @@ class BackupManager:
         import copy # Garantir import
         
         backups_mount = []
-        target_reliability = 0.95
+        target_reliability = 0.96
         MAX_BACKUPS_PER_SFC = 4
         
         # --- ARQUITETURA: Criação do Shadow State ---

@@ -34,7 +34,7 @@ if __name__ == '__main__':
     RUN_MODE = 'batch'
     
     # 1. Lista de Algoritmos (Adicionados GA e GreedyB)
-    BATCH_ALGS = ["SBRCMASKABLEPPO"] #['sbrcMaskablePPO']
+    BATCH_ALGS = ["REPLICMASKABLEPPO"] 
 
     # 2. Cenários de Risco
     BATCH_FAIL_TARGETS = ['low_risk', 'med_risk', 'high_risk']

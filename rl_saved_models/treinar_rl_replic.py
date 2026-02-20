@@ -12,7 +12,7 @@ from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.logger import configure
 
 from utils.salvar_var import carregar_lista
-from algorithms.environments.env_sbrc import SFC_AllocationEnv
+from algorithms.environments.env_replic import SFC_AllocationEnv
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import EvalCallback

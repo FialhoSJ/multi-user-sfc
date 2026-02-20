@@ -191,7 +191,7 @@ class SubstrateNetworkController():
 
         # Definição do Agente (se aplicável)
         agent = None
-        if self.alg == 'SBRCMASKABLEPPO' or 'ga':
+        if self.alg == 'REPLICMASKABLEPPO' or 'ga':
             agent = self.sfc_instantiator.alg
         
         # 1. Criação Lógica (Factory)

@@ -16,13 +16,13 @@ from utils.salvar_var import salvar_lista, dividir_em_n_grupos
 from core.net_v2 import Net2
 from core.sfc import SFC
 from algorithms.kuririn import Kuririn
-from algorithms.sbrc import SBRC
+from algorithms.replic import REPLIC
 from algorithms.darsppo import DARSPPO
 from algorithms.hephaestus import hephaestus
 
 # Environments
 from algorithms.environments.environment import SFC_AllocationEnv
-from algorithms.environments.env_sbrc import SFC_AllocationEnv as SFC_AllocationEnv_SCRC
+from algorithms.environments.env_replic import SFC_AllocationEnv as SFC_AllocationEnv_SCRC
 from algorithms.environments.env_da_rsppo import SFC_AllocationEnv_DARSPPO
 from algorithms.environments.hephaestus_env import SFC_AllocationEnv_hephaestus
 
@@ -95,7 +95,7 @@ class SFCInstatiator:
                 is_training=False
             )
             
-        elif isinstance(algorithm, SBRC):
+        elif isinstance(algorithm, REPLIC):
             self.env = SFC_AllocationEnv_SCRC(
                 valid_nodes=valid_nodes,
                 list_graph=[graph],
@@ -152,11 +152,11 @@ class SFCInstatiator:
             # Executa o algoritmo dependendo do tipo
             alg_success = False
             
-            if isinstance(algorithm, (Kuririn, DARSPPO, hephaestus, SBRC)):
+            if isinstance(algorithm, (Kuririn, DARSPPO, hephaestus, REPLIC)):
                 if self.env:
                     # --- ALTERAÇÃO AQUI ---
-                    # Se for SBRC, passamos os args para configurar a confiabilidade dinâmica
-                    if isinstance(algorithm, SBRC):
+                    # Se for REPLIC, passamos os args para configurar a confiabilidade dinâmica
+                    if isinstance(algorithm, REPLIC):
                         alg_success = algorithm.start_algorithm(self.env, args=self.args)
                     else:
                         # Para os outros, mantém a chamada padrão
