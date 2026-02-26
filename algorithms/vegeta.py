@@ -81,7 +81,10 @@ class Vegeta(Algorithm):
 
     def install_substrate_network(self, substrate_network):
         self.substrate_network = substrate_network
-        #self.single_source_minimum_latency_path = self.substrate_network.single_source_minimum_latency_path
+        
+        # Filtro estilo GA: remove os nós que não podem hospedar VNFs
+        self.valid_nodes = [node for node in self.substrate_network.nodes() if self.substrate_network.nodes[node]['type'] != 'router']
+        
         return self.substrate_network
 
     def install_SFC(self, sfc):
@@ -131,46 +134,55 @@ class Vegeta(Algorithm):
     def is_using_bit_rate_cut(self):
         return self.using_bit_rate
 
-    def start_algorithm(self, shareable_sfs=None,backup=False, **kwargs):
+    def start_algorithm(self, backup=False, **kwargs):
         substrate_network = self.substrate_network
         sfc = self.sfc
-        #logger.info('Algorithm start')
+
         if backup == True:
             if self.backup_algorithm(substrate_network,sfc):
                 return True
             else: 
                 return False
 
-        if self.algorithm(substrate_network, sfc, shareable_sfs):
-            #logger.info('Algorithm end, success')
+        # Removido o shareable_sfs da chamada
+        if self.algorithm(substrate_network, sfc):
             return True
-        #logger.info('Algorithm end, failed')
         return False
 
-    def set_nodes_resources(self, substrate_network, shareable_sfs=[]):
+    def set_nodes_resources(self, substrate_network):
+        """
+        Lê os recursos e serviços disponíveis diretamente do grafo da rede.
+        Elimina a necessidade do parâmetro externo shareable_sfs.
+        """
         net_info = substrate_network 
-        old_server_resources = net_info._node
-        servers = old_server_resources.keys()
+        servers = net_info.nodes()
         
-        # Inicializa o dicionário de recursos dos servidores
-        server_resources = {
-            server: {
-                'cpu_capacity': round(self.substrate_network.get_node_cpu_capacity(server), 3),
-                'cache_capacity': round(self.substrate_network.get_node_cache_capacity(server), 3),
-                'cpu_used': round(self.substrate_network.get_node_cpu_used(server), 3),
-                'cache_used': round(self.substrate_network.get_node_cache_used(server), 3),
-                'cpu_free': round(self.substrate_network.get_node_cpu_free(server), 3),
-                'cache_free': round(self.substrate_network.get_node_cache_free(server), 3),
-                'position': old_server_resources[server]['position'],
-                'reuse': []
+        server_resources = {}
+        
+        for server in servers:
+            node_data = net_info.nodes[server]
+            
+            # Extração segura de atributos usando EAFP / get()
+            cap_cpu = node_data.get('cpu_capacity', 0.0)
+            cap_cache = node_data.get('cache_capacity', 0.0)
+            used_cpu = node_data.get('cpu_used', 0.0)
+            used_cache = node_data.get('cache_used', 0.0)
+            
+            # Extrai os IDs das VNFs compartilháveis que já estão rodando neste nó
+            # A Net2 salva os objetos VNF na lista 'reuse', então pegamos apenas o '.id'
+            reuse_list_objs = node_data.get('reuse', [])
+            reuse_ids = [vnf.id for vnf in reuse_list_objs] if reuse_list_objs else []
+
+            server_resources[server] = {
+                'cpu_capacity': round(cap_cpu, 3),
+                'cache_capacity': round(cap_cache, 3),
+                'cpu_used': round(used_cpu, 3),
+                'cache_used': round(used_cache, 3),
+                'cpu_free': round(cap_cpu - used_cpu, 3),
+                'cache_free': round(cap_cache - used_cache, 3),
+                'position': node_data.get('position', (0,0)),
+                'reuse': reuse_ids  # A lógica de reuso agora vem da própria rede
             }
-            for server in servers
-        }
-        
-        # Preenche o campo 'reuse' para os servidores com SFs compartilháveis
-        for node_id, node_info in server_resources.items():
-            if node_id in shareable_sfs:
-                node_info['reuse'] = [vnf.id for vnf in shareable_sfs[node_id]]
         
         return server_resources
 
@@ -282,35 +294,43 @@ class Vegeta(Algorithm):
         return server_choose, path_to, min_cost,cost_details
 
 
-    def find_candidates_serves_for_sf(self,G,service_requirements, server_resources, current_location, service,restriction=[],solutions=[]):
-        #service_requirements = copy.deepcopy(service_requirements)
+    def find_candidates_serves_for_sf(self, G, service_requirements, server_resources,
+                                  current_location, service, restriction=[], solutions=[]):
+
         paths = dict(nx.single_source_shortest_path_length(G, current_location, cutoff=8))
         paths[current_location] = 0  # Custo de 'mover' para o mesmo servidor é 0
-        
-        # if restriction == []:
-        #     del paths[current_location]
-        #     for server in self.servers_used:
-        #         if server in list(paths.keys()):
-        #             del paths[server]
-        # else:
-        #     if service.startswith("src"):
-        #         paths = {solutions["src"] :  paths[solutions['src']]}
-        #     else:
-        #         for server in restriction:
-        #             if server in restriction:
-        #                 del paths[server]
 
+        # =========================================================
+        # LÓGICA DO GENETIC ALG: Filtragem de nós disponíveis
+        # =========================================================
+        dst = self.sfc.get_substrate_node(self.sfc.get_dst_vnf())
+        allow_md = getattr(self, 'allow_md_host', False)
+
+        if allow_md:
+            available_nodes = list(self.valid_nodes)
+        else:
+            available_nodes = [node for node in self.valid_nodes if node != dst]
+
+        # Filtra o dicionário mantendo apenas os nós selecionáveis
+        paths = {node: hops for node, hops in paths.items() if node in available_nodes}
+        # =========================================================
 
         candidates = []
         best_cost = float('inf')
 
         # Função para calcular o custo total
-        def calculate_total_cost(cpu_cost,cache_cost, boot_cost, bandwidth_cost, latency_cost):
+        def calculate_total_cost(cpu_cost, cache_cost, boot_cost, bandwidth_cost, latency_cost):
             boot_cost = 0
-            return (cpu_cost * self.cpu_factor) + (cache_cost * self.cache_factor) + (boot_cost * self.boot_factor) + (bandwidth_cost * self.band_factor) + latency_cost
+            return (
+                (cpu_cost * self.cpu_factor) +
+                (cache_cost * self.cache_factor) +
+                (boot_cost * self.boot_factor) +
+                (bandwidth_cost * self.band_factor) +
+                latency_cost
+            )
 
         # Função para verificar disponibilidade de largura de banda e recursos do servidor
-        def check_resources(server, path, bandwidth_requirement, cpu_required, cache_required,restriction):
+        def check_resources(server, path, bandwidth_requirement, cpu_required, cache_required, restriction):
             if all(G[u][v]['bandwidth'] > bandwidth_requirement for u, v in zip(path, path[1:])):
                 available_cpu = server_resources[server]['cpu_capacity'] - server_resources[server]['cpu_used']
                 available_cache = server_resources[server]['cache_capacity'] - server_resources[server]['cache_used']
@@ -325,83 +345,70 @@ class Vegeta(Algorithm):
         def calculate_bandwidth_cost(path, bandwidth_requirement):
             cost = 0
             epsilon = 1e-6  # Pequeno valor para evitar divisão por zero
-            max_bandwidth = 1000  # Capacidade máxima disponível em um link
 
             for u, v in zip(path, path[1:]):
                 available_bandwidth = G[u][v]['bandwidth']
                 if available_bandwidth >= bandwidth_requirement:
                     cost += (bandwidth_requirement / (available_bandwidth + epsilon))
                 else:
-                    return float('inf')  # Link não disponível
-            cost = cost * 3.5
+                    return float('inf')
 
-            # Normalizar o custo acumulado para ficar entre 0 e 1
-            # normalized_cost = cost / (len(path) - 1)
-            # normalized_cost = normalized_cost / (bandwidth_requirement / max_bandwidth)
-            
-            return cost  # Garantir que o valor esteja entre 0 e 1
+            cost = cost * 3.5
+            return cost
 
         bandwidth_requirement = service_requirements[service]['out_bw']
-        
+
         for server, num_hops in paths.items():
-            if current_location == server:
-                continue
+
+            # REMOVIDO: if current_location == server: continue
+            # Agora o algoritmo pode escolher o mesmo nó normalmente.
 
             path = nx.shortest_path(G, current_location, server, weight='weight')
             reuse = service in server_resources[server]['reuse']
-            node_resource_cost = 0 if reuse else 1  # Assuming cpu_cost and cache_cost should always be the same
+
+            node_resource_cost = 0 if reuse else 1
 
             boot_cost = 0
             cpu_required = 0 if reuse else service_requirements[service]['CPU']
             cache_required = 0 if reuse else service_requirements[service]['cache']
 
-            # if server_resources[server]['cpu_used'] >= 17.27 or reuse: 
-            #     boot_cost = 0 
-            # elif (server_resources[server]['cpu_used'] + cpu_required) >= 17.27:
-            #     boot_cost = 1
-            # else:
-            #     boot_cost = 0
-
-            # Ajustar o cálculo de node_resource_cost para evitar divisão por zero
             available_cpu = server_resources[server]['cpu_free']
             if available_cpu > 0:
                 if cpu_required == 0:
                     cpu_required = service_requirements[service]['CPU'] * 0.3
-                node_resource_cost = cpu_required / available_cpu #
+                node_resource_cost = cpu_required / available_cpu
             else:
-                node_resource_cost = float('inf')  # Penalizar fortemente se não houver CPU disponível
-                
-            boot_cost = 0
-            if check_resources(server, path, bandwidth_requirement, cpu_required, cache_required,restriction):                
+                node_resource_cost = float('inf')
+
+            if check_resources(server, path, bandwidth_requirement,
+                            cpu_required, cache_required, restriction):
+
                 bandwidth_cost = calculate_bandwidth_cost(path, bandwidth_requirement) * 1000
                 cpu_cost = node_resource_cost * 1000
-                cache_cost = cpu_cost/2
-
-                #latency_cost = self.calculate_latency_cost(num_hops)
+                cache_cost = cpu_cost / 2
                 latency_cost = 0
 
-
-                total_cost = calculate_total_cost(cpu_cost,cache_cost, boot_cost, bandwidth_cost, latency_cost)
+                total_cost = calculate_total_cost(
+                    cpu_cost, cache_cost, boot_cost, bandwidth_cost, latency_cost
+                )
 
                 if total_cost < best_cost:
                     best_cost = total_cost
 
-                candidates.append((server, path, round(total_cost,4), {
-                    'cpu_cost': round(cpu_cost,4),
-                    'cache_cost': round(cache_cost,4),
-                    'boot_cost': boot_cost,
-                    'bandwidth_cost': round(bandwidth_cost,4),
-                    'latency_cost': latency_cost,
-                    'total_cost': round(total_cost,4),
-                    'reuse':reuse
-                }))
-            else:
-                # Sem recurso disponível
-                pass
-
-            # Se encontrou candidatos viáveis, não tenta com bitrate menor
-            # if best_cost < float('inf'):
-            #     break
+                candidates.append((
+                    server,
+                    path,
+                    round(total_cost, 4),
+                    {
+                        'cpu_cost': round(cpu_cost, 4),
+                        'cache_cost': round(cache_cost, 4),
+                        'boot_cost': boot_cost,
+                        'bandwidth_cost': round(bandwidth_cost, 4),
+                        'latency_cost': latency_cost,
+                        'total_cost': round(total_cost, 4),
+                        'reuse': reuse
+                    }
+                ))
 
         best_candidate = min(candidates, key=lambda x: x[2], default=(None, None, None, None))
         return best_cost, best_candidate, candidates
@@ -413,7 +420,7 @@ class Vegeta(Algorithm):
         else:
             return 1000
         
-    def algorithm(self, substrate_network, sfc, shareable_sfs):
+    def algorithm(self, substrate_network, sfc):
         self.servers_used = []
         src_vnf = sfc.get_src_vnf()
         dst_vnf = sfc.get_dst_vnf()
@@ -421,7 +428,7 @@ class Vegeta(Algorithm):
         dst = sfc.get_substrate_node(dst_vnf)
         
 
-        nodes_resource = self.set_nodes_resources(substrate_network,shareable_sfs)
+        nodes_resource = self.set_nodes_resources(substrate_network)
         network_links = copy.deepcopy(substrate_network._adj)
 
         G = self.create_network_graph(network_links)
@@ -462,10 +469,21 @@ class Vegeta(Algorithm):
         return is_success
 
     def create_network_graph(self, network_topology):
+        """
+        Constrói o grafo auxiliar de roteamento baseado na topologia real.
+        Garante a extração segura de atributos dinâmicos (EAFP/Defensive Programming).
+        """
         G = nx.Graph()
         for node, edges in network_topology.items():
             for target, edge_attr in edges.items():
-                G.add_edge(node, target, bandwidth=edge_attr['bandwidth_free'], weight=1)
+                # Extração segura usando .get() com fallback para 0.0
+                bw_capacity = edge_attr.get('bandwidth_capacity', 0.0)
+                bw_used = edge_attr.get('bandwidth_used', 0.0)
+                
+                # Cálculo da banda livre em tempo de execução
+                bw_free = max(0.0, bw_capacity - bw_used)
+                
+                G.add_edge(node, target, bandwidth=bw_free, weight=1)
         return G
 
     def prepare_service_requirements(self, sfs_dict):
@@ -532,15 +550,16 @@ class Vegeta(Algorithm):
             current_location = best_server
 
             # Se existe um servidor ótimo
-            if best_server:  # Verifica se um servidor foi escolhido
-                if cost_details['reuse']:
+            if best_server:  
+                # O desconto de recursos só deve ocorrer se NÃO for um reuso (nova instância)
+                if not cost_details['reuse']:
                     server_resources[best_server]['cpu_used'] += service_requirements[service]['CPU']
                     server_resources[best_server]['cache_used'] += service_requirements[service]['cache']
+                    
                     server_resources[best_server]['cpu_free'] -= service_requirements[service]['CPU']
                     server_resources[best_server]['cache_free'] -= service_requirements[service]['cache']
             else:
-                #print(f"Falha.")
-                success =  False
+                success = False
                 self.fail_reason = 'resource'
                 break
 

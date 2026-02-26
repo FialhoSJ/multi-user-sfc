@@ -47,6 +47,7 @@ def main():
     parser.add_argument('--n_players', type=int, default=4, help='Number of players')
     
     # --- Parâmetros SFC ---
+    parser.add_argument('--allow_md_host', type=str, default='y', help='Permite que o dispositivo móvel (usuário) hospede VNFs (y/n)')
     parser.add_argument('--sfc', type=str, default='on', help='SFC enabled (on/off)')
     parser.add_argument('--share', type=str, default='y', help='Share SFs (y/n)')
     parser.add_argument('--shareband', type=str, default='n', help='Share bandwidth (y/n)')

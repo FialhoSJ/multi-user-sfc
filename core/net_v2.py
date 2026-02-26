@@ -424,7 +424,7 @@ class Net2:
         if self.is_shareable(service_id) or self.is_shareable(clean_current_id):
             for (existing_id, existing_session) in node['services'].keys():
                 existing_clean = existing_id.replace("_b", "")
-                if existing_clean == clean_current_id:
+                if existing_clean == clean_current_id and existing_session == session:
                     compatible_instance_found = True
                     break
 

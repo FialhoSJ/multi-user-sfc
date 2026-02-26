@@ -125,6 +125,8 @@ class SFCInstatiator:
             algorithm.install_substrate_network(copy.deepcopy(graph))
             algorithm.install_SFC(sfc)
 
+            algorithm.allow_md_host = (getattr(self.args, 'allow_md_host', 'n') == 'y')
+
             s = time.time()
 
             # # --- DEBUG / SALVAMENTO DE VARIÁVEIS ---
@@ -178,7 +180,6 @@ class SFCInstatiator:
             if alg_success:
                 try:
                     route_info = algorithm.get_route_info()
-                    # Se submit_solution for bem-sucedido, ele modifica 'graph'
                     total_latency, comp_latency, comm_latency, res_info = self.submit_solution(graph, sfc, route_info)
                 except ValueError as ve:
                     logging.error(f"Falha na submissão da solução para SFC {sfc.id}: {ve}")

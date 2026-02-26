@@ -205,10 +205,16 @@ class Genetic(Algorithm):
         if hasattr(creator, "Individual"):
             del creator.Individual
 
-        # --- ALTERAÇÃO 1: FILTRAGEM SEGURA ---
-        # Em vez de modificar self.valid_nodes diretamente (que pode causar problemas em execuções futuras),
-        # criamos uma lista local apenas para essa execução que GARANTE que o dst não está presente.
-        available_nodes = [node for node in self.valid_nodes if node != dst]
+        # Recupera a configuração (com fallback para False por segurança)
+        allow_md = getattr(self, 'allow_md_host', False)
+
+        # --- ALTERAÇÃO 1: FILTRAGEM CONDICIONAL ---
+        if allow_md:
+            # Mantém todos os nós válidos (o dst já entra aqui porque seu tipo não é 'router')
+            available_nodes = list(self.valid_nodes)
+        else:
+            # Filtra o dst para impedir que ele seja sorteado
+            available_nodes = [node for node in self.valid_nodes if node != dst]
         
         # Verificação de segurança: se não houver nós suficientes (excluindo o mobile) para alocar
         if len(available_nodes) < 4:
@@ -229,7 +235,7 @@ class Genetic(Algorithm):
 
         def evaluate(individual):
             # --- ALTERAÇÃO 3: PROTEÇÃO DEFENSIVA ---
-            if dst in individual:
+            if not allow_md and dst in individual:
                 return float('inf'),
             # ---------------------------------------
 
@@ -262,8 +268,9 @@ class Genetic(Algorithm):
                 reuse_sfs = self.graph.nodes[server_id]['reuse']
                 LAMBDA = 0.0001
 
-                if server_id != dst:
-                    if cpu_request < cpu_available and cache_request < cache_available:
+                if service != 'dst':
+                    # Note que mudei de '<' para '<=' para evitar que alocações exatas sejam rejeitadas injustamente
+                    if cpu_request <= cpu_available and cache_request <= cache_available:
                         reuse = service in reuse_sfs
                         node_resource_cost = (
                             (self.graph.nodes[server_id]['cpu_used'] + cpu_request + LAMBDA) / cpu_capacity +
@@ -272,6 +279,7 @@ class Genetic(Algorithm):
                     else:
                         return float('inf'),
                 else:
+                    # É apenas o tráfego final chegando ao usuário (não consome CPU/Cache extra)
                     reuse = True
                     node_resource_cost = 0.2
 
@@ -302,7 +310,6 @@ class Genetic(Algorithm):
                             bw_used = self.graph[u][v].get('bandwidth_used')
                             bw_capacity = self.graph[u][v].get('bandwidth_capacity')
 
-                            # 🔴 NOVA PROTEÇÃO: banda zero => custo infinito
                             if bw_capacity == 0:
                                 return float('inf'),
 
