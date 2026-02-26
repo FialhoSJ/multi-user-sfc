@@ -33,14 +33,14 @@ def main():
     
     # --- Parâmetros Gerais e de Log ---
     parser.add_argument('--application', type=str, default='muar', help='Type of application')
-    parser.add_argument('--alg', type=str, default='REPLICMASKABLEPPO', help='Algorithm name')
+    parser.add_argument('--alg', type=str, default='vegeta', help='Algorithm name')
     parser.add_argument('--sfc_lifetime', dest='time', type=int, default=120, help='Duration/Lifetime of a single SFC session in seconds')    
     parser.add_argument('--verbose', type=str, default='y', help='Verbose log (y/n)')
     
     # --- Parâmetros de Topologia e Rede ---
     parser.add_argument('--topology', type=str, default='luxembourgv2', help='Topology name (ex: luxembourgv2, paloalto)')
     parser.add_argument('--eco_effi_ratio', type=float, default=0.7, help='Proporção slots econômicos (ex: 0.7 = 70% eco)')
-    parser.add_argument('--mobility', type=str, default='n', help='Mobility enabled (y/n)')
+    parser.add_argument('--mobility', type=str, default='y', help='Mobility enabled (y/n)')
     
     # --- Parâmetros de Tráfego (Sessões/Jogadores) ---
     parser.add_argument('--n_sessions', type=int, default=50, help='Number of sessions')
@@ -53,11 +53,11 @@ def main():
     parser.add_argument('--allow_delay', type=str, default='n', help='Allow delay (y/n)')
     
    # --- Parâmetros de Confiabilidade e Falhas ---
-    parser.add_argument('--backup', type=str, default='y', help='Backup enabled (y/n). Active only for specific algorithms.')
+    parser.add_argument('--backup', type=str, default='n', help='Backup enabled (y/n). Active only for specific algorithms.')
     
     # 1. Configuração MACRO (Gera o Cronograma)
     parser.add_argument('--ava', type=str, default='0.97', help='Meta Global de Disponibilidade')
-    parser.add_argument('--number_of_fails', type=str, default='20', help='Number of node failures')
+    parser.add_argument('--number_of_fails', type=str, default='0', help='Number of node failures')
     parser.add_argument('--min_fail_duration', type=float, default=20, help='Min duration of node failure')
     parser.add_argument('--crash_at', type=float, default=-1, help='Forcar falha em X segundos (Ex: [300, 400, 500]). Use -1 para aleatorio. Respeite o numero de falhas.')
 
