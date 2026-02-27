@@ -105,6 +105,14 @@ class Net2:
             if vnf_name in self.sfc_route_info[sfc_id]:
                 del self.sfc_route_info[sfc_id][vnf_name]
 
+    def set_sharing_params(self, share_arg: str) -> None:
+        """
+        Injeta a configuração global de reuso (SF Sharing) definida no CLI.
+        Substitui o comportamento hardcoded.
+        """
+        # Garante que qualquer variação de 'Y', 'y', etc., seja interpretada corretamente
+        self.shareable_node = (str(share_arg).lower() == 'y')
+
     def add_node(self, node_id, node_type, cpu_capacity=0.00, cache_capacity=0.00, w_channel_capacity=0.0, position=(0, 0), ips=0):
         if 'server' in node_type:
             node_level = node_type.split("_")[-1]
@@ -532,22 +540,24 @@ class Net2:
         # Verifica se essa instância tinha custo reduzido/zero (subsidiada)
         # Se stored_cost (ex: 0) < request (ex: 10), ela gerou economia na entrada.
         stored_cache_cost = service_info.get('cache', 0.0)
+        stored_cpu_cost = service_info.get('cpu', 0.0)
+
+        # 2. Avalia se a instância foi subsidiada na entrada (custou menos que o requisitado)
         was_subsidized_cache = stored_cache_cost < cache_req
+        was_subsidized_cpu = stored_cpu_cost < cpu_req
 
-        # Lógica Específica para Cache:
-        # Decrementa se não vai remover a física (ainda tem cópias)
-        # OU se vai remover, mas ela era subsidiada (precisa estornar a economia).
+        # 3. Estorno de Cache
         if not remove_physical_instance or was_subsidized_cache:
-            self.metrics.total_cache_saved -= cache_req
+            self.metrics.total_cache_saved = max(0.0, self.metrics.total_cache_saved - cache_req)
 
-        # Mantém a lógica original para CPU/GPU (dentro do bloco original)
-        if not remove_physical_instance:
+        # 4. Estorno de Processamento (CPU / GPU) e Contadores
+        if not remove_physical_instance or was_subsidized_cpu:
             if is_gpu_node:
-                self.metrics.total_gpu_saved -= cpu_req
+                self.metrics.total_gpu_saved = max(0.0, self.metrics.total_gpu_saved - cpu_req)
             else:
-                self.metrics.total_cpu_saved -= cpu_req
-            # Nota: cache_saved foi movido para o bloco acima
+                self.metrics.total_cpu_saved = max(0.0, self.metrics.total_cpu_saved - cpu_req)
 
+            # Só reduzimos o contador de VNFs compartilhadas se realmente for um serviço shareable
             if is_shareable_service:
                 self.metrics.shared_vnfs_count = max(0, self.metrics.shared_vnfs_count - 1)
 

@@ -304,15 +304,27 @@ class SFCInstatiator:
             if node['type'] not in ['server', 'mobile_device']:
                 raise ValueError("Serviços só podem ser alocados em servidores ou usuários.")
 
+            # ==========================================
+            # CORREÇÃO: Paridade com a detecção de reuso do Net2
+            # ==========================================
+            clean_current_id = service_id.replace("_b", "")
+            compatible_instance_found = False
+            
+            # Varre o nó para ver se a versão "limpa" (primária) já existe
+            if self.is_shareable(service_id) or self.is_shareable(clean_current_id):
+                for (existing_id, existing_session) in node['services'].keys():
+                    existing_clean = existing_id.replace("_b", "")
+                    if existing_clean == clean_current_id and existing_session == session_id:
+                        compatible_instance_found = True
+                        break
+
             # ------------------------------------------------------------
-            # 1) Serviço já existe no nó
+            # 1) Serviço já existe no nó (Match Exato da Chave)
             # ------------------------------------------------------------
             if service_key in node['services']:
                 node['services'][service_key]['copys'] += 1
 
-                # Se NÃO for compartilhável, consome novos recursos
                 if not self.is_shareable(service_id):
-
                     if node['cpu_used'] + cpu_required > node['cpu_capacity']:
                         node['services'][service_key]['copys'] -= 1
                         raise ValueError(f"CPU excedida no nó {node_id}")
@@ -325,29 +337,37 @@ class SFCInstatiator:
                     node['cache_used'] += cache_required
                     allocated_resources = cpu_required  # gastou recurso
 
-                # Se for compartilhável → allocated_resources permanece 0 (reuso)
-
             # ------------------------------------------------------------
-            # 2) Serviço novo no nó
+            # 2) Serviço novo no nó (Mas pode ser compatível com um primário)
             # ------------------------------------------------------------
             else:
-                if node['cpu_used'] + cpu_required > node['cpu_capacity']:
+                cost_cpu = cpu_required
+                cost_cache = cache_required
+
+                # Aplicação do subsídio: O algoritmo de IA agora sabe que é de graça
+                if compatible_instance_found:
+                    cost_cpu = 0.0
+                    cost_cache = 0.0
+
+                if node['cpu_used'] + cost_cpu > node['cpu_capacity']:
                     raise ValueError(f"CPU excedida no nó {node_id}")
 
-                if node['cache_used'] + cache_required > node['cache_capacity']:
+                if node['cache_used'] + cost_cache > node['cache_capacity']:
                     raise ValueError(f"Cache excedido no nó {node_id}")
 
                 node['services'][service_key] = {
-                    'cpu': cpu_required,
-                    'cache': cache_required,
+                    'cpu': cost_cpu,
+                    'cache': cost_cache,
                     'copys': 1
                 }
 
-                node['cpu_used'] += cpu_required
-                node['cache_used'] += cache_required
-                allocated_resources = cpu_required  # gastou recurso
+                node['cpu_used'] += cost_cpu
+                node['cache_used'] += cost_cache
+                
+                # Relata o gasto real (0 se for reuso) para o Controller validar
+                allocated_resources = cost_cpu  
 
-                if self.is_shareable(service_id):
+                if self.is_shareable(service_id) or self.is_shareable(clean_current_id):
                     node['reuse'].append(vnf)
 
             return latency, allocated_resources
@@ -444,12 +464,17 @@ class SFCInstatiator:
     # Helper Methods & Calculations
     # ==========================================
 
-    def is_shareable(self, service_name):
-        # TODO: Mudar para informação em variável separada
-        if True:
+    def is_shareable(self, service_name: str) -> bool:
+        """
+        Verifica se a VNF permite reuso, consultando a Single Source of Truth (self.args).
+        """
+        # Padrão fail-safe: se der erro ao ler args, assume 'n' (não compartilha)
+        share_enabled = getattr(self.args, 'share', 'n').lower() == 'y'
+        
+        if share_enabled:
             return service_name.startswith(SHAREABLE_PREFIXES)
-        else:
-            return False
+        
+        return False
 
     def calcular_latencia_5g(
         self,
@@ -536,41 +561,3 @@ class SFCInstatiator:
             latency = None
 
         return latency, route_info
-
-    # -----------------------------------------------------------
-    # Old logic preserved below (Dead Code)
-    # -----------------------------------------------------------
-    
-    # is_success = False
-    # current_time = s2
-    # run_duration = s2 - s
-    # if alg.name == 'ga':
-    #     run_duration = alg.elapsed_time
-
-    # arrival_time = sfc.arrival_time
-    # sfc.depart_time = s2
-
-    # if route_info:
-    #     substrate_network.deploy_sfc(sfc, route_info)
-    #     if not is_backup: # Se for uma SFC de Backup apenas coloque na lista de sfcs com backup
-    #         self.sfc_list.append(sfc.id)
-    #         self.sfc_id_duration[sfc.id] = {"duration":sfc.duration,"timer":time.time()}
-    #         if sfc.id in list(self.sfcs_routing_info.keys()):
-    #             del self.sfcs_routing_info[sfc.id]
-    #         # Adiciona a SFC com o novo route_info -> Importante para o musfico
-    #         self.sfcs_routing_info[sfc.id] = copy.deepcopy(route_info)
-    #     is_success = True
-
-    # substrate_network.update()
-    # self.counter += 1 # at this time all verifications are done. So we add 1 to counter of sfc
-    # is_success, fail_reason = self.check_resources_exceed(is_success,sfc.id,substrate_network,fail_reason)
-
-    # if is_success == False:
-    #     self.deploy_failed(sfc)
-    #     if sfc.id in list(self.sfc_reuse.keys()):
-    #         r_info = None
-    #         del self.sfc_reuse[sfc.id]
-    # else:
-    #     self.deploy_success(sfc)
-        
-    # return {"current_time":current_time,"latency":latency,"run_duration":run_duration,"resource_info":r_info,"is_success":is_success,"route_info":route_info,"fail_reason":fail_reason,"backup_sfc":is_backup}

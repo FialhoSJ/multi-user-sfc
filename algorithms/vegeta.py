@@ -40,6 +40,10 @@ logger.addHandler(ch)
 from algorithms.algorithm import Algorithm
 
 
+
+
+
+
 class Vegeta(Algorithm):
     def __init__(self):
         self.name = "vegeta"
@@ -93,26 +97,19 @@ class Vegeta(Algorithm):
         self.using_bit_rate = False
         self.bitrate_cut = 1.0
         return self.sfc 
+    SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
 
-    # def check_sfc(self,sfc):
-    #     backup = False
-    #     sfc_id = sfc.id
-    #     is_backup = True if int(sfc_id.split("_")[-1]) % 2 == 0 else False
+    def is_shareable(self, service_name: str) -> bool:
+        """Verifica se o prefixo da VNF permite compartilhamento."""
+        return service_name.startswith(self.SHAREABLE_PREFIXES)
 
-    #     new_sfc = 0
-    #     if is_backup == True:
-    #         prefixo, x = sfc_id.rsplit('_', 1)
-    #         real_sfc_id = f"{prefixo}_{int(x) - 1}"
-    #         route_info = self.substrate_network.sfc_route_info
-            
-    #         if real_sfc_id in list(route_info.keys()):
-    #             route_info = route_info[real_sfc_id]
-    #         else:
-    #             return sfc
-    #         servers_used = list(set([item for chave, valor in route_info.items() if chave not in ['src', 'dst'] for item in valor])) 
-    #         return new_sfc 
-    #     else:
-    #         return sfc
+    def _extract_session(self, sfc_id: str) -> str:
+        """Extrai o ID da sessão da SFC de forma robusta."""
+        parts = sfc_id.split("_")
+        if "backup" in sfc_id:
+            return parts[3] if len(parts) > 3 else parts[-1]
+        return parts[-1]
+
     
     def get_fail_reason(self):
         return self.fail_reason
@@ -152,7 +149,7 @@ class Vegeta(Algorithm):
     def set_nodes_resources(self, substrate_network):
         """
         Lê os recursos e serviços disponíveis diretamente do grafo da rede.
-        Elimina a necessidade do parâmetro externo shareable_sfs.
+        Usa o dicionário 'services' real como Single Source of Truth.
         """
         net_info = substrate_network 
         servers = net_info.nodes()
@@ -162,16 +159,13 @@ class Vegeta(Algorithm):
         for server in servers:
             node_data = net_info.nodes[server]
             
-            # Extração segura de atributos usando EAFP / get()
             cap_cpu = node_data.get('cpu_capacity', 0.0)
             cap_cache = node_data.get('cache_capacity', 0.0)
             used_cpu = node_data.get('cpu_used', 0.0)
             used_cache = node_data.get('cache_used', 0.0)
             
-            # Extrai os IDs das VNFs compartilháveis que já estão rodando neste nó
-            # A Net2 salva os objetos VNF na lista 'reuse', então pegamos apenas o '.id'
-            reuse_list_objs = node_data.get('reuse', [])
-            reuse_ids = [vnf.id for vnf in reuse_list_objs] if reuse_list_objs else []
+            # PONTO CHAVE: Captura o dicionário de serviços exato do nó
+            active_services = node_data.get('services', {})
 
             server_resources[server] = {
                 'cpu_capacity': round(cap_cpu, 3),
@@ -181,7 +175,7 @@ class Vegeta(Algorithm):
                 'cpu_free': round(cap_cpu - used_cpu, 3),
                 'cache_free': round(cap_cache - used_cache, 3),
                 'position': node_data.get('position', (0,0)),
-                'reuse': reuse_ids  # A lógica de reuso agora vem da própria rede
+                'active_services': active_services # Substitui o antigo 'reuse'
             }
         
         return server_resources
@@ -264,12 +258,11 @@ class Vegeta(Algorithm):
         route_info[first_key] = first_value
         return self.evaluate_result(total_latency, route_info)
     
-    def allocate_sf(self,G,service_requirements, server_resources, network_links, current_location, service, services, restrictions=[],solution=[]):
-        best_cost, best_candidate, candidates = self.find_candidates_serves_for_sf(G,
-                                                                                    service_requirements,
-                                                                                    server_resources,
-                                                                                    current_location,
-                                                                                    service,restrictions,solution)
+    def allocate_sf(self, G, service_requirements, server_resources, network_links, current_location, service, services, restrictions=[], solution=[], current_session_id=None):
+        best_cost, best_candidate, candidates = self.find_candidates_serves_for_sf(
+            G, service_requirements, server_resources, current_location, 
+            service, current_session_id, restrictions, solution
+        )
         
         if best_cost == float('inf') or best_candidate == float('inf') or candidates == None:
             return False, False, False, False
@@ -294,8 +287,7 @@ class Vegeta(Algorithm):
         return server_choose, path_to, min_cost,cost_details
 
 
-    def find_candidates_serves_for_sf(self, G, service_requirements, server_resources,
-                                  current_location, service, restriction=[], solutions=[]):
+    def find_candidates_serves_for_sf(self, G, service_requirements, server_resources, current_location, service, current_session_id, restriction=[], solutions=[]):
 
         paths = dict(nx.single_source_shortest_path_length(G, current_location, cutoff=8))
         paths[current_location] = 0  # Custo de 'mover' para o mesmo servidor é 0
@@ -359,12 +351,24 @@ class Vegeta(Algorithm):
         bandwidth_requirement = service_requirements[service]['out_bw']
 
         for server, num_hops in paths.items():
-
-            # REMOVIDO: if current_location == server: continue
-            # Agora o algoritmo pode escolher o mesmo nó normalmente.
-
             path = nx.shortest_path(G, current_location, server, weight='weight')
-            reuse = service in server_resources[server]['reuse']
+            
+            # =========================================================
+            # LÓGICA DE REUSO ALINHADA COM O NET2
+            # =========================================================
+            clean_service_id = service.replace("_b", "")
+            reuse = False
+            
+            # 1. Verifica se a VNF faz parte dos serviços compartilháveis
+            if self.is_shareable(service) or self.is_shareable(clean_service_id):
+                
+                # 2. Cria a tupla exata que o Net2 usa como chave
+                service_key = (clean_service_id, current_session_id)
+                
+                # 3. Verifica se a chave primária está ativa neste servidor
+                if service_key in server_resources[server]['active_services']:
+                    reuse = True
+            # =========================================================
 
             node_resource_cost = 0 if reuse else 1
 
@@ -435,21 +439,16 @@ class Vegeta(Algorithm):
         
         sfs_dict = self.sfc.vnfs_dict
         services, service_requirements = self.prepare_service_requirements(sfs_dict)
+        
+        # Extrai a sessão da SFC atual
+        current_session_id = self._extract_session(sfc.id)
 
-        # Parte 8: Encontrando a rota e calculando a latência
-        #bit_rate_trials = [1.0]
         is_success = False
 
-        # # Supondo que bit_rate_trials e outras variáveis estejam definidas
-        # for bitrate in bit_rate_trials:
-        #service_requirements_altered = copy.deepcopy(service_requirements)
-        
-        # Percorre o dicionário e altera o valor de out_bw para chaves que começam com "EC_TC"
-        # for chave in service_requirements_altered:
-        #     if chave.startswith('EC_TC'):
-        #         service_requirements_altered[chave]['out_bw'] = service_requirements_altered[chave]['out_bw'] * bitrate
-
-        route_info, latency = self.find_best_allocation_for_sfc(G,service_requirements, nodes_resource,network_links, services, dst)
+        # Repassa current_session_id
+        route_info, latency = self.find_best_allocation_for_sfc(
+            G, service_requirements, nodes_resource, network_links, services, dst, current_session_id
+        )
 
             # if bitrate == 0.3:
             #     print(bitrate)
@@ -520,7 +519,7 @@ class Vegeta(Algorithm):
             return True
 
     # Modificando a função de alocação para usar a nova lógica de exploração
-    def find_best_allocation_for_sfc(self,G,service_requirements, server_resources, network_links, services, dst):
+    def find_best_allocation_for_sfc(self, G, service_requirements, server_resources, network_links, services, dst, current_session_id):
         allocation_results = {'dst': {'allocated_server': dst, 'path': [], 'cost': 0}}
         current_location = dst # começa a alocação de trás pra frente 
         success = True
@@ -532,13 +531,10 @@ class Vegeta(Algorithm):
             # else:
             #     next_service = None
         
-            best_server, best_path, min_cost, cost_details = self.allocate_sf(G,
-                                                                    service_requirements,
-                                                                    server_resources,
-                                                                    network_links, 
-                                                                    current_location,
-                                                                    service,
-                                                                    services)
+            best_server, best_path, min_cost, cost_details = self.allocate_sf(
+                G, service_requirements, server_resources, network_links, 
+                current_location, service, services, current_session_id=current_session_id
+            )
   
 
             allocation_results[service] = {
@@ -582,3 +578,4 @@ class Vegeta(Algorithm):
         route_info[first_key] = first_value
         
         return route_info,total_latency
+    
