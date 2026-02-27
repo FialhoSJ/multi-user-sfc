@@ -1,8 +1,0 @@
-crash_trial,sfc_id,recover_success,backup_success,backup_efficient,latency_diff,time_to_recover,vnf_id,latency_degrad,resource_degrad,risk_level,final_status
-0,sfc_cache_p2_6,True,True,Yes,0.20751997565272617,0.00012564659118652344,RE_region_22,0.20751997565272617,0,Medium,Fast Recover
-0,sfc_cache_p2_7,True,True,Yes,-0.3876500238528884,9.489059448242188e-05,EC_TC_region_2_7,-0.3876500238528884,0,Low,Fast Recover
-0,sfc_cache_p3_7,True,True,Yes,-1.2914904794783721,8.726119995117188e-05,EC_TC_region_3_7,-1.2914904794783721,0,Low,Fast Recover
-0,sfc_cache_p4_6,True,True,Yes,0.6945999543196013,8.988380432128906e-05,RE_region_22,0.6945999543196013,0,Low,Fast Recover
-0,sfc_cache_p4_7,True,True,Yes,-2.5703956815288658,8.296966552734375e-05,RE_region_13,-2.5703956815288658,0,Low,Fast Recover
-0,sfc_unique_p1_6,True,True,Yes,0.9932625118164164,8.845329284667969e-05,RE_p1_6,0.9932625118164164,0,Low,Fast Recover
-0,sfc_unique_p4_6,True,True,Yes,-0.38765002385289016,8.7738037109375e-05,EC_TC_p4_6,-0.38765002385289016,0,Medium,Fast Recover
