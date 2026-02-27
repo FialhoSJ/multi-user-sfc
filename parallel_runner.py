@@ -21,7 +21,7 @@ if __name__ == '__main__':
     # =========================================================================
     parser = argparse.ArgumentParser(description='Select MUAR arguments')
     parser.add_argument('--n_sessions', type=int, default=50)
-    parser.add_argument('--n_players', type=int, default=4)
+    parser.add_argument('--n_players', type=int, default=6)
     parser.add_argument('--time', type=int, default=120)
     parser.add_argument('--eco_effi_ratio', type=float, default=0.7)
     parser.add_argument('--sfc', type=str, default='on')
@@ -34,22 +34,22 @@ if __name__ == '__main__':
     RUN_MODE = 'batch'
     
     # 1. Lista de Algoritmos (Adicionados GA e GreedyB)
-    BATCH_ALGS = ["REPLICMASKABLEPPO"] 
+    BATCH_ALGS = ["msf"] 
 
     # 2. Cenários de Risco
-    BATCH_FAIL_TARGETS = ['low_risk', 'med_risk', 'high_risk']
+    BATCH_FAIL_TARGETS = ['low_risk', 'med_risk', 'high_risk','all']
     
     # 3. Número de repetições por cenário
-    BATCH_TOTAL_RUNS = 6
+    BATCH_TOTAL_RUNS = 8
     
     # ATENÇÃO: Isso vai disparar 27 processos Python pesados simultaneamente.
     # Certifique-se de que sua máquina aguenta (CPU/RAM).
-    BATCH_PARALLEL_RUNS = 18
+    BATCH_PARALLEL_RUNS = 17
     
     # --- Configurações de Falha ---
-    number_of_fails = ['1'] 
-    CRASH_AT_TIME = -1 
-    avas = ['0.97']
+    number_of_fails = ['3'] 
+    CRASH_AT_TIME = [400,520,640] 
+    avas = ['0.99']
 
     # =========================================================================
     # LÓGICA DE GERAÇÃO DE COMANDOS
@@ -61,7 +61,7 @@ if __name__ == '__main__':
     print(f"[INFO] Modo: {RUN_MODE}")
     print(f"[INFO] Algoritmos: {BATCH_ALGS}")
     print(f"[INFO] Cenários: {BATCH_FAIL_TARGETS}")
-    print(f"[INFO] Configuração: 1 falha em T={CRASH_AT_TIME}s")
+    print(f"[INFO] Configuração: 3 falha em T={CRASH_AT_TIME}s")
     print(f"[INFO] Total de Jobs: {len(BATCH_ALGS) * len(BATCH_FAIL_TARGETS) * BATCH_TOTAL_RUNS}")
 
     # Loop para gerar os comandos
@@ -77,7 +77,7 @@ if __name__ == '__main__':
                             ' --sfc ' + str(args.sfc) + \
                             ' --ava ' + str(a) + \
                             ' --number_of_fails ' + str(n) + \
-                            ' --crash_at ' + str(CRASH_AT_TIME) + \
+                            ' --crash_at ' + ' '.join(map(str, CRASH_AT_TIME)) + \
                             ' --n_players ' + str(args.n_players) + \
                             ' --sfc_lifetime ' + str(args.time) + \
                             ' --eco_effi_ratio ' + str(args.eco_effi_ratio) + \

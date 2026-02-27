@@ -57,10 +57,10 @@ def main():
     parser.add_argument('--backup', type=str, default='n', help='Backup enabled (y/n). Active only for specific algorithms.')
     
     # 1. Configuração MACRO (Gera o Cronograma)
-    parser.add_argument('--ava', type=str, default='0.97', help='Meta Global de Disponibilidade')
+    parser.add_argument('--ava', type=str, default='0.99', help='Meta Global de Disponibilidade')
     parser.add_argument('--number_of_fails', type=str, default='3', help='Number of node failures')
     parser.add_argument('--min_fail_duration', type=float, default=20, help='Min duration of node failure')
-    parser.add_argument('--crash_at', type=float, default=[400,520,640], help='Forcar falha em X segundos (Ex: [300, 400, 500]). Use -1 para aleatorio. Respeite o numero de falhas.')
+    parser.add_argument('--crash_at', nargs='+', type=float, default=[400.0, 520.0, 640.0], help='Forcar falha em X segundos (Ex: 300 400 500). Use -1 para aleatorio.')
 
     # 2. Configuração MICRO (Define a Confiabilidade Base por Nível)
     # Valores entre 0.0 e 1.0 (Ex: 0.99 = 99% confiável)
