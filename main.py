@@ -44,7 +44,7 @@ def main():
     
     # --- Parâmetros de Tráfego (Sessões/Jogadores) ---
     parser.add_argument('--n_sessions', type=int, default=50, help='Number of sessions')
-    parser.add_argument('--n_players', type=int, default=4, help='Number of players')
+    parser.add_argument('--n_players', type=int, default=6, help='Number of players')
     
     # --- Parâmetros SFC ---
     parser.add_argument('--allow_md_host', type=str, default='y', help='Permite que o dispositivo móvel (usuário) hospede VNFs (y/n)')
@@ -70,7 +70,7 @@ def main():
     
     # Fator de Estresse (NOVO)
     # Define o quanto a carga da CPU penaliza a confiabilidade.
-    # Ex: 0.05 significa que 100% de uso reduz a confiabilidade em 5%.
+    # Ex: 0.05 significa que 100% de uso reduz a confiabildiade em 5%.
 # Fator de Estresse por Tier (Deltas de Penalidade)
     parser.add_argument('--stress_high', type=float, default=0.02, help='Penalidade por estresse para Tier C (High)')
     

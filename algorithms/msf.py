@@ -1,54 +1,108 @@
 import copy
+import networkx as nx
 import logging
-from config import ROOT_PATH
-from algorithms.networkUtils import get_link_bandwidth_free,pre_get_single_source_minimum_latency_path, get_link_latency
+import os
+from typing import Dict, Tuple, List, Optional, Any, Protocol
 
-# create logger
+from config import ROOT_PATH
+from algorithms.networkUtils import get_link_bandwidth_free, get_link_latency
+
+
+# Configuração de Logger mantida
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-
-# create console handler and set level to debug
-# ch = logging.StreamHandler()
-import os
 ch = logging.FileHandler(os.path.join(ROOT_PATH, 'logs', 'DynamicProgrammingAlgorithm.log'))
 ch.setLevel(logging.DEBUG)
-# create formatter
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-# add formatter to ch
 ch.setFormatter(formatter)
-# add ch to logger
 logger.addHandler(ch)
 
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')
-class MSF():
-    def __init__(self):
-        self.name = "msf"
-        self.sfc = None
-        self.node_info = {}
-        self.src_substrate_node = None
-        self.dst_substrate_node = None
-        self.route_info = {}
-        self.single_source_minimum_latency_path = None
-        self.latency = None
-        self.graph = None
-        self.forbidden_matches = {}
-        self.shareable_sfs = None
 
-    def clear_all(self):
-        #logger.debug('clear all')
+# =====================================================================
+# 1. CONTRATOS E TIPAGEM (Subtipagem Estrutural / Duck Typing)
+# =====================================================================
+NodeID = Any
+Latency = float
+Path = List[NodeID]
+
+# Tabela de roteamento: Origem -> (Dict[Destino, Latência], Dict[Destino, Caminho])
+RoutingTable = Dict[NodeID, Tuple[Dict[NodeID, Latency], Dict[NodeID, Path]]]
+
+class SubstrateNetworkInterface(Protocol):
+    """
+    Protocolo que define as operações mínimas que a rede deve suportar
+    para que o algoritmo MSF funcione (Desacoplamento).
+    """
+    def nodes(self) -> Any: ...
+    def pre_get_single_source_minimum_latency_path(self) -> RoutingTable: ...
+
+
+# =====================================================================
+# 2. ALGORITMO CORE
+# =====================================================================
+
+class MSF:
+    """
+    Algoritmo de Programação Dinâmica (Minimum Shortest First) para alocação de SFC.
+    """
+    def __init__(self, max_allowed_latency: float = 13.0):
+        """
+        Inicializa o algoritmo MSF.
+        
+        Args:
+            max_allowed_latency (float): O limite máximo tolerado de latência para
+                                         poda de rotas inviáveis (Evita Magic Numbers).
+        """
+        self.name: str = "msf"
+        self.sfc: Optional[Any] = None
+        self.node_info: Dict[NodeID, Dict[str, Any]] = {}
+        self.route_info: Dict[str, Path] = {}
+        self.latency: Optional[float] = None
+        
+        # Estado do Grafo
+        self.graph: Optional[SubstrateNetworkInterface] = None
+        self.src_substrate_node: Optional[NodeID] = None
+        self.dst_substrate_node: Optional[NodeID] = None
+        
+        # Cache de rotas
+        self.single_source_minimum_latency_path: RoutingTable = {}
+        
+        # Parâmetros Injetáveis
+        self.max_allowed_latency: float = max_allowed_latency
+        self.forbidden_matches: Dict[str, NodeID] = {}
+        self.shareable_sfs: Optional[Any] = None
+
+    def clear_all(self) -> None:
+        """Limpa o estado da instância para um novo ciclo de execução."""
         self.sfc = None
         self.node_info = {}
         self.src_substrate_node = None
         self.dst_substrate_node = None
         self.route_info = {}
-        self.single_source_minimum_latency_path = None
+        self.single_source_minimum_latency_path = {}
         self.graph = None
         self.latency = None
         self.shareable_sfs = None
    
-    def install_substrate_network(self,graph, shareable_sfs=[]):
+    def install_substrate_network(self, graph, shareable_sfs: List = None):
+        """
+        Instala a cópia local do grafo.
+        O MSF é autossuficiente: ele mesmo pré-calcula o cache de latência
+        usando a biblioteca networkx, desacoplando totalmente da classe Net2.
+        """
+        if shareable_sfs is None:
+            shareable_sfs = []
+            
         self.graph = graph
-        self.single_source_minimum_latency_path = pre_get_single_source_minimum_latency_path(self.graph)
+        
+        # Construção interna do cache de rotas
+        self.single_source_minimum_latency_path = {}
+        for node in self.graph.nodes():
+            self.single_source_minimum_latency_path[node] = nx.single_source_dijkstra(
+                self.graph, source=node, cutoff=None, weight='latency'
+            )
+            
         return self.graph
 
     def install_SFC(self, sfc):
@@ -99,22 +153,34 @@ class MSF():
         self.route_info = False
         self.latency = None
 
-    def check_solution(self):
+    def check_solution(self) -> bool:
+        """
+        Valida a integridade da solução encontrada.
+        Refatorado para suportar SFCs de tamanhos dinâmicos (OCP).
+        """
         if not isinstance(self.latency, (int, float)) or self.latency < 0 or self.latency > self.sfc.get_latency_request() or not self.route_info:
             return False
-        if len(list(self.route_info.keys()))!=6:
+        
+        # OCP: Validação baseada no tamanho real da SFC (VNFs internas + src + dst)
+        expected_length = len(self.sfc.vnfs) + 2
+        if len(self.route_info) != expected_length:
             return False
         
         prev_path_end = None
+        # O dicionário route_info é populado de trás para frente no MSF
         for sf, path in self.route_info.items():
             if sf == 'dst':
                 continue
-            if prev_path_end is not None:
+            
+            if prev_path_end is not None and path:
+                # Valida se o fim do caminho atual conecta com o início do próximo
                 if path[-1] != prev_path_end:
-                    print(f"Inconsistência entre {prev_sf} e {sf}: {prev_path_end} != {path[0]}")
-                    return False  # ou raise Exception se quiser abortar
-            prev_path_end = path[0]
-            prev_sf = sf
+                    logger.debug(f"Inconsistência de rota detectada antes de {sf}: {prev_path_end} != {path[-1]}")
+                    return False
+            
+            if path:
+                prev_path_end = path[0]
+                
         return True
 
     def get_latency(self):
@@ -138,24 +204,20 @@ class MSF():
             logger.info("End algorithm, failed")
             return False
 
-    def algorithm(self):
+    def algorithm(self) -> bool:
+        """Executa a rotina principal de roteamento e alocação dinâmica."""
         nodes = self.graph.nodes()
-        # Get src and dst vnf
         src_vnf = self.sfc.get_src_vnf()
         dst_vnf = self.sfc.get_dst_vnf()
 
-        # Get substrate network nodes that src and dst are assigned in advanced
-        src_substrate_node = self.sfc.get_substrate_node(src_vnf)
-        dst_substrate_node = self.sfc.get_substrate_node(dst_vnf)
-
-        self.src_substrate_node = src_substrate_node
-        self.dst_substrate_node = dst_substrate_node
+        self.src_substrate_node = self.sfc.get_substrate_node(src_vnf)
+        self.dst_substrate_node = self.sfc.get_substrate_node(dst_vnf)
         
-        (node_latency, node_path) = self.single_source_minimum_latency_path[dst_substrate_node] # Get single source path from substrate node to all other substrate node
+        node_latency, node_path = self.single_source_minimum_latency_path[self.dst_substrate_node]
 
-            
+        # Forward tracking
         vnf1 = src_vnf.get_next_vnf()
-        self._dp(src_substrate_node, vnf1)
+        self._dp(self.src_substrate_node, vnf1)
 
         vnf = vnf1.get_next_vnf()
         while vnf.id != dst_vnf.id:
@@ -163,183 +225,232 @@ class MSF():
                 self._dp(node, vnf)
             vnf = vnf.get_next_vnf()
 
-        # For dst:
-
-        # here node in latency and path results is the node host previous vnf
+        # Dst mapping processing
         previous_vnf = self.sfc.get_previous_vnf(dst_vnf)
         previous_vnf_id = previous_vnf.id
-
         bandwidth_request = self.sfc.get_link_bandwidth_request(previous_vnf_id, dst_vnf.id)
 
-        for node, latency in list(node_latency.items()):
-            if node == dst_substrate_node or node == src_substrate_node:
-                # if node is ingress or egress, continue
+        # Uso direto de .items() (sem list())
+        for node, latency in node_latency.items():
+            if node == self.dst_substrate_node or node == self.src_substrate_node:
                 continue
 
-            # Check bandwidth resources
+            # Verificação de banda
             is_bandwidth_sufficient = True
             bandwidth_usage_info = copy.copy(
-                self.node_info[node][previous_vnf_id]['bandwidth_usage_info'])
+                self.node_info[node][previous_vnf_id]['bandwidth_usage_info']
+            )
+
             path = node_path[node]
             length = len(path)
+
             for i in range(0, length - 1):
                 edge_key = frozenset((path[i], path[i + 1]))
-                residual_bandwidth = None
+
                 if edge_key in bandwidth_usage_info:
-                    residual_bandwidth = bandwidth_usage_info[edge_key] - bandwidth_request
+                    residual_bandwidth = (
+                        bandwidth_usage_info[edge_key] - bandwidth_request
+                    )
                 else:
-                    residual_bandwidth = get_link_bandwidth_free(self.graph,path[i], path[i + 1]) - bandwidth_request
+                    residual_bandwidth = (
+                        get_link_bandwidth_free(self.graph, path[i], path[i + 1])
+                        - bandwidth_request
+                    )
+
                 if residual_bandwidth < 0:
-                    #logger.warning('Bandwidth resources is not sufficient to dst')
                     is_bandwidth_sufficient = False
                     break
-                bandwidth_usage_info[edge_key] = residual_bandwidth
-            if not is_bandwidth_sufficient:
-                # check next path
-                continue
-            _latency = self.node_info[node][previous_vnf_id]['latency']
-            if not self.node_info[dst_substrate_node][dst_vnf.id]['latency'] \
-                or _latency + latency < self.node_info[dst_substrate_node][dst_vnf.id]['latency']:
-                self.node_info[dst_substrate_node][dst_vnf.id]['latency'] = _latency + latency
-                self.node_info[dst_substrate_node][dst_vnf.id]['path'] = node_path[node]
-                self.node_info[dst_substrate_node][dst_vnf.id]['path'].reverse()
-                self.node_info[dst_substrate_node][dst_vnf.id]['current_substrate_nodes'] = self.node_info[node][previous_vnf_id]['current_substrate_nodes'][:]
-                self.node_info[dst_substrate_node][dst_vnf.id]['current_substrate_nodes'].append(dst_substrate_node)
-                self.node_info[dst_substrate_node][dst_vnf.id]['src_path'] = self.node_info[node][previous_vnf_id]['src_path'][:] + self.node_info[dst_substrate_node]['dst']['path'][:]
-                self.node_info[dst_substrate_node][dst_vnf.id]['flag'] = True
 
-        if self.node_info[dst_substrate_node][dst_vnf.id]['flag']:
-            # There is a solution
+                bandwidth_usage_info[edge_key] = residual_bandwidth
+
+            if not is_bandwidth_sufficient:
+                continue
+
+            _latency = self.node_info[node][previous_vnf_id]['latency']
+            aux1 = self.node_info[self.dst_substrate_node][dst_vnf.id]['latency']
+            aux2 = self.node_info[self.dst_substrate_node][dst_vnf.id]['latency']
+
+            if not aux1 or _latency + latency < aux2:
+                self.node_info[self.dst_substrate_node][dst_vnf.id]['latency'] = _latency + latency
+                self.node_info[self.dst_substrate_node][dst_vnf.id]['path'] = node_path[node]
+                self.node_info[self.dst_substrate_node][dst_vnf.id]['path'].reverse()
+
+                self.node_info[self.dst_substrate_node][dst_vnf.id]['current_substrate_nodes'] = \
+                    self.node_info[node][previous_vnf_id]['current_substrate_nodes'][:]
+
+                self.node_info[self.dst_substrate_node][dst_vnf.id]['current_substrate_nodes'].append(
+                    self.dst_substrate_node
+                )
+
+                self.node_info[self.dst_substrate_node][dst_vnf.id]['src_path'] = (
+                    self.node_info[node][previous_vnf_id]['src_path'][:] +
+                    self.node_info[self.dst_substrate_node]['dst']['path'][:]
+                )
+
+                self.node_info[self.dst_substrate_node][dst_vnf.id]['flag'] = True
+
+        if self.node_info[self.dst_substrate_node][dst_vnf.id]['flag']:
+
             # Backtracking
-            # Start from dst to backtracking to src
             previous_vnf = dst_vnf
-            previous_substrate_node = dst_substrate_node
-            #print("backtrack pvs node:", previous_substrate_node)
+            previous_substrate_node = self.dst_substrate_node
+
             while True:
                 path = self.node_info[previous_substrate_node][previous_vnf.id]['path']
                 if not path:
                     break
+
                 previous_substrate_node = path[0]
                 previous_vnf = self.sfc.get_previous_vnf(previous_vnf)
+
                 if previous_vnf:
                     self.route_info[previous_vnf.id] = path
                 else:
                     break
+
             self.route_info[dst_vnf.id] = []
-            self.latency = self.node_info[dst_substrate_node][dst_vnf.id]['latency']
-            prev_vnf_node = self.route_info[previous_vnf.id][0]
-            # remove latency from dst to previous vnf
-            #self.latency_minus_dst = self.latency - len(self.route_info[previous_vnf.id])
-            if 'src' not in self.route_info.keys():
+
+            if 'src' not in self.route_info:
                 return True
-            path = self.route_info['src']
-            for i in range(len(path) - 1):
-                edge_latency = get_link_latency(self.graph,path[i], path[i + 1])
-                self.latency = self.latency - edge_latency
-            #TODO ajustar o MSF e o MusFICo para que eles lidem melhor com a queda de servidores e não deem latencia negativa
-            
-            if self.latency > self.sfc.get_latency_request() or self.latency < 0: #
+
+            # Reconstrução limpa da latência
+            total_latency = 0.0
+            for sf, path in self.route_info.items():
+                if path and len(path) > 1:
+                    for i in range(len(path) - 1):
+                        total_latency += get_link_latency(
+                            self.graph, path[i], path[i + 1]
+                        )
+
+            self.latency = total_latency
+
+            # Validação final
+            if self.latency > self.sfc.get_latency_request() or self.latency < 0:
                 self.route_info = {}
                 self.latency = None
                 return False
-            
-            if len(list(self.route_info.keys()))!=6: # Não instanciou todas
+
+            expected_length = len(self.sfc.vnfs) + 2
+            if len(self.route_info) != expected_length:
                 self.route_info = False
                 self.latency = None
                 return False
-            #print("Deu certo: ",self.route_info)
+
             return True
+
         else:
-            #print("falha: ",self.route_info)
             return False
 
-    def _dp(self, substrate_node, vnf):
+    def _dp(self, substrate_node: NodeID, vnf: Any) -> bool:
         """
-        Start from substrate node substrate_node, calculate all paths and latency from substrate_node to other nodes N.
-        update information in nodes N for vnf, if latency is minimum. 
+        Calcula caminhos e latências a partir do substrate_node para os vizinhos viáveis.
         """
-        # Get precedent of the vnf
-        sfc = self.sfc
-        previous_vnf = sfc.get_previous_vnf(vnf)
+        previous_vnf = self.sfc.get_previous_vnf(vnf)
         previous_vnf_id = previous_vnf.id
-        #if not self.node_info[substrate_node][previous_vnf_id]['flag']:
-        #    # This substrate node cannot host precedent vnf, thus, no need to exam further.
-        #    return False
-        
         vnf_id = vnf.id
-        # Get single source path from substrate node to all other substrate node
-        (node_latency, node_path) = self.single_source_minimum_latency_path[substrate_node]
-        
+
+        node_latency, node_path = self.single_source_minimum_latency_path[substrate_node]
         _latency = self.node_info[substrate_node][previous_vnf_id]['latency']
 
-        cpu_request = sfc.get_vnf_cpu_request(vnf)
-        bandwidth_request = sfc.get_link_bandwidth_request(previous_vnf_id, vnf_id)
-        cache_request = sfc.get_vnf_cache_request(vnf)
+        cpu_request = self.sfc.get_vnf_cpu_request(vnf)
+        cache_request = self.sfc.get_vnf_cache_request(vnf)
+        bandwidth_request = self.sfc.get_link_bandwidth_request(previous_vnf_id, vnf_id)
 
-        for node, latency in list(node_latency.items()):
-            if latency > 3:
-                continue
+        # Iteração direta (view) — sem list()
+        for node, latency in node_latency.items():
+
+            sfc_max_latency = self.sfc.get_latency_request()
             
-            forbidden = False
-            for vnf_f,node_f in self.forbidden_matches.items():
-                if node_f == node and vnf_f == vnf_id:
-                    forbidden =True
+            # Se o melhor cenário possível já estoura o limite da SFC, poda a rota!
+            if (_latency + latency) > sfc_max_latency:
+                continue
+
+            forbidden = any(
+                node_f == node and vnf_f == vnf_id
+                for vnf_f, node_f in self.forbidden_matches.items()
+            )
             if forbidden:
                 continue
 
-            if node == substrate_node:
-               # Cannot use the current substrate node to host this vnf.
-               continue
+            if node in (substrate_node, self.src_substrate_node):
+                continue
+
             if node in self.node_info[substrate_node][previous_vnf_id]['current_substrate_nodes']:
-               # If node has been used, cannot host this vnf
-               # Current_substrate_nodes contains the nodes that have been used
-               continue
-            if node == self.src_substrate_node or node == self.dst_substrate_node:
-                # Ingress and egress cannot host this vnf
                 continue
 
-            # Check CPU and cache resources
-            cpu_available = self.graph.nodes[node]['cpu_capacity'] - self.graph.nodes[node]['cpu_used']
-            cache_available = self.graph.nodes[node]['cache_capacity'] - self.graph.nodes[node]['cache_used']
-            
-            if self.graph.nodes[node]['type'] == ['router']:
+            # Recursos CPU / Cache
+            cpu_available = (
+                self.graph.nodes[node]['cpu_capacity'] -
+                self.graph.nodes[node]['cpu_used']
+            )
+            cache_available = (
+                self.graph.nodes[node]['cache_capacity'] -
+                self.graph.nodes[node]['cache_used']
+            )
+
+            # Router não pode hospedar VNF
+            if self.graph.nodes[node].get('type') == 'router':
                 continue
 
-            if cpu_request > cpu_available + 0.00001 or cache_request > cache_available + 0.00001:
-                # if node has not sufficient cpu, check next node. 
+            if (
+                cpu_request > cpu_available + 0.00001 or
+                cache_request > cache_available + 0.00001
+            ):
                 continue
 
-            # Check bandwidth resources
+            # Verificação de banda
             is_bandwidth_sufficient = True
             bandwidth_usage_info = copy.copy(
-                self.node_info[substrate_node][previous_vnf_id]['bandwidth_usage_info'])
+                self.node_info[substrate_node][previous_vnf_id]['bandwidth_usage_info']
+            )
 
             path = node_path[node]
             if path[0] != substrate_node:
                 path.reverse()
+
             length = len(path)
+
             for i in range(0, length - 1):
                 edge_key = frozenset((path[i], path[i + 1]))
-                residual_bandwidth = None
+
                 if edge_key in bandwidth_usage_info:
-                    residual_bandwidth = bandwidth_usage_info[edge_key] - bandwidth_request
+                    residual_bandwidth = (
+                        bandwidth_usage_info[edge_key] - bandwidth_request
+                    )
                 else:
-                    
-                    residual_bandwidth = get_link_bandwidth_free(self.graph,path[i], path[i + 1]) - bandwidth_request
+                    residual_bandwidth = (
+                        get_link_bandwidth_free(self.graph, path[i], path[i + 1])
+                        - bandwidth_request
+                    )
+
                 if residual_bandwidth < 0:
-                    #logger.warning('Bandwidth resources is not sufficient')
                     is_bandwidth_sufficient = False
                     break
+
                 bandwidth_usage_info[edge_key] = residual_bandwidth
+
             if not is_bandwidth_sufficient:
                 continue
+
             self.node_info[node][vnf_id]['bandwidth_usage_info'] = bandwidth_usage_info
-            if not self.node_info[node][vnf_id]['latency'] or (_latency + latency) <= self.node_info[node][vnf_id]['latency']:
+
+            if (
+                not self.node_info[node][vnf_id]['latency'] or
+                (_latency + latency) <= self.node_info[node][vnf_id]['latency']
+            ):
                 self.node_info[node][vnf_id]['latency'] = _latency + latency
                 self.node_info[node][vnf_id]['path'] = node_path[node]
                 self.node_info[node][vnf_id]['flag'] = True
                 self.node_info[node][vnf_id]['previous_substrate_node'] = substrate_node
-                self.node_info[node][vnf_id]['current_substrate_nodes'] = self.node_info[substrate_node][previous_vnf_id]['current_substrate_nodes'][:]
+
+                self.node_info[node][vnf_id]['current_substrate_nodes'] = \
+                    self.node_info[substrate_node][previous_vnf_id]['current_substrate_nodes'][:]
+
                 self.node_info[node][vnf_id]['current_substrate_nodes'].append(node)
-                self.node_info[node][vnf_id]['src_path'] = self.node_info[substrate_node][previous_vnf_id]['src_path'][:] + node_path[node][:-1]
+
+                self.node_info[node][vnf_id]['src_path'] = (
+                    self.node_info[substrate_node][previous_vnf_id]['src_path'][:] +
+                    node_path[node][:-1]
+                )
+
         return True
