@@ -17,6 +17,7 @@ route info :=
 """
 import copy
 import logging
+import networkx as nx
 from algorithms.greedy_algorithm import GreedyAlgorithm
 from config import ROOT_PATH
 from utils.k_shortest_paths import k_shortest_paths
@@ -63,18 +64,24 @@ class Musfico():
    
     def install_substrate_network(self, substrate_network):
         self.substrate_network = substrate_network
-        self.single_source_minimum_latency_path = self.substrate_network.single_source_minimum_latency_path
+        # Construção interna do cache de rotas
+        self.single_source_minimum_latency_path = {}
+        for node in self.substrate_network.graph.nodes():
+            self.single_source_minimum_latency_path[node] = nx.single_source_dijkstra(
+                self.substrate_network.graph, source=node, cutoff=None, weight='latency'
+            )
         return self.substrate_network
 
     def install_SFC(self, sfc):
         self.sfc = sfc
+        self.route_info = {}
 
         src_vnf = self.sfc.get_src_vnf()
         src_substrate_node = self.sfc.get_substrate_node(src_vnf)
         dst_vnf = self.sfc.get_dst_vnf()
         dst_substrate_node = self.sfc.get_substrate_node(dst_vnf)
 
-        for node in self.substrate_network.nodes():
+        for node in self.substrate_network.graph.nodes():
             self.node_info[node] = {}
             for vnf_id, vnf in list(sfc.vnfs.items()):
                 # Not include src and dst.
@@ -138,7 +145,7 @@ class Musfico():
         return False
 
     def algorithm(self,substrate_network, sfc):
-        nodes = substrate_network.nodes()
+        nodes = substrate_network.graph.nodes()
         # Get src and dst vnf
         src_vnf = sfc.get_src_vnf()
         dst_vnf = sfc.get_dst_vnf()
@@ -248,6 +255,10 @@ class Musfico():
         else:
             #print("falha: ",self.route_info)
             return False
+        
+    def handle_failure(self):
+        self.route_info = False
+        self.latency = None
 
     def _dp(self, substrate_node, vnf):
         """
@@ -273,7 +284,7 @@ class Musfico():
         cache_request = sfc.get_vnf_cache_request(vnf)
 
         for node, latency in list(node_latency.items()):
-            if latency > 3:
+            if latency > 99:
                 continue
 
             if node == substrate_node:

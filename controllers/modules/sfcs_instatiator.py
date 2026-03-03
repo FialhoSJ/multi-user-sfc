@@ -19,6 +19,7 @@ from algorithms.kuririn import Kuririn
 from algorithms.replic import REPLIC
 from algorithms.darsppo import DARSPPO
 from algorithms.hephaestus import hephaestus
+from algorithms.musfico import Musfico # Adicione esta linha
 
 # Environments
 from algorithms.environments.environment import SFC_AllocationEnv
@@ -50,66 +51,68 @@ class SFCInstatiator:
     # ==========================================
 
     def search_solution(self, sfc_list, substrate_network: Net2, is_backup=False):
+        # 1. Dicionário padrão de resposta
         default_solution_format = {
             sfc.id: {'route_info': None, 'latency': None, 'run_duration': None} 
             for sfc in sfc_list
         }
 
-        # Usa a instância original do algoritmo
+        # Prepara a instância original do algoritmo
         algorithm = self.alg
         algorithm.clear_all()
 
-        graph = copy.deepcopy(substrate_network.graph)
-        
-        # Verificamos se o nó destino é realmente um dispositivo móvel.
-        # Se for um servidor (caso do backup), ele já está no 'graph' e pulamos essa etapa.
+        # --- LÓGICA CONDICIONAL DE INFRAESTRUTURA (CORREÇÃO) ---
+        from algorithms.musfico import Musfico # Importação local para evitar circularidade
+
+        if isinstance(algorithm, Musfico):
+            # O Musfico precisa da Net2 para métodos de recursos (ex: get_node_cpu_free)
+            infra_to_use = copy.deepcopy(substrate_network)
+            # Sincronizamos 'graph' com o grafo interno da cópia da Net2
+            graph = infra_to_use.graph 
+        else:
+            # Algoritmos padrão (MSF, RL) operam apenas com o Grafo bruto
+            infra_to_use = copy.deepcopy(substrate_network.graph)
+            graph = infra_to_use
+
+        # 2. Gestão de Dispositivo Móvel
+        # Adicionamos o MD ao grafo que será efetivamente usado pelo algoritmo e pelos ambientes
         dst_node_id = sfc_list[0].dst_node
-        
-        # Verifica se o ID existe no grafo de dispositivos móveis do Net2
         if dst_node_id in substrate_network.md_graph:
+            # 'graph' aqui é a referência correta para a cópia (ou o nx.Graph ou o Net2.graph)
             self.add_mobile_user_to_graph(graph, substrate_network, sfc_list)
         # -------------------------------------------------------
 
-        # Configuração do Ambiente (Environment) baseado no tipo de algoritmo
+        # 3. Configuração do Ambiente (Environment) para algoritmos de IA
+        # Usamos o 'graph' já atualizado com o MD (ex: nó '11')
         valid_nodes = [node for node in graph.nodes() if graph.nodes[node]['type'] != 'router']  
-              
+            
         if isinstance(algorithm, Kuririn):
             self.env = SFC_AllocationEnv(
-                valid_nodes=valid_nodes,
-                list_graph=[graph],
-                list_sfc=[sfc_list[0]],
-                is_training=False
+                valid_nodes=valid_nodes, list_graph=[graph], list_sfc=[sfc_list[0]], is_training=False
             )
         elif isinstance(algorithm, DARSPPO):
             self.env = SFC_AllocationEnv_DARSPPO(
-                valid_nodes=valid_nodes,
-                list_graph=[graph],
-                list_sfc=[sfc_list[0]],
-                is_training=False
+                valid_nodes=valid_nodes, list_graph=[graph], list_sfc=[sfc_list[0]], is_training=False
             )
         elif isinstance(algorithm, hephaestus):
             self.env = SFC_AllocationEnv_hephaestus(
-                valid_nodes=valid_nodes,
-                list_graph=[graph],
-                list_sfc=[sfc_list[0]],
-                is_training=False
+                valid_nodes=valid_nodes, list_graph=[graph], list_sfc=[sfc_list[0]], is_training=False
             )
-            
         elif isinstance(algorithm, REPLIC):
             self.env = SFC_AllocationEnv_SCRC(
-                valid_nodes=valid_nodes,
-                list_graph=[graph],
-                list_sfc=[sfc_list[0]],
-                is_training=False
+                valid_nodes=valid_nodes, list_graph=[graph], list_sfc=[sfc_list[0]], is_training=False
             )
 
-        sequential_sub = True
+        # 4. Execução da busca sequencial
         is_success = False
         solution = default_solution_format
 
-        if sequential_sub:
-            solution, is_success = self.sequential_search(algorithm, sfc_list, graph, default_solution_format)
+        # Passamos infra_to_use: 
+        # Se Musfico -> Passa a instância Net2 (Sandbox)
+        # Se outros  -> Passa o nx.Graph (Sandbox)
+        solution, is_success = self.sequential_search(algorithm, sfc_list, infra_to_use, default_solution_format)
 
+        # 5. Mensagens de Log
         if is_success:
             self.deploy_success_message(sfc_list)
         else:
@@ -191,43 +194,43 @@ class SFCInstatiator:
                     algorithm.handle_failure()
                     alg_success = False
 
-            # --- LÓGICA DE FALLBACK (DRY RUN) ---
-            if not alg_success:
-                # Grafo temporário para cálculo, não modifica o original
-                fallback_graph = copy.deepcopy(graph)
+            # # --- LÓGICA DE FALLBACK (DRY RUN) ---
+            # if not alg_success:
+            #     # Grafo temporário para cálculo, não modifica o original
+            #     fallback_graph = copy.deepcopy(graph)
                 
-                try:
-                    fallback_node_id = 0
-                    fallback_route_info = {}
-                    vnf_names = [vnf['name'] for vnf in sfc.vnfs_dict]
-                    dst_node = sfc.dst_node
+            #     try:
+            #         fallback_node_id = 0
+            #         fallback_route_info = {}
+            #         vnf_names = [vnf['name'] for vnf in sfc.vnfs_dict]
+            #         dst_node = sfc.dst_node
 
-                    # Define path para node 0
-                    for i in range(len(vnf_names) - 1):
-                        fallback_route_info[vnf_names[i]] = [fallback_node_id]
+            #         # Define path para node 0
+            #         for i in range(len(vnf_names) - 1):
+            #             fallback_route_info[vnf_names[i]] = [fallback_node_id]
 
-                    last_vnf_name = vnf_names[-1]
-                    path_list = k_shortest_paths(fallback_graph, fallback_node_id, dst_node, k=1, weight='latency')
+            #         last_vnf_name = vnf_names[-1]
+            #         path_list = k_shortest_paths(fallback_graph, fallback_node_id, dst_node, k=1, weight='latency')
 
-                    if not path_list:
-                        logging.error(f"Fallback {sfc.id} falhou: Sem caminho do node 0 para {dst_node}")
-                        algorithm.route_info = None
-                    else:
-                        fallback_route_info[last_vnf_name] = path_list[0]
+            #         if not path_list:
+            #             logging.error(f"Fallback {sfc.id} falhou: Sem caminho do node 0 para {dst_node}")
+            #             algorithm.route_info = None
+            #         else:
+            #             fallback_route_info[last_vnf_name] = path_list[0]
                         
-                        # Tenta submeter no grafo temporário
-                        total_latency, comp_latency, comm_latency, res_info = self.submit_solution(fallback_graph, sfc, fallback_route_info)
+            #             # Tenta submeter no grafo temporário
+            #             total_latency, comp_latency, comm_latency, res_info = self.submit_solution(fallback_graph, sfc, fallback_route_info)
                         
-                        logging.info(f"Fallback {sfc.id} BEM SUCEDIDO (Latência: {total_latency}).")
-                        algorithm.route_info = fallback_route_info
+            #             logging.info(f"Fallback {sfc.id} BEM SUCEDIDO (Latência: {total_latency}).")
+            #             algorithm.route_info = fallback_route_info
 
-                except ValueError as ve:
-                    logging.error(f"Fallback {sfc.id} FALHOU (Ex: node 0 sem recursos): {ve}")
-                    algorithm.route_info = None
-                except Exception as e:
-                    logging.error(f"Erro inesperado no fallback {sfc.id}: {e}")
-                    logging.error(traceback.format_exc())
-                    algorithm.route_info = None
+            #     except ValueError as ve:
+            #         logging.error(f"Fallback {sfc.id} FALHOU (Ex: node 0 sem recursos): {ve}")
+            #         algorithm.route_info = None
+            #     except Exception as e:
+            #         logging.error(f"Erro inesperado no fallback {sfc.id}: {e}")
+            #         logging.error(traceback.format_exc())
+            #         algorithm.route_info = None
 
             # Consolidação da Solução
             solution_format[sfc.id] = {
@@ -292,7 +295,10 @@ class SFCInstatiator:
             service_key = (service_id, session_id)
             cpu_required = vnf.get_cpu_request()
             cache_required = vnf.get_cache_request()
-            node = graph.nodes[node_id]
+            if not isinstance(graph, Net2):
+                node = graph.nodes[node_id]
+            else:
+                node = graph.graph.nodes[node_id]
             latency = calculate_computational_latency(graph, node_id, vnf)
 
             allocated_resources = 0.0  # rastreia o custo real de recursos
