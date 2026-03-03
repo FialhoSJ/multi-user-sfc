@@ -1,0 +1,4 @@
+crash_trial,timestamp,nodes_crashed_count,total_affected_sfcs,affected_by_high_risk_node,affected_by_med_risk_node,affected_by_low_risk_node,avg_latency_before,avg_latency_after,affected_percentage,avg_latency_diff
+0,1772550561.5429847,2,6,6,0,0,32.9066,0.0000,12.50,0.0000
+1,1772550681.5430033,2,9,9,0,0,33.0802,0.0000,18.75,0.0000
+2,1772550801.545547,2,22,0,22,0,32.5947,0.0000,61.11,0.0000

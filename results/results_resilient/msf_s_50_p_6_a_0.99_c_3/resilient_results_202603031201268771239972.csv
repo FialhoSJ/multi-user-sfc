@@ -1,0 +1,37 @@
+crash_trial,sfc_id,recover_success,backup_success,backup_efficient,latency_diff,time_to_recover,vnf_id,latency_degrad,resource_degrad,risk_level,final_status
+0,sfc_cache_p6_18,True,False,N/A,-37.30858771688555,0.04488706588745117,N/A,-37.30858771688555,-10.0,High,Slow Recover
+0,sfc_cache_p6_14,True,False,N/A,-38.24362373637356,0.09100627899169922,N/A,-38.24362373637356,-10.0,High,Slow Recover
+0,sfc_cache_p5_18,True,False,N/A,-37.35858771688555,0.13818001747131348,N/A,-37.35858771688555,-10.0,High,Slow Recover
+0,sfc_cache_p5_14,True,False,N/A,-39.34069797907435,0.1877446174621582,N/A,-39.34069797907435,-10.0,High,Slow Recover
+0,sfc_cache_p4_18,True,False,N/A,-37.15858771688555,0.36733341217041016,N/A,-37.15858771688555,-6.0,High,Slow Recover
+0,sfc_cache_p4_14,True,False,N/A,-36.750697979074346,0.41538119316101074,N/A,-36.750697979074346,-10.0,High,Slow Recover
+0,sfc_cache_p3_18,True,False,N/A,-37.89858771688555,0.4642500877380371,N/A,-37.89858771688555,-10.0,High,Slow Recover
+0,sfc_cache_p3_14,True,False,N/A,-37.81975629158324,0.511979341506958,N/A,-37.81975629158324,-10.0,High,Slow Recover
+0,sfc_cache_p2_18,True,False,N/A,-37.08858771688555,0.560065507888794,N/A,-37.08858771688555,-10.0,High,Slow Recover
+0,sfc_cache_p2_14,True,False,N/A,-36.91975629158325,0.6078081130981445,N/A,-36.91975629158325,-10.0,High,Slow Recover
+0,sfc_cache_p1_18,False,False,N/A,0.0,0.0,N/A,0.0,0.0,High,Failed
+0,sfc_cache_p1_15,False,False,N/A,0.0,0.0,N/A,0.0,0.0,High,Failed
+0,sfc_cache_p1_14,False,False,N/A,0.0,0.0,N/A,0.0,0.0,High,Failed
+1,sfc_unique_p6_21,True,False,N/A,-34.71218714950288,0.05232048034667969,N/A,-34.71218714950288,-21.0,High,Slow Recover
+1,sfc_unique_p6_19,True,False,N/A,-31.72906608533014,0.10321331024169922,N/A,-31.72906608533014,-21.0,High,Slow Recover
+1,sfc_unique_p5_19,True,False,N/A,-32.22069797907435,0.15437841415405273,N/A,-32.22069797907435,-21.0,High,Slow Recover
+1,sfc_unique_p4_21,True,False,N/A,-32.63218714950288,0.2031383514404297,N/A,-32.63218714950288,-21.0,High,Slow Recover
+1,sfc_unique_p4_20,True,False,N/A,-36.22858771688555,0.37955498695373535,N/A,-36.22858771688555,-21.0,High,Slow Recover
+1,sfc_unique_p4_19,True,False,N/A,-35.47069797907435,0.43097782135009766,N/A,-35.47069797907435,-21.0,High,Slow Recover
+1,sfc_unique_p3_23,True,False,N/A,-34.85858771688555,0.47970104217529297,N/A,-34.85858771688555,-21.0,High,Slow Recover
+1,sfc_unique_p1_23,True,False,N/A,-34.97858771688555,0.532583475112915,N/A,-34.97858771688555,-21.0,High,Slow Recover
+1,sfc_cache_p6_22,True,False,N/A,-37.71975629158324,0.5807375907897949,N/A,-37.71975629158324,-10.0,High,Slow Recover
+1,sfc_cache_p5_22,True,False,N/A,-37.52975629158324,0.6340553760528564,N/A,-37.52975629158324,-1.67,High,Slow Recover
+1,sfc_cache_p4_22,True,False,N/A,-37.34975629158324,0.6897575855255127,N/A,-37.34975629158324,-1.67,High,Slow Recover
+1,sfc_cache_p3_22,True,False,N/A,-36.53975629158324,0.8817107677459717,N/A,-36.53975629158324,-6.0,High,Slow Recover
+1,sfc_cache_p3_20,True,False,N/A,-35.013697416668904,0.9352314472198486,N/A,-35.013697416668904,-10.0,High,Slow Recover
+1,sfc_cache_p2_23,False,False,N/A,0.0,0.0,N/A,0.0,0.0,High,Failed
+1,sfc_cache_p2_21,False,False,N/A,0.0,0.0,N/A,0.0,0.0,High,Failed
+1,sfc_cache_p2_20,False,False,N/A,0.0,0.0,N/A,0.0,0.0,High,Failed
+1,sfc_cache_p1_22,False,False,N/A,0.0,0.0,N/A,0.0,0.0,High,Failed
+1,sfc_cache_p1_19,False,False,N/A,0.0,0.0,N/A,0.0,0.0,High,Failed
+2,sfc_unique_p2_29,True,False,N/A,-37.43858771688555,0.06136059761047363,N/A,-37.43858771688555,-21.0,High,Slow Recover
+2,sfc_unique_p2_28,True,False,N/A,-33.914171984035704,0.12941241264343262,N/A,-33.914171984035704,-21.0,High,Slow Recover
+2,sfc_cache_p4_29,True,False,N/A,-38.01858771688555,0.1701655387878418,N/A,-38.01858771688555,-10.0,High,Slow Recover
+2,sfc_cache_p4_26,False,False,N/A,0.0,0.0,N/A,0.0,0.0,High,Failed
+2,sfc_cache_p2_31,False,False,N/A,0.0,0.0,N/A,0.0,0.0,High,Failed

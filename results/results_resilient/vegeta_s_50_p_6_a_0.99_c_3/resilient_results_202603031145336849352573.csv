@@ -1,0 +1,9 @@
+crash_trial,sfc_id,recover_success,backup_success,backup_efficient,latency_diff,time_to_recover,vnf_id,latency_degrad,resource_degrad,risk_level,final_status
+0,sfc_unique_p5_17,True,False,N/A,7.696521356807827,0.1222524642944336,N/A,7.696521356807827,-21.0,High,Slow Recover
+0,sfc_unique_p3_19,True,False,N/A,6.426521356807827,0.15569639205932617,N/A,6.426521356807827,-21.0,High,Slow Recover
+0,sfc_unique_p3_17,True,False,N/A,7.316521356807828,0.18888473510742188,N/A,7.316521356807828,-21.0,High,Slow Recover
+2,sfc_unique_p2_31,True,False,N/A,11.492268933739572,0.04439520835876465,N/A,11.492268933739572,-21.0,High,Slow Recover
+2,sfc_cache_p4_29,True,False,N/A,3.214384815175687,0.08721017837524414,N/A,3.214384815175687,-10.0,High,Slow Recover
+2,sfc_cache_p3_29,True,False,N/A,4.6943848151756855,0.13199877738952637,N/A,4.6943848151756855,-6.0,High,Slow Recover
+2,sfc_cache_p2_29,True,False,N/A,1.6443848151756866,0.277618408203125,N/A,1.6443848151756866,-6.0,High,Slow Recover
+2,sfc_cache_p1_29,True,False,N/A,1.6643848151756861,0.32687902450561523,N/A,1.6643848151756861,-6.0,High,Slow Recover
