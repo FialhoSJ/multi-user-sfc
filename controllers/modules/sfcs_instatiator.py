@@ -62,17 +62,8 @@ class SFCInstatiator:
         algorithm.clear_all()
 
         # --- LÓGICA CONDICIONAL DE INFRAESTRUTURA (CORREÇÃO) ---
-        from algorithms.musfico import Musfico # Importação local para evitar circularidade
-
-        if isinstance(algorithm, Musfico):
-            # O Musfico precisa da Net2 para métodos de recursos (ex: get_node_cpu_free)
-            infra_to_use = copy.deepcopy(substrate_network)
-            # Sincronizamos 'graph' com o grafo interno da cópia da Net2
-            graph = infra_to_use.graph 
-        else:
-            # Algoritmos padrão (MSF, RL) operam apenas com o Grafo bruto
-            infra_to_use = copy.deepcopy(substrate_network.graph)
-            graph = infra_to_use
+        infra_to_use = copy.deepcopy(substrate_network.graph)
+        graph = infra_to_use
 
         # 2. Gestão de Dispositivo Móvel
         # Adicionamos o MD ao grafo que será efetivamente usado pelo algoritmo e pelos ambientes

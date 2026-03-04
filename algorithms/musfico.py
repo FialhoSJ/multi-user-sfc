@@ -18,30 +18,26 @@ route info :=
 import copy
 import logging
 import networkx as nx
-from algorithms.greedy_algorithm import GreedyAlgorithm
 from config import ROOT_PATH
-from utils.k_shortest_paths import k_shortest_paths
+
+# Imports adicionados para lidar com a rede como um Grafo diretamente (mesmo padrão do MSF)
+from algorithms.networkUtils import get_link_bandwidth_free, get_link_latency
 
 # create logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-# create console handler and set level to debug
-# ch = logging.StreamHandler()
 ch = logging.FileHandler(ROOT_PATH + './logs/musfico.log')
 ch.setLevel(logging.DEBUG)
-# create formatter
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-# add formatter to ch
 ch.setFormatter(formatter)
-# add ch to logger
 logger.addHandler(ch)
 
 
 class Musfico():
     def __init__(self):
         self.name = "musfico"
-        self.substrate_network = None
+        self.graph = None # Alterado de self.substrate_network para self.graph
         self.sfc = None
         self.node_info = {}
         self.src_substrate_node = None
@@ -52,8 +48,7 @@ class Musfico():
         self.latency_minus_dst = None
         
     def clear_all(self):
-        #logger.debug('clear all')
-        self.substrate_network = None
+        self.graph = None # Alterado
         self.sfc = None
         self.node_info = {}
         self.src_substrate_node = None
@@ -62,15 +57,16 @@ class Musfico():
         self.single_source_minimum_latency_path = None
         self.latency = None
    
-    def install_substrate_network(self, substrate_network):
-        self.substrate_network = substrate_network
-        # Construção interna do cache de rotas
+    def install_substrate_network(self, graph):
+        self.graph = graph # Recebe o grafo diretamente
+        
+        # Construção interna do cache de rotas operando sobre self.graph
         self.single_source_minimum_latency_path = {}
-        for node in self.substrate_network.graph.nodes():
+        for node in self.graph.nodes():
             self.single_source_minimum_latency_path[node] = nx.single_source_dijkstra(
-                self.substrate_network.graph, source=node, cutoff=None, weight='latency'
+                self.graph, source=node, cutoff=None, weight='latency'
             )
-        return self.substrate_network
+        return self.graph
 
     def install_SFC(self, sfc):
         self.sfc = sfc
@@ -81,35 +77,35 @@ class Musfico():
         dst_vnf = self.sfc.get_dst_vnf()
         dst_substrate_node = self.sfc.get_substrate_node(dst_vnf)
 
-        for node in self.substrate_network.graph.nodes():
+        # Alterado de self.substrate_network.graph.nodes()
+        for node in self.graph.nodes():
             self.node_info[node] = {}
             for vnf_id, vnf in list(sfc.vnfs.items()):
-                # Not include src and dst.
                 self.node_info[node][vnf_id] = {}
-                self.node_info[node][vnf_id]['flag'] = False  # whether vnf/id can be placed on node
+                self.node_info[node][vnf_id]['flag'] = False 
                 self.node_info[node][vnf_id]['latency'] = float('inf')
                 self.node_info[node][vnf_id]['path'] = []
                 self.node_info[node][vnf_id]['src_path'] = []
                 self.node_info[node][vnf_id]['previous_substrate_node'] = None
-                self.node_info[node][vnf_id]['current_substrate_nodes'] = []    # The meta information
-                                                                                # in which is a set of substrate node
-                                                                                # has been assigned to VNFs in order
+                self.node_info[node][vnf_id]['current_substrate_nodes'] = [] 
                 self.node_info[node][vnf_id]['bandwidth_usage_info'] = {}
 
             self.node_info[node][src_vnf.id] = {}
-            self.node_info[node][src_vnf.id]['flag'] = False  # src cannot be placed on the node except src node
+            self.node_info[node][src_vnf.id]['flag'] = False
             self.node_info[node][dst_vnf.id] = {}
 
-        self.node_info[src_substrate_node][src_vnf.id]['flag'] = True # src can be placed on the src node
+        self.node_info[src_substrate_node][src_vnf.id]['flag'] = True
         self.node_info[src_substrate_node][src_vnf.id]['latency'] = 0
         self.node_info[src_substrate_node][src_vnf.id]['src_path'] = []
         self.node_info[src_substrate_node][src_vnf.id]['path'] = []
         self.node_info[src_substrate_node][src_vnf.id]['current_substrate_nodes'] = [src_substrate_node]
+        
         self.node_info[dst_substrate_node][dst_vnf.id]['flag'] = False
         self.node_info[dst_substrate_node][dst_vnf.id]['latency'] = float('inf')
         self.node_info[dst_substrate_node][dst_vnf.id]['src_path'] = []
         self.node_info[dst_substrate_node][dst_vnf.id]['path'] = []
         self.node_info[dst_substrate_node][dst_vnf.id]['current_substrate_nodes'] = []
+        
         self.node_info[src_substrate_node][src_vnf.id]['bandwidth_usage_info'] = {}
         self.node_info[dst_substrate_node][dst_vnf.id]['bandwidth_usage_info'] = {}
 
@@ -122,12 +118,7 @@ class Musfico():
         return self.route_info
 
     def start_algorithm(self):
-        substrate_network = self.substrate_network
-        sfc = self.sfc
-        #logger.info('Algorithm start')
-        if self.algorithm(substrate_network, sfc):
-            #logger.info('Algorithm end, success')
-
+        if self.algorithm(): # Simplificado, não precisa passar parâmetros, já estão em self
             if self.latency is not None:
                 if self.latency < 0:
                     print("Latencia negativa")
@@ -135,30 +126,27 @@ class Musfico():
                     self.route_info = False
                     return False
             
-                if  self.latency > sfc.get_latency_request():
+                if self.latency > self.sfc.get_latency_request():
                     self.latency = None
                     self.route_info = False
                     return False
             return True
-        
-        #logger.info('Algorithm end, failed')
         return False
 
-    def algorithm(self,substrate_network, sfc):
-        nodes = substrate_network.graph.nodes()
-        # Get src and dst vnf
+    def algorithm(self):
+        nodes = self.graph.nodes()
+        sfc = self.sfc
+
         src_vnf = sfc.get_src_vnf()
         dst_vnf = sfc.get_dst_vnf()
 
-        # Get substrate network nodes that src and dst are assigned in advanced
         src_substrate_node = sfc.get_substrate_node(src_vnf)
         dst_substrate_node = sfc.get_substrate_node(dst_vnf)
 
         self.src_substrate_node = src_substrate_node
         self.dst_substrate_node = dst_substrate_node
         
-        (node_latency, node_path) = self.single_source_minimum_latency_path[dst_substrate_node] # Get single source path from substrate node to all other substrate node
-
+        (node_latency, node_path) = self.single_source_minimum_latency_path[dst_substrate_node]
             
         vnf1 = src_vnf.get_next_vnf()
         self._dp(src_substrate_node, vnf1)
@@ -169,9 +157,6 @@ class Musfico():
                 self._dp(node, vnf)
             vnf = vnf.get_next_vnf()
 
-        # For dst:
-
-        # here node in latency and path results is the node host previous vnf
         previous_vnf = sfc.get_previous_vnf(dst_vnf)
         previous_vnf_id = previous_vnf.id
 
@@ -179,10 +164,8 @@ class Musfico():
 
         for node, latency in list(node_latency.items()):
             if node == dst_substrate_node or node == src_substrate_node:
-                # if node is ingress or egress, continue
                 continue
 
-            # Check bandwidth resources
             is_bandwidth_sufficient = True
             bandwidth_usage_info = copy.copy(
                 self.node_info[node][previous_vnf_id]['bandwidth_usage_info'])
@@ -194,16 +177,16 @@ class Musfico():
                 if edge_key in bandwidth_usage_info:
                     residual_bandwidth = bandwidth_usage_info[edge_key] - bandwidth_request
                 else:
-                    residual_bandwidth = self.substrate_network.get_link_bandwidth_free(path[i],
-                                                                                        path[i + 1]) - bandwidth_request
+                    # Alterado para usar o utilitário em vez do Net2
+                    residual_bandwidth = get_link_bandwidth_free(self.graph, path[i], path[i + 1]) - bandwidth_request
+                
                 if residual_bandwidth < 0:
-                    #logger.warning('Bandwidth resources is not sufficient to dst')
                     is_bandwidth_sufficient = False
                     break
                 bandwidth_usage_info[edge_key] = residual_bandwidth
             if not is_bandwidth_sufficient:
-                # check next path
                 continue
+            
             _latency = self.node_info[node][previous_vnf_id]['latency']
             if not self.node_info[dst_substrate_node][dst_vnf.id]['latency'] \
                 or _latency + latency < self.node_info[dst_substrate_node][dst_vnf.id]['latency']:
@@ -216,12 +199,9 @@ class Musfico():
                 self.node_info[dst_substrate_node][dst_vnf.id]['flag'] = True
 
         if self.node_info[dst_substrate_node][dst_vnf.id]['flag']:
-            # There is a solution
-            # Backtracking
-            # Start from dst to backtracking to src
             previous_vnf = dst_vnf
             previous_substrate_node = dst_substrate_node
-            #print("backtrack pvs node:", previous_substrate_node)
+            
             while True:
                 path = self.node_info[previous_substrate_node][previous_vnf.id]['path']
                 if not path:
@@ -232,28 +212,26 @@ class Musfico():
                     self.route_info[previous_vnf.id] = path
                 else:
                     break
+            
             self.route_info[dst_vnf.id] = []
             self.latency = self.node_info[dst_substrate_node][dst_vnf.id]['latency']
             prev_vnf_node = self.route_info[previous_vnf.id][0]
-            # remove latency from dst to previous vnf
-            #self.latency_minus_dst = self.latency - len(self.route_info[previous_vnf.id])
+            
             if 'src' not in self.route_info.keys():
                 return True
+            
             path = self.route_info['src']
             for i in range(len(path) - 1):
-                edge_latency = self.substrate_network.get_link_latency(
-                    path[i], path[i + 1])
+                # Alterado para usar o utilitário em vez do Net2
+                edge_latency = get_link_latency(self.graph, path[i], path[i + 1])
                 self.latency = self.latency - edge_latency
-            #TODO ajustar o MSF e o MusFICo para que eles lidem melhor com a queda de servidores e não deem latencia negativa
             
-            if self.latency > sfc.get_latency_request() or self.latency < 0: #
+            if self.latency > sfc.get_latency_request() or self.latency < 0:
                 self.route_info = {}
                 self.latency = None
                 return False
-            #print("Deu certo: ",self.route_info)
             return True
         else:
-            #print("falha: ",self.route_info)
             return False
         
     def handle_failure(self):
@@ -261,20 +239,11 @@ class Musfico():
         self.latency = None
 
     def _dp(self, substrate_node, vnf):
-        """
-        Start from substrate node substrate_node, calculate all paths and latency from substrate_node to other nodes N.
-        update information in nodes N for vnf, if latency is minimum. 
-        """
-        # Get precedent of the vnf
         sfc = self.sfc
         previous_vnf = sfc.get_previous_vnf(vnf)
         previous_vnf_id = previous_vnf.id
-        #if not self.node_info[substrate_node][previous_vnf_id]['flag']:
-        #    # This substrate node cannot host precedent vnf, thus, no need to exam further.
-        #    return False
         
         vnf_id = vnf.id
-        # Get single source path from substrate node to all other substrate node
         (node_latency, node_path) = self.single_source_minimum_latency_path[substrate_node]
         
         _latency = self.node_info[substrate_node][previous_vnf_id]['latency']
@@ -288,24 +257,19 @@ class Musfico():
                 continue
 
             if node == substrate_node:
-               # Cannot use the current substrate node to host this vnf.
                continue
             if node in self.node_info[substrate_node][previous_vnf_id]['current_substrate_nodes']:
-               # If node has been used, cannot host this vnf
-               # Current_substrate_nodes contains the nodes that have been used
                continue
             if node == self.src_substrate_node or node == self.dst_substrate_node:
-                # Ingress and egress cannot host this vnf
                 continue
 
-            # Check CPU and cache resources
-            cpu_available = self.substrate_network.get_node_cpu_free(node)
-            cache_available = self.substrate_network.get_node_cache_free(node)
+            # Acesso direto aos atributos do Grafo para cálculo de capacidade
+            cpu_available = self.graph.nodes[node]['cpu_capacity'] - self.graph.nodes[node]['cpu_used']
+            cache_available = self.graph.nodes[node]['cache_capacity'] - self.graph.nodes[node]['cache_used']
+            
             if cpu_request > cpu_available or cache_request > cache_available:
-                # if node has not sufficient cpu, check next node. 
                 continue
 
-            # Check bandwidth resources
             is_bandwidth_sufficient = True
             bandwidth_usage_info = copy.copy(
                 self.node_info[substrate_node][previous_vnf_id]['bandwidth_usage_info'])
@@ -314,22 +278,26 @@ class Musfico():
             if path[0] != substrate_node:
                 path.reverse()
             length = len(path)
+            
             for i in range(0, length - 1):
                 edge_key = frozenset((path[i], path[i + 1]))
                 residual_bandwidth = None
                 if edge_key in bandwidth_usage_info:
                     residual_bandwidth = bandwidth_usage_info[edge_key] - bandwidth_request
                 else:
-                    residual_bandwidth = self.substrate_network.get_link_bandwidth_free(path[i],
-                                                                                        path[i + 1]) - bandwidth_request
+                    # Alterado para usar o utilitário
+                    residual_bandwidth = get_link_bandwidth_free(self.graph, path[i], path[i + 1]) - bandwidth_request
+                
                 if residual_bandwidth < 0:
-                    #logger.warning('Bandwidth resources is not sufficient')
                     is_bandwidth_sufficient = False
                     break
                 bandwidth_usage_info[edge_key] = residual_bandwidth
+            
             if not is_bandwidth_sufficient:
                 continue
+            
             self.node_info[node][vnf_id]['bandwidth_usage_info'] = bandwidth_usage_info
+            
             if not self.node_info[node][vnf_id]['latency'] or (_latency + latency) <= self.node_info[node][vnf_id]['latency']:
                 self.node_info[node][vnf_id]['latency'] = _latency + latency
                 self.node_info[node][vnf_id]['path'] = node_path[node]
@@ -338,4 +306,5 @@ class Musfico():
                 self.node_info[node][vnf_id]['current_substrate_nodes'] = self.node_info[substrate_node][previous_vnf_id]['current_substrate_nodes'][:]
                 self.node_info[node][vnf_id]['current_substrate_nodes'].append(node)
                 self.node_info[node][vnf_id]['src_path'] = self.node_info[substrate_node][previous_vnf_id]['src_path'][:] + node_path[node][:-1]
+        
         return True
