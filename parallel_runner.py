@@ -40,11 +40,11 @@ if __name__ == '__main__':
     BATCH_FAIL_TARGETS = ['low_risk', 'med_risk', 'high_risk','all']
     
     # 3. Número de repetições por cenário
-    BATCH_TOTAL_RUNS = 15 // len(BATCH_FAIL_TARGETS)
+    BATCH_TOTAL_RUNS = 20 // len(BATCH_FAIL_TARGETS)
     
     # ATENÇÃO: Isso vai disparar 27 processos Python pesados simultaneamente.
     # Certifique-se de que sua máquina aguenta (CPU/RAM).
-    BATCH_PARALLEL_RUNS = 15
+    BATCH_PARALLEL_RUNS = 20
     
     # --- Configurações de Falha ---
     number_of_fails = ['3'] 

@@ -253,7 +253,7 @@ class Musfico():
         cache_request = sfc.get_vnf_cache_request(vnf)
 
         for node, latency in list(node_latency.items()):
-            if latency > 40:
+            if latency > 36:
                 continue
 
             if node == substrate_node:
