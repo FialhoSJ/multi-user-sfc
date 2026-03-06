@@ -796,6 +796,48 @@ class Net2:
             total_latency_all_sfcs += current_sfc_latency
 
         return total_latency_all_sfcs / len(self.sfc_dict)
+    
+    def calculate_sfc_total_latency(self, sfc_id: str) -> float:
+        """Calcula a latência total exata de uma SFC (Processamento + Rede)."""
+        if sfc_id not in self.sfc_dict or sfc_id not in self.sfc_route_info:
+            return 0.0
+
+        sfc = self.sfc_dict[sfc_id]
+        route_info = self.sfc_route_info[sfc_id]
+        total_latency = 0.0
+
+        current_vnf = sfc.get_vnf_by_id('src')
+        while current_vnf and current_vnf.id != 'dst':
+            next_vnf = sfc.get_next_vnf(current_vnf)
+            if not next_vnf or next_vnf.id == 'dst':
+                break
+
+            allocation_path = route_info.get(next_vnf.id)
+            if not allocation_path:
+                current_vnf = next_vnf
+                continue
+
+            # 1. Latência Computacional
+            allocated_node = allocation_path[0]
+            if self.is_mobile_node(allocated_node):
+                ips = self.md_graph.nodes[allocated_node]['ips']
+            else:
+                ips = self.graph.nodes[allocated_node]['ips']
+
+            packet = next_vnf.get_income_interface_bandwidth() / 60 * 1e6
+            comp_latency = packet * 10 * 1000 / ips
+            total_latency += comp_latency
+
+            # 2. Latência de Rede (Links fixos e 5G)
+            if len(allocation_path) > 1:
+                for i in range(len(allocation_path) - 1):
+                    u = allocation_path[i]
+                    v = allocation_path[i + 1]
+                    total_latency += self.calculate_latency_betwen_nodes(self.graph, u, v, next_vnf)
+
+            current_vnf = next_vnf
+
+        return total_latency
 
     # =========================================================================
     # 5. SIMULAÇÃO DE FALHAS E RECUPERAÇÃO

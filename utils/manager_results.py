@@ -125,9 +125,9 @@ def create_output_dir(args, topology):
 
     resilient_header_fields = [
         "crash_trial", "sfc_id", "recover_success", "backup_success",
-        "backup_efficient", "latency_diff", "time_to_recover",
+        "backup_efficient", "latency_before", "latency_after", "latency_diff", "time_to_recover",
         "vnf_id", "latency_degrad", "resource_degrad",
-        "risk_level", "final_status"  # <--- NOVAS COLUNAS ADICIONADAS
+        "risk_level", "final_status"  
     ]
     with open(resilient_path, "a") as f:
         f.write(",".join(resilient_header_fields) + "\n")
@@ -166,13 +166,15 @@ class OutputWritter:
             str(info_log.get("recover_success", False)),
             str(info_log.get("backup_success", False)),
             str(info_log.get("backup_efficient", "N/A")),
+            str(info_log.get("latency_before", 0.0)),  # <--- NOVA COLUNA
+            str(info_log.get("latency_after", 0.0)),   # <--- NOVA COLUNA
             str(info_log.get("latency_diff", 0.0)),
             str(info_log.get("time_to_recover", 0.0)),
             str(info_log.get("vnf_id", "N/A")),
             str(info_log.get("latency_degrad", 0.0)),
             str(info_log.get("resource_degrad", 0.0)),
-            str(info_log.get("risk_level", "Medium")),    # <--- NOVA LINHA
-            str(info_log.get("final_status", "Failed"))   # <--- NOVA LINHA
+            str(info_log.get("risk_level", "Medium")),    
+            str(info_log.get("final_status", "Failed"))   
         ]
 
         with open(file_path, 'a') as f:

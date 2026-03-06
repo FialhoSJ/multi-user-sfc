@@ -33,7 +33,7 @@ def main():
     
     # --- Parâmetros Gerais e de Log ---
     parser.add_argument('--application', type=str, default='muar', help='Type of application')
-    parser.add_argument('--alg', type=str, default='musfico', help='Algorithm name')
+    parser.add_argument('--alg', type=str, default='vegeta', help='Algorithm name')
     parser.add_argument('--sfc_lifetime', dest='time', type=int, default=120, help='Duration/Lifetime of a single SFC session in seconds')    
     parser.add_argument('--verbose', type=str, default='y', help='Verbose log (y/n)')
     
@@ -60,7 +60,7 @@ def main():
     parser.add_argument('--ava', type=str, default='0.99', help='Meta Global de Disponibilidade')
     parser.add_argument('--number_of_fails', type=str, default='3', help='Number of node failures')
     parser.add_argument('--min_fail_duration', type=float, default=20, help='Min duration of node failure')
-    parser.add_argument('--crash_at', nargs='+', type=float, default=[400.0, 520.0, 640.0], help='Forcar falha em X segundos (Ex: 300 400 500). Use -1 para aleatorio.')
+    parser.add_argument('--crash_at', nargs='+', type=float, default=[180.0, 520.0, 640.0], help='Forcar falha em X segundos (Ex: 300 400 500). Use -1 para aleatorio.')
 
     # 2. Configuração MICRO (Define a Confiabilidade Base por Nível)
     # Valores entre 0.0 e 1.0 (Ex: 0.99 = 99% confiável)

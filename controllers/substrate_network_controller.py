@@ -489,23 +489,8 @@ class SubstrateNetworkController():
             and self.crashs_trials < self.crash_limit)
     
     def _calculate_sfc_path_latency(self, sfc_id: str) -> float:
-        if sfc_id not in self.substrate_network.sfc_route_info:
-            return 0.0
-            
-        route_info = self.substrate_network.sfc_route_info[sfc_id]
-        total_latency = 0.0
-        
-        for vnf, path in route_info.items():
-            if not path or len(path) < 2:
-                continue
-            
-            for i in range(len(path) - 1):
-                u, v = path[i], path[i+1]
-                if self.substrate_network.graph.has_edge(u, v):
-                    edge_data = self.substrate_network.graph[u][v]
-                    total_latency += edge_data.get('latency', edge_data.get('delay', 0))
-        
-        return total_latency
+        """Delega o cálculo complexo ponta-a-ponta para a infraestrutura física."""
+        return self.substrate_network.calculate_sfc_total_latency(sfc_id)
 
     def server_fail_operation(self) -> Tuple[List[str], list]:
         servers_failed = self._trigger_crash()
@@ -784,13 +769,15 @@ class SubstrateNetworkController():
                     "recover_success": True,
                     "backup_success": True,
                     "backup_efficient": "Yes",
+                    "latency_before": old_lat,             # <--- NOVO
+                    "latency_after": new_lat,              # <--- NOVO
                     "latency_diff": new_lat - old_lat,
                     "time_to_recover": time.time() - recovery_start_time,
                     "vnf_id": affected_vnf_id,
                     "latency_degrad": new_lat - old_lat,
                     "resource_degrad": 0,
-                    "risk_level": risk_level,          # <---
-                    "final_status": "Fast Recover"     # <--- STATUS: RÁPIDO
+                    "risk_level": risk_level,          
+                    "final_status": "Fast Recover"     
                 }
                 
                 # Escrita Direta no Arquivo
@@ -1139,14 +1126,21 @@ class SubstrateNetworkController():
                 if is_success: 
                     # RECUPERAÇÃO LENTA (Sucesso após Fila)
                     time_to_recover = time.time() - stored_data["fall_time"]
-                    latency_diff = results_dict['latency'] - stored_data["old_latency"]
-                    resource_factor = stored_data["resource_info"] - results_dict['resource_info']
+                    
+                    # Novas métricas corrigidas
+                    latency_before = stored_data["old_latency"]
+                    latency_after = results_dict['latency']
+                    latency_diff = latency_after - latency_before
 
+                    stored_data["latency_before"] = latency_before # <--- NOVO
+                    stored_data["latency_after"] = latency_after   # <--- NOVO
                     stored_data["latency_diff"] = latency_diff
+                    
+                    resource_factor = stored_data["resource_info"] - results_dict['resource_info']
                     stored_data["latency_degrad"] = latency_diff
                     stored_data["resource_degrad"] = resource_factor
                     stored_data["time_to_recover"] = time_to_recover
-                    stored_data["final_status"] = "Slow Recover"  # <--- DEFINIDO
+                    stored_data["final_status"] = "Slow Recover"
                 else:
                     # FALHA (Não conseguiu realocar)
                     stored_data["final_status"] = "Failed"        # <--- DEFINIDO
