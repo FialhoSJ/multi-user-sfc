@@ -34,13 +34,13 @@ if __name__ == '__main__':
     RUN_MODE = 'batch'
     
     # 1. Lista de Algoritmos (Adicionados GA e GreedyB)
-    BATCH_ALGS = ["musfico"] 
+    BATCH_ALGS = ["greedyb"] 
 
     # 2. Cenários de Risco
     BATCH_FAIL_TARGETS = ['low_risk', 'med_risk', 'high_risk','all']
     
     # 3. Número de repetições por cenário
-    BATCH_TOTAL_RUNS = 20 // len(BATCH_FAIL_TARGETS)
+    BATCH_TOTAL_RUNS = 30 // len(BATCH_FAIL_TARGETS)
     
     # ATENÇÃO: Isso vai disparar 27 processos Python pesados simultaneamente.
     # Certifique-se de que sua máquina aguenta (CPU/RAM).
