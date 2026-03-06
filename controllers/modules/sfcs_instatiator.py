@@ -290,6 +290,7 @@ class SFCInstatiator:
                 node = graph.nodes[node_id]
             else:
                 node = graph.graph.nodes[node_id]
+            # print(f"Alocando VNF {service_id} na sessão {session_id} no nó {node_id} (CPU: {cpu_required}, Cache: {cache_required})")
             latency = calculate_computational_latency(graph, node_id, vnf)
 
             allocated_resources = 0.0  # rastreia o custo real de recursos
