@@ -1,4 +1,4 @@
-import os
+from pathlib import Path # <-- NOVO: Modernização de I/O
 from typing import Dict
 import numpy as np
 import re
@@ -13,15 +13,13 @@ def format_nodes_to_string(nodes):
     nodes_to_string = np.array2string(nodes, suppress_small=True, precision=3, separator=",")
     return re.sub("[ \n]", "", nodes_to_string)
 
-
 def format_edges_to_string(edges):
     edges_to_string = ";".join(map(str, edges))
     return re.sub("[ \n]", "", edges_to_string)
 
-
-def create_directory_if_not_exists(path):
-    if not os.path.exists(path):
-        os.makedirs(path)
+def create_directory_if_not_exists(path: Path | str):
+    # Pathlib cria pastas recursivamente e ignora se já existem de forma limpa
+    Path(path).mkdir(parents=True, exist_ok=True)
 
 
 def create_output_dir(args, topology):
@@ -37,23 +35,24 @@ def create_output_dir(args, topology):
         number_of_fails = 0
 
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f") + str(random.randint(0, 10000))
-    base_dir = "results/"
+    
+    # Instanciando o diretório base como um Objeto Path
+    base_dir = Path("results")
 
     paths = ["cache", "cpu", "gpu", "bandwidth", "sf"]
     directories = {}
 
     for path in paths:
-        dir_path = os.path.join(base_dir, f"results_{path}")
-        create_directory_if_not_exists(dir_path)
+        # Usando o operador de barra (/) do pathlib para concatenar caminhos
+        dir_path = base_dir / f"results_{path}"
+        dir_path.mkdir(parents=True, exist_ok=True)  # Cria recursivamente sem dar erro se existir
 
-        alg_path = os.path.join(
-            dir_path,
-            f"alg_{args.alg}_s_{args.n_sessions}_p_{args.n_players}_a_{availability}_c_{number_of_fails}",
-        )
-        create_directory_if_not_exists(alg_path)
+        alg_path = dir_path / f"alg_{args.alg}_s_{args.n_sessions}_p_{args.n_players}_a_{availability}_c_{number_of_fails}"
+        alg_path.mkdir(parents=True, exist_ok=True)
         directories[path] = alg_path
 
-    file_paths = {path: os.path.join(directories[path], timestamp + ".csv") for path in paths}
+    # Convertendo de volta para string apenas para manter a compatibilidade com o restante do código
+    file_paths = {path: str(directories[path] / f"{timestamp}.csv") for path in paths}
 
     nodes_string = format_nodes_to_string(np.array(sorted(ec_servers)))
     edges_string = format_edges_to_string(edges)
@@ -65,24 +64,19 @@ def create_output_dir(args, topology):
     with open(file_paths["bandwidth"], "a") as file:
         file.write(f"timestamp,{edges_string}\n")
 
-    flows_dir = "results/results_flows"
-    resilient_dir = "results/results_resilient"
+    flows_dir = base_dir / "results_flows"
+    resilient_dir = base_dir / "results_resilient"
 
-    directory_path = os.path.join(
-        flows_dir,
-        f"{alg_name}_s_{args.n_sessions}_p_{args.n_players}_a_{availability}_c_{number_of_fails}",
-    )
-    res_directory_path = os.path.join(
-        resilient_dir,
-        f"{args.alg}_s_{args.n_sessions}_p_{args.n_players}_a_{availability}_c_{number_of_fails}",
-    )
+    directory_path = flows_dir / f"{alg_name}_s_{args.n_sessions}_p_{args.n_players}_a_{availability}_c_{number_of_fails}"
+    res_directory_path = resilient_dir / f"{args.alg}_s_{args.n_sessions}_p_{args.n_players}_a_{availability}_c_{number_of_fails}"
 
-    create_directory_if_not_exists(directory_path)
-    create_directory_if_not_exists(res_directory_path)
+    # Cria os diretórios finais
+    directory_path.mkdir(parents=True, exist_ok=True)
+    res_directory_path.mkdir(parents=True, exist_ok=True)
 
-    flows_path = os.path.join(directory_path, f"{timestamp}.csv")
-    crash_impact_path = os.path.join(res_directory_path, f"crash_impact_{timestamp}.csv")
-    resilient_path = os.path.join(res_directory_path, f"resilient_results_{timestamp}.csv")
+    flows_path = str(directory_path / f"{timestamp}.csv")
+    crash_impact_path = str(res_directory_path / f"crash_impact_{timestamp}.csv")
+    resilient_path = str(res_directory_path / f"resilient_results_{timestamp}.csv")
 
     header_fields = [
         "No.",
@@ -293,10 +287,9 @@ class OutputWritter:
         for node_id, vnfs_list in node_groups.items():
             try:
                 reliability_primary = network.get_node_reliability(node_id)
-            except:
+            except KeyError: # <-- CORRIGIDO: Captura Estrita EAFP
                 reliability_primary = 1.0
 
-            # Verifica se TODO o grupo está protegido por backups
             all_vnfs_protected = True
             prod_failure_backups = 1.0
 
@@ -368,7 +361,7 @@ class OutputWritter:
                     # Tenta extrair session (último digito)
                     if parts[-1].isdigit():
                         unique_sessions.add(parts[-1])
-                except:
+                except (IndexError, AttributeError): # <-- CORRIGIDO: Tipagem da anomalia nativa
                     continue
 
         running_players = len(unique_players)

@@ -18,40 +18,38 @@ route info :=
 
 import copy
 import logging
-import time
-from config import ROOT_PATH
 import random
-from deap import base, creator, tools, algorithms
+import time
+from pathlib import Path
+
 import networkx as nx
-from muar_sfc.algorithms.networkUtils import (
-    pre_get_single_source_minimum_latency_path,
-    get_available_shortest_path,
-)
+from deap import algorithms, base, creator, tools
+
+from config import ROOT_PATH
+from muar_sfc.algorithms.algorithm import Algorithm
 from muar_sfc.algorithms.networkUtils import (
     calculate_computational_latency,
     calculate_latency_betwen_nodes,
+    get_available_shortest_path,
+    pre_get_single_source_minimum_latency_path,
 )
 from muar_sfc.core.sfc import SFC
 
 SHAREABLE_PREFIXES = ("IA_DET_FT_", "RE_region_", "MA_region_")
 
-
-# create logger
+# Configuração de Observabilidade Estruturada
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-# create console handler and set level to debug
-# ch = logging.StreamHandler()
-ch = logging.FileHandler(ROOT_PATH + "./logs/MSF.log")
-ch.setLevel(logging.DEBUG)
-# create formatter
-formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-# add formatter to ch
-ch.setFormatter(formatter)
-# add ch to logger
-logger.addHandler(ch)
+# Modernização Orientada a Objetos Multiplataforma (pathlib)
+log_path = Path(ROOT_PATH) / "logs" / "MSF.log"
+log_path.parent.mkdir(parents=True, exist_ok=True)
 
-from muar_sfc.algorithms.algorithm import Algorithm
+ch = logging.FileHandler(log_path)
+ch.setLevel(logging.DEBUG)
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+ch.setFormatter(formatter)
+logger.addHandler(ch)
 
 
 class Genetic(Algorithm):
@@ -78,7 +76,6 @@ class Genetic(Algorithm):
         self.latency_minus_dst = 0
         self.valid_nodes = []
         self.G = 0
-        self.services = 0
 
         self.cpu_weight = 1
         self.cache_weight = 1
@@ -110,7 +107,9 @@ class Genetic(Algorithm):
         self.crossover_time = 0
         self.mutation_time = 0
 
-    def install_substrate_network(self, graph, shareable_sfs=[]):
+    def install_substrate_network(self, graph, shareable_sfs=None):
+        if shareable_sfs is None:
+            shareable_sfs = []
         self.graph = graph
         self.valid_nodes = [
             node for node in self.graph.nodes() if self.graph.nodes[node]["type"] != "router"
@@ -166,7 +165,9 @@ class Genetic(Algorithm):
             try:
                 logger.info("Finished algorithm, success")
                 return True
-            except:
+            except Exception as e:
+                # Proteção: captura estritamente erros da aplicação
+                logger.exception(f"Erro ao processar o sucesso do algoritmo: {e}")
                 self.handle_failure()
                 return False
         else:
@@ -459,13 +460,11 @@ class Genetic(Algorithm):
             b = time.time()
             elapsed_time_ms = (b - a) * 1000  # Convertendo para milissegundos
 
-            print(f"Tempo total de avaliação: {self.evaluation_time:.2f} ms")
-            print(f"Tempo total de crossover: {self.crossover_time:.2f} ms")
-            print(f"Tempo total de mutação: {self.mutation_time:.2f} ms")
+            logger.info(f"Tempo total de avaliação: {self.evaluation_time:.2f} ms")
+            logger.info(f"Tempo total de crossover: {self.crossover_time:.2f} ms")
+            logger.info(f"Tempo total de mutação: {self.mutation_time:.2f} ms")
+            logger.info(f"Tempo de execução: {elapsed_time_ms:.2f} ms")
 
-            print(f"Tempo de execução: {elapsed_time_ms:.2f} ms")
-
-            # [2, 5, 6, 8, 9, 14, 18, 23, 25, 28, 33, 34]
             return route_info, total_latency
 
     def handle_failure(self):
@@ -484,14 +483,16 @@ class Genetic(Algorithm):
             return False
 
         prev_path_end = None
+        prev_sf = None  # Correção: movido para fora do loop (F821 Undefined name)
+        
         for sf, path in self.route_info.items():
-            prev_sf = None
             if sf == "dst":
                 continue
             if prev_path_end is not None:
                 if path[-1] != prev_path_end:
-                    print(f"Inconsistência entre {prev_sf} e {sf}: {prev_path_end} != {path[0]}")
+                    logger.warning(f"Inconsistência entre {prev_sf} e {sf}: {prev_path_end} != {path[0]}")
                     return False  # ou raise Exception se quiser abortar
             prev_path_end = path[0]
             prev_sf = sf
+            
         return True

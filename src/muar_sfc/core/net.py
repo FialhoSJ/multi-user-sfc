@@ -1,5 +1,8 @@
 import math
+import logging
 import networkx as nx
+
+logger = logging.getLogger(__name__)
 import numpy as np
 import re
 from scipy.spatial import KDTree
@@ -117,8 +120,8 @@ class Net(nx.Graph):
         self.set_node_cpu_used(node_id, 0)
         try:
             self.set_node_reuse(node_id, [])
-        except:
-            print("Nó não tem esse atributo")
+        except (KeyError, AttributeError):
+            logger.warning(f"Nó {node_id} não possui o atributo de reúso.")
         self.set_node_cpu_free(node_id, cpu_capacity)
         self._set_node_attribute(node_id, sfc_vnf_list=[])
         return
@@ -129,8 +132,8 @@ class Net(nx.Graph):
 
         try:
             self.set_node_reuse(node_id, [])
-        except:
-            print("Nó não tem esse atributo")
+        except (KeyError, AttributeError): # <-- CORRIGIDO: Captura Estrita
+            logger.warning(f"Nó {node_id} não possui o atributo de reúso de banda.")
 
         self.set_node_cell_bandwidth_free(node_id, cell_bw_capacity)
         self._set_node_attribute(node_id, sfc_vnf_list=[])
@@ -289,9 +292,6 @@ class Net(nx.Graph):
             self.set_node_cache_used(node_id, cache_used - cache_amount)
             return True
 
-    def change_node_cache_capacity(self, node_id):
-        pass
-
     def _set_link_attribute(self, u, v, **attr):
         self.add_edge(u, v, **attr)
 
@@ -391,7 +391,7 @@ class Net(nx.Graph):
     def get_shortest_paths(self, src, dst, weight):
         try:
             return nx.shortest_path(self, src, dst, weight=weight)
-        except:
+        except (nx.NetworkXNoPath, nx.NodeNotFound):
             return None
 
     def get_minimum_latency_path(self, src, dst):
@@ -704,8 +704,9 @@ class Net(nx.Graph):
                     continue
                 try:
                     sfc = self.get_sfc_by_id(sfc_id)
-                except:
+                except KeyError: # <-- CORRIGIDO: Exceção Tipada
                     continue
+                
                 vnf = sfc_vnf[1]
                 if vnf.id == "dst":
                     continue

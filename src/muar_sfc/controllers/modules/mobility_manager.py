@@ -3,8 +3,8 @@ from typing import Optional, List, Tuple
 
 # Imports condicionais ou mocks poderiam ser usados aqui,
 # mas manteremos a estrutura original para simplicidade.
-from sumo.luxembourg.luxembourg_trace import Sumo_Luxembourg
-from sumo.tracer_instantiator import TracerInstantiator
+from muar_sfc.sumo.luxembourg.luxembourg_trace import Sumo_Luxembourg
+from muar_sfc.sumo.tracer_instantiator import TracerInstantiator
 
 
 class MobilityManager:

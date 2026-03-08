@@ -13,30 +13,30 @@ route info :=
     vnf3: [7, 8 ,9],
     dst:  []
 }
-
 """
 
 import logging
+from pathlib import Path
+
+import networkx as nx
+
+from config import ROOT_PATH
+from muar_sfc.algorithms.algorithm import Algorithm
 from muar_sfc.utils.betweenness_centrality import single_betweenness_centrality
 
-# create logger
+# Configuração de Observabilidade (Logs Estruturados)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-# create console handler and set level to debug
-# ch = logging.StreamHandler()
-from config import ROOT_PATH
+# Modernização Orientada a Objetos Multiplataforma (pathlib) para gestão relacional
+log_path = Path(ROOT_PATH) / "logs" / "BetweennessCentralityAlgorithm.log"
+log_path.parent.mkdir(parents=True, exist_ok=True)
 
-ch = logging.FileHandler(ROOT_PATH + "./logs/BetweennessCentralityAlgorithm.log")
+ch = logging.FileHandler(log_path)
 ch.setLevel(logging.DEBUG)
-# create formatter
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-# add formatter to ch
 ch.setFormatter(formatter)
-# add ch to logger
 logger.addHandler(ch)
-
-from muar_sfc.algorithms.algorithm import Algorithm
 
 
 class BetweennessCentralityAlgorithm(Algorithm):
@@ -46,7 +46,7 @@ class BetweennessCentralityAlgorithm(Algorithm):
         self.sfc = None
         self.node_info = None
         self.route_info = None
-        self.latency = None
+        self.latency = 0
 
     def clear_all(self):
         logger.info("clear all")
@@ -54,7 +54,7 @@ class BetweennessCentralityAlgorithm(Algorithm):
         self.sfc = None
         self.node_info = None
         self.route_info = None
-        self.latency = None
+        self.latency = 0
 
     def install_substrate_network(self, substrate_network):
         self.substrate_network = substrate_network
@@ -64,14 +64,11 @@ class BetweennessCentralityAlgorithm(Algorithm):
         self.sfc = sfc
         return self.sfc
 
-    def start_algorithm(self):
+    def start_algorithm(self) -> bool:
         substrate_network = self.substrate_network
         sfc = self.sfc
-        # logger.info('Algorithm start')
         if self.algorithm(substrate_network, sfc):
-            # logger.info('Algorithm end, success')
             return True
-        # logger.info('Algorithm end, failed')
         return False
 
     def get_latency(self):
@@ -80,18 +77,14 @@ class BetweennessCentralityAlgorithm(Algorithm):
     def get_route_info(self):
         return self.route_info
 
-    def algorithm(self, substrate_network, sfc):
-        substrate_network.nodes()
-        ## Get src and dst vnf
+    def algorithm(self, substrate_network, sfc) -> bool:
+        # Get src and dst vnf
         src_vnf = sfc.get_src_vnf()
         dst_vnf = sfc.get_dst_vnf()
 
         # Get substrate network nodes that src and dst are assigned in advanced
-        # (ingress and egress substrate network nodes)
         src_substrate_node = sfc.get_substrate_node(src_vnf)
         dst_substrate_node = sfc.get_substrate_node(dst_vnf)
-
-        sfc.get_number_of_vnfs()
 
         used_nodes = [src_substrate_node, dst_substrate_node]
         map_res = {"src": src_substrate_node, "dst": dst_substrate_node}
@@ -102,10 +95,7 @@ class BetweennessCentralityAlgorithm(Algorithm):
             vnf_list.append(current_vnf)
             current_vnf = sfc.get_next_vnf(current_vnf)
 
-        # print vnf_list
         def _helper(substrate_network, sfc, vnf_list, head, tail, src, dst):
-            # base condition
-            # print "------------------------------------",head, tail, src, dst
             if head < tail:
                 middle_index = int((tail - head) / 2 + head)
                 if vnf_list[middle_index].id not in map_res:
@@ -113,7 +103,6 @@ class BetweennessCentralityAlgorithm(Algorithm):
                     sorted_bc = sorted(
                         list(bc.items()), key=lambda kv: (kv[1], kv[0]), reverse=True
                     )
-                    # print sorted_bc
                     middle_vnf = vnf_list[middle_index]
                     candidate_node = None
                     count = 0
@@ -122,6 +111,7 @@ class BetweennessCentralityAlgorithm(Algorithm):
                     cpu_request = sfc.get_vnf_cpu_request(middle_vnf)
                     cache_request = sfc.get_vnf_cache_request(middle_vnf)
 
+                    # Paradigma EAFP estrito e tipado
                     while True:
                         try:
                             candidate_node = sorted_bc[count][0]
@@ -132,56 +122,43 @@ class BetweennessCentralityAlgorithm(Algorithm):
                             ):
                                 break
                             count += 1
-                        except:
-                            print("no node for host vnf")
+                        except IndexError:
+                            logger.warning("No node for host vnf (IndexError on sorted_bc)")
                             return False
-                    # print candidate_node
+                    
                     map_res[middle_vnf.id] = candidate_node
                     used_nodes.append(candidate_node)
                     _helper(
-                        substrate_network,
-                        sfc,
-                        vnf_list,
-                        head,
-                        middle_index,
-                        map_res[vnf_list[head].id],
-                        map_res[vnf_list[middle_index].id],
+                        substrate_network, sfc, vnf_list, head, middle_index,
+                        map_res[vnf_list[head].id], map_res[vnf_list[middle_index].id],
                     )
                     _helper(
-                        substrate_network,
-                        sfc,
-                        vnf_list,
-                        middle_index,
-                        tail,
-                        map_res[vnf_list[middle_index].id],
-                        map_res[vnf_list[tail].id],
+                        substrate_network, sfc, vnf_list, middle_index, tail,
+                        map_res[vnf_list[middle_index].id], map_res[vnf_list[tail].id],
                     )
 
         _helper(
-            substrate_network,
-            sfc,
-            vnf_list,
-            0,
-            len(vnf_list) - 1,
-            map_res[vnf_list[0].id],
-            map_res[vnf_list[len(vnf_list) - 1].id],
+            substrate_network, sfc, vnf_list, 0, len(vnf_list) - 1,
+            map_res[vnf_list[0].id], map_res[vnf_list[len(vnf_list) - 1].id],
         )
-
-        # TODO: find shortest path between vnfs
 
         current_vnf = src_vnf
         next_vnf = sfc.get_next_vnf(current_vnf)
         route_info = {}
         bandwidth_usage_info = {}
         latency = 0
+        
         while next_vnf:
             node_from = map_res[current_vnf.id]
             node_to = map_res[next_vnf.id]
+            
+            # Prevenção de exceções nativas do NetworkX
             try:
                 path = substrate_network.get_shortest_path(node_from, node_to)
-            except:
-                logger.warning("No shortest path")
+            except (nx.NetworkXNoPath, nx.NodeNotFound):
+                logger.warning("No shortest path between %s and %s", node_from, node_to)
                 return False
+                
             path_latency = substrate_network.get_shortest_path_length(node_from, node_to)
             latency = latency + path_latency
             bandwidth_request = sfc.get_link_bandwidth_request(current_vnf.id, next_vnf.id)
@@ -189,7 +166,6 @@ class BetweennessCentralityAlgorithm(Algorithm):
             length = len(path)
             for i in range(0, length - 1):
                 edge_key = frozenset((path[i], path[i + 1]))
-                residual_bandwidth = None
                 if edge_key in bandwidth_usage_info:
                     residual_bandwidth = bandwidth_usage_info[edge_key] - bandwidth_request
                 else:
@@ -199,7 +175,6 @@ class BetweennessCentralityAlgorithm(Algorithm):
                     )
                 if residual_bandwidth < 0:
                     logger.warning("Bandwidth resources is not sufficient")
-                    # print 'bandwidth resource is not sufficient'
                     return False
                 bandwidth_usage_info[edge_key] = residual_bandwidth
 

@@ -20,27 +20,22 @@ from muar_sfc.controllers.modules.crasher import Crasher
 from muar_sfc.core.net import Net
 from muar_sfc.utils.manager_results import OutputWritter
 
-# create logger
+from pathlib import Path
+
+# Configuração do Logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-# create console handler and set level to debug
-# ch = logging.StreamHandler()
-ch = logging.FileHandler("./logs/substrate_network_controller.log")
-ch.setLevel(logging.DEBUG)
-# create formatter
-formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-# add formatter to ch
-ch.setFormatter(formatter)
-# add ch to logger
-logger.addHandler(ch)
-# 'application' code
-# logger.debug('debug message')
-# logger.info('info message')
-# logger.warn('warn message')
-# logger.error('error message')
-# logger.critical('critical message')
+# Criação segura do diretório e arquivo de log usando Pathlib
+log_dir = Path("./logs")
+log_dir.mkdir(parents=True, exist_ok=True)
+log_file_path = log_dir / "substrate_network_controller.log"
 
+ch = logging.FileHandler(log_file_path)
+ch.setLevel(logging.DEBUG)
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+ch.setFormatter(formatter)
+logger.addHandler(ch)
 
 class SubstrateNetworkControllerP:
     def __init__(self):
@@ -49,10 +44,10 @@ class SubstrateNetworkControllerP:
         self.node_info = {}
 
         # Modules
-        self.mobility_manager: Optional[MobilityManager] = 0
-        self.sfc_manager: Optional[SFCManager] = 0
-        self.crasher_manager: Optional[Crasher] = 0
-        self.backup_manager: Optional[BackupManager] = 0
+        self.mobility_manager: Optional[MobilityManager] = None
+        self.sfc_manager: Optional[SFCManager] = None
+        self.crasher_manager: Optional[Crasher] = None
+        self.backup_manager: Optional[BackupManager] = None
         # Status da Rede
         self.remaining_time = None
         self.update_interval = 1
@@ -192,10 +187,10 @@ class SubstrateNetworkControllerP:
                             for sfc_id in sfc_list:
                                 try:
                                     sfc = self.substrate_network.get_sfc_by_id(sfc_id)
-                                except:
+                                except KeyError:
                                     break
-                                # try:
-                                print(f"SFC {sfc.id} mudou de localização para {new_location}")
+
+                                logger.info(f"SFC {sfc.id} mudou de localização para {new_location}")
                                 self.send_back_to_qeue(
                                     sfc, changed_location=True, new_location=new_location
                                 )
@@ -234,10 +229,10 @@ class SubstrateNetworkControllerP:
                     for sfc_id in sfcs_affected:
                         try:
                             sfc = self.substrate_network.get_sfc_by_id(sfc_id)
-                        except:
+                        except KeyError:
                             continue
-                        # try:
-                        print(f"SFC {sfc.id} crashou")
+
+                        logger.warning(f"SFC {sfc.id} crashou")
                         self.send_back_to_qeue(sfc, changed_location=False)
                         # except:
                         #     print("Erro na reinstanciação da SFC")

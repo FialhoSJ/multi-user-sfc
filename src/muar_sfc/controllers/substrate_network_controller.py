@@ -659,7 +659,7 @@ class SubstrateNetworkController:
             # Confiabilidade do nó primário
             try:
                 rel_primary = network.get_node_reliability(node_id)
-            except:
+            except KeyError: # <-- CORRIGIDO: Captura estrita da anomalia do dicionário
                 rel_primary = 1.0
 
             # Verifica redundância paralela para este grupo
@@ -712,7 +712,7 @@ class SubstrateNetworkController:
             try:
                 sfc_obj = self.substrate_network.get_sfc_by_id(sfc_id)
                 old_route_info = copy.deepcopy(self.sfc_manager.sfcs_routing_info.get(sfc_id))
-            except:
+            except KeyError: 
                 continue
 
             affected_vnf_id = None
@@ -926,11 +926,12 @@ class SubstrateNetworkController:
 
         fallen_sfcs_objects = []
         affected_groups = set()
+        
         for sfc_id in affected_sfcs:
             try:
                 sfc_obj = self.substrate_network.get_sfc_by_id(sfc_id)
                 affected_groups.add(sfc_obj.dst_node)
-            except:
+            except (KeyError, AttributeError):
                 pass
 
         for group_id in affected_groups:

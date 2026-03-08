@@ -13,27 +13,28 @@ route info :=
     vnf3: [7, 8 ,9],
     dst:  []
 }
-
 """
 
 import logging
 import random
+from pathlib import Path
 
-# create logger
+import networkx as nx
+
+from config import ROOT_PATH
+
+# Configuração de Observabilidade Estruturada
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-# create console handler and set level to debug
-# ch = logging.StreamHandler()
-from config import ROOT_PATH
+# Modernização Orientada a Objetos Multiplataforma (pathlib)
+log_path = Path(ROOT_PATH) / "logs" / "GreedyAlgorithm.log"
+log_path.parent.mkdir(parents=True, exist_ok=True)
 
-ch = logging.FileHandler(ROOT_PATH + "./logs/GreedyAlgorithm.log")
+ch = logging.FileHandler(log_path)
 ch.setLevel(logging.DEBUG)
-# create formatter
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-# add formatter to ch
 ch.setFormatter(formatter)
-# add ch to logger
 logger.addHandler(ch)
 
 
@@ -117,7 +118,8 @@ class GreedyAlgorithm:
             servers = substrate_network.get_shortest_path(src_substrate_node, dst_substrate_node)
 
         # Inicializa o dicionário de recursos dos servidores
-        {
+        # Atribuído à variável de descarte '_' para evitar erros de linting em operações sem efeito colateral
+        _ = {
             server: {
                 "cpu_capacity": substrate_network.get_node_cpu_capacity(server),
                 "cache_capacity": substrate_network.get_node_cache_capacity(server),
@@ -144,7 +146,6 @@ class GreedyAlgorithm:
             min_latency = None
 
             for e in servers:
-                # print("### Normal mode ###")
                 # THIS SHOULD STAY DEACTIVATED TO ALLOW MULTIPLE VNFS
                 # HOSTED IN THE SAME NODE
                 if e in used_node:
@@ -159,11 +160,10 @@ class GreedyAlgorithm:
                     logger.debug("node %s has not %s cpu", e, cpu_request)
                     continue
                 if cache_request > cache_available:
-                    # if node has not sufficient cpu, check next edge.
+                    # if node has not sufficient cache, check next edge.
                     logger.debug("node %s has not %s cache", e, cache_request)
                     continue
 
-                # edge_latency = substrate_network.get_link_latency(e[0], e[1])
                 edge_latency = substrate_network.get_shortest_path_length(
                     current_substrate_node, e
                 )
@@ -174,7 +174,6 @@ class GreedyAlgorithm:
             if node is not None and min_latency is not None:
                 # be careful that node can be 0
                 path = substrate_network.get_shortest_path(current_substrate_node, node)
-                # route_info[current_vnf.id] = [current_substrate_node, node]
                 route_info[current_vnf.id] = path
                 used_node.append(node)
                 latency = latency + min_latency
@@ -192,7 +191,8 @@ class GreedyAlgorithm:
             # get shortest path length. here shortest path length is weighted by latency.
             path = substrate_network.get_shortest_path(node, dst_substrate_node)
             path_latency = substrate_network.get_shortest_path_length(node, dst_substrate_node)
-        except:
+        # 🔴 Substituição arquitetural: Captura focada do NetworkX
+        except (nx.NetworkXNoPath, nx.NodeNotFound):
             logger.warning(
                 "have no path between last vnf and dst: %s - %s", node, dst_substrate_node
             )
@@ -211,11 +211,14 @@ class GreedyAlgorithm:
         for i in range(len(path) - 1):
             edge_latency = self.substrate_network.get_link_latency(path[i], path[i + 1])
             self.latency = self.latency - edge_latency
+            
         if len(self.route_info.keys()) != 6:
             self.latency = None
             self.route_info = {}
             return False
+            
         if self.latency > sfc.get_latency_request():
             self.route_info = {}
             return False
+            
         return True

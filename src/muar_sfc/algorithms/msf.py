@@ -1,17 +1,24 @@
 import copy
-import networkx as nx
 import logging
-import os
-from typing import Dict, Tuple, List, Optional, Any, Protocol
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Protocol, Tuple
+
+import networkx as nx
 
 from config import ROOT_PATH
 from muar_sfc.algorithms.networkUtils import get_link_bandwidth_free, get_link_latency
 
-
-# Configuração de Logger mantida
+# =====================================================================
+# Configuração de Observabilidade Estruturada
+# =====================================================================
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-ch = logging.FileHandler(os.path.join(ROOT_PATH, "logs", "DynamicProgrammingAlgorithm.log"))
+
+# Modernização Orientada a Objetos Multiplataforma (pathlib)
+log_path = Path(ROOT_PATH) / "logs" / "DynamicProgrammingAlgorithm.log"
+log_path.parent.mkdir(parents=True, exist_ok=True)
+
+ch = logging.FileHandler(log_path)
 ch.setLevel(logging.DEBUG)
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 ch.setFormatter(formatter)
@@ -24,10 +31,10 @@ SHAREABLE_PREFIXES = ("IA_DET_FT_", "RE_region_", "MA_region_")
 # =====================================================================
 NodeID = Any
 Latency = float
-Path = List[NodeID]
+PathType = List[NodeID]
 
 # Tabela de roteamento: Origem -> (Dict[Destino, Latência], Dict[Destino, Caminho])
-RoutingTable = Dict[NodeID, Tuple[Dict[NodeID, Latency], Dict[NodeID, Path]]]
+RoutingTable = Dict[NodeID, Tuple[Dict[NodeID, Latency], Dict[NodeID, PathType]]]
 
 
 class SubstrateNetworkInterface(Protocol):
@@ -61,7 +68,7 @@ class MSF:
         self.name: str = "msf"
         self.sfc: Optional[Any] = None
         self.node_info: Dict[NodeID, Dict[str, Any]] = {}
-        self.route_info: Dict[str, Path] = {}
+        self.route_info: Dict[str, PathType] = {}
         self.latency: Optional[float] = None
 
         # Estado do Grafo
@@ -89,7 +96,7 @@ class MSF:
         self.latency = None
         self.shareable_sfs = None
 
-    def install_substrate_network(self, graph, shareable_sfs: List = None):
+    def install_substrate_network(self, graph, shareable_sfs: Optional[List] = None):
         """
         Instala a cópia local do grafo.
         O MSF é autossuficiente: ele mesmo pré-calcula o cache de latência
@@ -124,29 +131,19 @@ class MSF:
             for vnf_id, vnf in list(sfc.vnfs.items()):
                 # Not include src and dst.
                 self.node_info[node][vnf_id] = {}
-                self.node_info[node][vnf_id]["flag"] = (
-                    False  # whether vnf/id can be placed on node
-                )
+                self.node_info[node][vnf_id]["flag"] = False  # whether vnf/id can be placed on node
                 self.node_info[node][vnf_id]["latency"] = float("inf")
                 self.node_info[node][vnf_id]["path"] = []
                 self.node_info[node][vnf_id]["src_path"] = []
                 self.node_info[node][vnf_id]["previous_substrate_node"] = None
-                self.node_info[node][vnf_id][
-                    "current_substrate_nodes"
-                ] = []  # The meta information
-                # in which is a set of substrate node
-                # has been assigned to VNFs in order
+                self.node_info[node][vnf_id]["current_substrate_nodes"] = []  # The meta information
                 self.node_info[node][vnf_id]["bandwidth_usage_info"] = {}
 
             self.node_info[node][src_vnf.id] = {}
-            self.node_info[node][src_vnf.id]["flag"] = (
-                False  # src cannot be placed on the node except src node
-            )
+            self.node_info[node][src_vnf.id]["flag"] = False  # src cannot be placed except src node
             self.node_info[node][dst_vnf.id] = {}
 
-        self.node_info[src_substrate_node][src_vnf.id]["flag"] = (
-            True  # src can be placed on the src node
-        )
+        self.node_info[src_substrate_node][src_vnf.id]["flag"] = True
         self.node_info[src_substrate_node][src_vnf.id]["latency"] = 0
         self.node_info[src_substrate_node][src_vnf.id]["src_path"] = []
         self.node_info[src_substrate_node][src_vnf.id]["path"] = []
@@ -210,14 +207,15 @@ class MSF:
     def get_route_info(self):
         return self.route_info
 
-    def start_algorithm(self):  # ,is_backup):
+    def start_algorithm(self):
         self.algorithm()
         is_success = self.check_solution()
         if is_success:
             try:
                 logger.info("Finished algorithm, success")
                 return True
-            except:
+            except Exception as e:
+                logger.exception(f"Erro ao processar o sucesso do algoritmo MSF: {e}")
                 self.handle_failure()
                 return False
         else:

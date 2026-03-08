@@ -18,34 +18,35 @@ route info :=
 
 import logging
 import random
-from muar_sfc.algorithms.networkUtils import (
-    get_shortest_path_length,
-    get_shortest_path,
-    get_link_latency,
-    get_available_shortest_path,
-)
+from pathlib import Path
+
+import networkx as nx
+
+from config import ROOT_PATH
+from muar_sfc.algorithms.algorithm import Algorithm
 from muar_sfc.algorithms.networkUtils import (
     calculate_computational_latency,
     calculate_latency_betwen_nodes,
+    get_available_shortest_path,
+    get_link_latency,
+    get_shortest_path,
+    get_shortest_path_length,
 )
 
-# create logger
+# Configuração de Observabilidade Estruturada
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-# create console handler and set level to debug
-# ch = logging.StreamHandler()
-from muar_sfc.algorithms.algorithm import Algorithm
-from config import ROOT_PATH
+# Modernização Orientada a Objetos Multiplataforma (pathlib)
+log_path = Path(ROOT_PATH) / "logs" / "GreedyAlgorithm.log"
+log_path.parent.mkdir(parents=True, exist_ok=True)
 
-ch = logging.FileHandler(ROOT_PATH + "./logs/GreedyAlgorithm.log")
+ch = logging.FileHandler(log_path)
 ch.setLevel(logging.DEBUG)
-# create formatter
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-# add formatter to ch
 ch.setFormatter(formatter)
-# add ch to logger
 logger.addHandler(ch)
+
 SHAREABLE_PREFIXES = ("IA_DET_FT_", "RE_region_", "MA_region_")
 
 
@@ -80,7 +81,9 @@ class GreedyOptAlgorithm(Algorithm):
         self.is_backup = False
         self.single_source_minimum_latency_path = None
 
-    def install_substrate_network(self, graph, shareable_sfs=[]):
+    def install_substrate_network(self, graph, shareable_sfs=None):
+        if shareable_sfs is None:
+            shareable_sfs = []
         self.graph = graph
         return self.graph
 
@@ -134,32 +137,17 @@ class GreedyOptAlgorithm(Algorithm):
         #         self.latency = None
         #         return False
 
-    # def install_SFC(self, sfc):
-    #     self.sfc = sfc
-    #     is_backup = True if sfc.id.split("_")[2] == 'backup' else False
-    #     self.is_backup = is_backup
-    #     if is_backup:
-    #         split = sfc.id.split("_")
-    #         original_sfc_id = f"{split[0]}_{split[1]}_{split[3]}_{split[4]}"
-    #         route_info = self.substrate_network.sfc_route_info[original_sfc_id]
-    #         for vnf, rf in route_info.items():
-    #             if vnf not in ['src','dst']:
-    #                 node_used = route_info[vnf][0]
-    #                 correct_name =  vnf + "_b"
-    #                 self.forbidden_matches[correct_name] = node_used
-    #     return self.sfc
-
     def start_algorithm(self):
-
         # logger.info("Start algorithm")
         self.algorithm()
         is_success = self.check_solution()
         if is_success:
             try:
                 # logger.info("Finished algorithm, success")
-                print("Route info greedyB: ", self.route_info)
+                logger.debug(f"Route info greedyB: {self.route_info}")
                 return True
-            except:
+            except Exception as e:
+                logger.exception(f"Erro ao exibir sucesso do algoritmo GreedyOpt: {e}")
                 self.handle_failure()
                 return False
         else:
@@ -182,8 +170,6 @@ class GreedyOptAlgorithm(Algorithm):
         src_substrate_node = self.sfc.get_substrate_node(src_vnf)
         dst_substrate_node = self.sfc.get_substrate_node(dst_vnf)
 
-        # single_source_minimum_latency_path = pre_get_single_source_minimum_latency_path(self.graph)
-
         route_info = {}
 
         latency = 0
@@ -198,6 +184,7 @@ class GreedyOptAlgorithm(Algorithm):
         for server in servers:
             aux = self.graph.nodes[server]
             _ = aux["cpu_capacity"]
+            
         server_resources = {
             server: {
                 "cpu_capacity": self.graph.nodes[server]["cpu_capacity"],
@@ -261,7 +248,7 @@ class GreedyOptAlgorithm(Algorithm):
                 path = get_available_shortest_path(
                     self.graph, node_a, current_substrate_node, bandwidth_request
                 )
-                if path == []:
+                if not path:
                     continue
                 # Verificando link (apenas se não for laço no mesmo nó)
                 comp_latency = calculate_computational_latency(self.graph, node_a, prev_vnf)
@@ -302,10 +289,11 @@ class GreedyOptAlgorithm(Algorithm):
 
             current_substrate_node = node
             current_vnf = prev_vnf
+            
         try:
             path = get_shortest_path(self.graph, src_substrate_node, node)
             path_latency = get_shortest_path_length(self.graph, src_substrate_node, node)
-        except:
+        except (nx.NetworkXNoPath, nx.NodeNotFound):
             logger.warning(
                 "Não há caminho entre src e primeira VNF: %s - %s", src_substrate_node, node
             )
@@ -327,4 +315,3 @@ class GreedyOptAlgorithm(Algorithm):
         for i in range(len(path) - 1):
             edge_latency = get_link_latency(self.graph, path[i], path[i + 1])
             self.latency = self.latency - edge_latency
-        pass

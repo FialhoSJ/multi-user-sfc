@@ -13,5 +13,5 @@ def k_shortest_paths(G, source, target, k, weight=None):
     """
     try:
         return list(islice(nx.shortest_simple_paths(G, source, target, weight=weight), k))
-    except:
+    except (nx.NetworkXNoPath, nx.NodeNotFound):
         return []

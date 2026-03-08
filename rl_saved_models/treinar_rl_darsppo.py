@@ -1,35 +1,25 @@
-# =====Mecanismo para resolver importação relativa==================
 import sys
 import os
-
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-sys.path.append(parent_dir)
-# ============================
-
 import numpy as np
-from stable_baselines3.common.monitor import Monitor
 
-# REMOVIDO: a importação de make_vec_env e DummyVecEnv não são mais necessárias
-from stable_baselines3.common.logger import configure
-
-from muar_sfc.utils.salvar_var import carregar_lista
-from muar_sfc.algorithms.environments.env_da_rsppo import SFC_AllocationEnv_DARSPPO
-
-# --- IMPORTAÇÕES ADICIONADAS ---
+# Imports de terceiros
 from stable_baselines3 import PPO
+from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.logger import configure
 from stable_baselines3.common.callbacks import EvalCallback
 from sb3_contrib import MaskablePPO
 from sb3_contrib.common.maskable.callbacks import MaskableEvalCallback
-# --------------------------------
+
+# Imports locais (O Python acha automático agora graças ao src-layout!)
+from muar_sfc.utils.salvar_var import carregar_lista
+from muar_sfc.algorithms.environments.env_da_rsppo import SFC_AllocationEnv_DARSPPO
 
 # --- FLAG DE CONTROLE ADICIONADA ---
 USE_MASKING = True
 # -----------------------------------
 
-
 # ==============================================================================
-#      FUNÇÃO PARA CARREGAR O AMBIENTE (Seu código original, sem alterações)
+#      FUNÇÃO PARA CARREGAR O AMBIENTE
 # ==============================================================================
 def carregar_dados_do_ambiente():
     """

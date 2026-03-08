@@ -6,6 +6,9 @@ import pytz
 import datetime
 import random
 import math
+import logging # <-- NOVO
+
+logger = logging.getLogger(__name__) # <-- NOVO
 
 # Tracer utilizando SUMO.
 # A simulação é controlada, por meio da biblioteca traci e das funções da classe
@@ -125,7 +128,7 @@ class Sumo_Small_Luxembourg:
             else:
                 return False  # O veículo não existe na simulação
         except Exception as e:
-            print(f"Error in vehicle is created: {str(e)}")
+            logger.error(f"Error in vehicle is created: {e}", exc_info=True) # <-- CORRIGIDO
             self.stop_simulation()
             return -1
 
@@ -139,9 +142,8 @@ class Sumo_Small_Luxembourg:
             self.create_(player, trip_id, vehicle_id, server_start, server_end)
 
         except Exception as e:
-            print(f"Error in vehicle creation: {str(e)}")
+            logger.error(f"Error in vehicle creation: {e}", exc_info=True) # <-- CORRIGIDO
             self.stop_simulation()
-        # print(f"Vehicle created: {vehicle_id}", " total:", len(traci.vehicle.getIDList()))
 
     def delete_vehicle(self, vehicle_id):
         player = int(vehicle_id.split("_")[-1])
@@ -170,16 +172,16 @@ class Sumo_Small_Luxembourg:
 
     def update_vehicles(self):
         vehicles = traci.vehicle.getIDList()
-        try:
-            for vehicle_id in vehicles:
+        for vehicle_id in vehicles:
+            try:
                 arrived = (
                     traci.vehicle.getRouteIndex(vehicle_id)
                     == len(traci.vehicle.getRoute(vehicle_id)) - 1
                 )
                 if arrived:
                     self.reroute_vehicle(vehicle_id)
-        except:
-            print("Erro in rerouted")
+            except Exception as e: # <-- CORRIGIDO: Captura tipada com EAFP preservado
+                logger.error(f"Erro ao redirecionar veículo {vehicle_id}: {e}", exc_info=True)
 
     def vehicle_movement_thread(self):
         while self.simulation_running:
@@ -203,8 +205,10 @@ class Sumo_Small_Luxembourg:
 
                     time.sleep(1)
                 except Exception as e:
-                    print(f"Error in vehicle movement: {str(e)}")
+                    logger.critical(f"Error in vehicle movement thread: {e}", exc_info=True) # <-- CORRIGIDO
                     self.stop_simulation()
+                    import sys
+                    sys.exit(1)
 
     def start_sumo_simulation(self):
         self.connect_to_sumo()

@@ -23,7 +23,9 @@ dependencies = [
     "deap",
     "tensorboard",
     "seaborn",
-    "pytz"
+    "pytz",
+    "sb3-contrib>=2.7.1",
+    "traci>=1.26.0",
 ]
 
 # Separação de escopo (Separation of Concerns) para ferramentas de Dev

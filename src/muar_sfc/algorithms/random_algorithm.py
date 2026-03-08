@@ -13,27 +13,28 @@ route info :=
     vnf3: [7, 8 ,9],
     dst:  []
 }
-
 """
 
-import random
 import logging
+import random
+from pathlib import Path
 
-# create logger
+import networkx as nx
+
+from config import ROOT_PATH
+
+# Configuração de Observabilidade Estruturada
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-# create console handler and set level to debug
-# ch = logging.StreamHandler()
-from config import ROOT_PATH
+# Modernização Orientada a Objetos Multiplataforma (pathlib)
+log_path = Path(ROOT_PATH) / "logs" / "RandomAlgorithm.log"
+log_path.parent.mkdir(parents=True, exist_ok=True)
 
-ch = logging.FileHandler(ROOT_PATH + "./logs/RandomAlgorithm.log")
+ch = logging.FileHandler(log_path)
 ch.setLevel(logging.DEBUG)
-# create formatter
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-# add formatter to ch
 ch.setFormatter(formatter)
-# add ch to logger
 logger.addHandler(ch)
 
 
@@ -97,7 +98,7 @@ class RandomAlgorithm:
 
     def algorithm(self, substrate_network, sfc):
         nodes = substrate_network.nodes()
-        ## Get src and dst vnf
+        # Get src and dst vnf
         src_vnf = sfc.get_src_vnf()
         dst_vnf = sfc.get_dst_vnf()
 
@@ -110,21 +111,21 @@ class RandomAlgorithm:
 
         # Randomly generated K number of substrate nodes from all substrate nodes except ingress and egress.
         # K is equal to the number of vnfs in sfc.
-        nodesList = list(nodes)
+        nodes_list = list(nodes)
         try:
-            nodesList.remove(src_substrate_node)  # Remove ingress nodes from substrate node list
-            nodesList.remove(dst_substrate_node)  # Remove egress nodes from substrate node list
+            nodes_list.remove(src_substrate_node)  # Remove ingress nodes from substrate node list
+            nodes_list.remove(dst_substrate_node)  # Remove egress nodes from substrate node list
         except ValueError:
             # src or dst is not in the substrate network nodes
             logger.warning("src or dst is not in the substrate network nodes")
             return False
 
-        if number_of_vnfs > len(nodesList):
+        if number_of_vnfs > len(nodes_list):
             # have not sufficient nodes for host vnfs
             return False
 
         # random choose k number of nodes, and append the egress substrate network nodes for host dst vnf
-        random_sampled_substrate_network_nodes = random.sample(nodesList, k=number_of_vnfs)
+        random_sampled_substrate_network_nodes = random.sample(nodes_list, k=number_of_vnfs)
         random_sampled_substrate_network_nodes.append(dst_substrate_node)
 
         route_info = {}
@@ -134,13 +135,15 @@ class RandomAlgorithm:
         current_vnf = src_vnf
         pre_substrate_node = src_substrate_node
         for node in random_sampled_substrate_network_nodes:
+            # 🔴 Blindagem Arquitetural: Captura específica de erros do NetworkX
             try:
                 # get shortest path length. here shortest path is weighted by latency.
                 path_latency = substrate_network.get_shortest_path_length(pre_substrate_node, node)
                 path = substrate_network.get_shortest_path(pre_substrate_node, node)
-            except:
+            except (nx.NetworkXNoPath, nx.NodeNotFound):
                 logger.warning("have no path between two nodes: %s - %s", pre_substrate_node, node)
                 return False
+                
             pre_substrate_node = node
 
             latency = latency + path_latency
@@ -160,7 +163,6 @@ class RandomAlgorithm:
             length = len(path)
             for i in range(0, length - 1):
                 edge_key = frozenset((path[i], path[i + 1]))
-                residual_bandwidth = None
                 if edge_key in bandwidth_usage_info:
                     residual_bandwidth = bandwidth_usage_info[edge_key] - bandwidth_request
                 else:

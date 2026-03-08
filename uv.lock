@@ -975,6 +975,7 @@ dependencies = [
     { name = "numpy" },
     { name = "pandas" },
     { name = "pytz" },
+    { name = "sb3-contrib" },
     { name = "scipy" },
     { name = "seaborn" },
     { name = "shapely" },
@@ -982,6 +983,7 @@ dependencies = [
     { name = "stable-baselines3" },
     { name = "sumo" },
     { name = "tensorboard" },
+    { name = "traci" },
 ]
 
 [package.optional-dependencies]
@@ -1003,6 +1005,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytz" },
     { name = "ruff", marker = "extra == 'dev'" },
+    { name = "sb3-contrib", specifier = ">=2.7.1" },
     { name = "scipy" },
     { name = "seaborn" },
     { name = "shapely" },
@@ -1010,6 +1013,7 @@ requires-dist = [
     { name = "stable-baselines3" },
     { name = "sumo" },
     { name = "tensorboard" },
+    { name = "traci", specifier = ">=1.26.0" },
 ]
 provides-extras = ["dev"]
 
@@ -1941,6 +1945,18 @@ wheels = [
 ]
 
 [[package]]
+name = "sb3-contrib"
+version = "2.7.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "stable-baselines3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1d/ee/0d0a0a964e4dc290784b8dc7d540e6a2a4e688efdbda5e4c397d27e9d085/sb3_contrib-2.7.1.tar.gz", hash = "sha256:491070fb14c6a59757cbcc1aea5c62c894c2312f3f8a1ccf8f363a48eb3126ad", size = 89982, upload-time = "2025-12-05T11:31:18.904Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/40/4d/6737dc879ba484419fc6db2bdfbd13aa6b1a3b516368ad0370546693ae82/sb3_contrib-2.7.1-py3-none-any.whl", hash = "sha256:27dd9db11e4f0b5e172bc73eef32c6342e7de8d6b4b833a8a28933e1679e907f", size = 93189, upload-time = "2025-12-05T11:31:17.587Z" },
+]
+
+[[package]]
 name = "scipy"
 version = "1.17.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2191,6 +2207,15 @@ wheels = [
 ]
 
 [[package]]
+name = "sumolib"
+version = "1.26.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/cf/03/36bbd7b9f6120e39d9e4f6865186ab8195f7b5a3833c37fc8c24df1d23fe/sumolib-1.26.0.tar.gz", hash = "sha256:eedf9cbcea46ac9db6a2a46ee74f85edbf4384de1f6b73bf73550642ba6044c1", size = 138920, upload-time = "2026-01-29T14:54:37.312Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/92/2d/44832bb6dec541d7d0d79ce6cf50f4213dcb862f4a7e192c9828841f7d84/sumolib-1.26.0-py2.py3-none-any.whl", hash = "sha256:189011b50db451b44f0ffa3a49e7cefd6250573f0e239fba540e1883ad910eaf", size = 233486, upload-time = "2026-01-29T14:54:35.577Z" },
+]
+
+[[package]]
 name = "symfc"
 version = "1.6.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2339,6 +2364,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/09/a9/6ba95a270c6f1fbcd8dac228323f2777d886cb206987444e4bce66338dd4/tqdm-4.67.3.tar.gz", hash = "sha256:7d825f03f89244ef73f1d4ce193cb1774a8179fd96f31d7e1dcde62092b960bb", size = 169598, upload-time = "2026-02-03T17:35:53.048Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/16/e1/3079a9ff9b8e11b846c6ac5c8b5bfb7ff225eee721825310c91b3b50304f/tqdm-4.67.3-py3-none-any.whl", hash = "sha256:ee1e4c0e59148062281c49d80b25b67771a127c85fc9676d3be5f243206826bf", size = 78374, upload-time = "2026-02-03T17:35:50.982Z" },
+]
+
+[[package]]
+name = "traci"
+version = "1.26.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "sumolib" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/eb/96/5489adb00448f640195aeed9fb9bff38f1fd64ef17e1d021449694cc475d/traci-1.26.0.tar.gz", hash = "sha256:5084ba6d0cdba78f93863d782d89ed02d278e6566cfc684c3bedccd6f29aa8ed", size = 102984, upload-time = "2026-01-29T14:54:25.63Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/99/e1/87ffbb1ad9b1cdd1e3c08633e2b94aa920ca0550f17be8c762ed3a0817d6/traci-1.26.0-py2.py3-none-any.whl", hash = "sha256:15dcd143e58a1b03a24687b6871f398d5ff36611fd8aa6b4f3d4ab45603742c0", size = 138431, upload-time = "2026-01-29T14:54:24.392Z" },
 ]
 
 [[package]]
