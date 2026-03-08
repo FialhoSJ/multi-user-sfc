@@ -12,8 +12,8 @@ from stable_baselines3.common.monitor import Monitor
 # REMOVIDO: a importação de make_vec_env e DummyVecEnv não são mais necessárias
 from stable_baselines3.common.logger import configure
 
-from utils.salvar_var import carregar_lista
-from algorithms.environments.hephaestus_env import SFC_AllocationEnv_hephaestus
+from muar_sfc.utils.salvar_var import carregar_lista
+from muar_sfc.algorithms.environments.hephaestus_env import SFC_AllocationEnv_hephaestus
 
 from sb3_contrib import MaskablePPO
 from sb3_contrib.common.maskable.callbacks import MaskableEvalCallback

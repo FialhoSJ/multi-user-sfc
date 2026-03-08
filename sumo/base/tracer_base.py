@@ -4,8 +4,8 @@ import traceback
 import pytz
 import datetime
 import traci
-import random
 import time
+
 
 class AbstractTracer(ABC):
     def __init__(self, config_file):

@@ -6,19 +6,19 @@ import random
 import numpy as np
 import ast
 
-from controllers.modules.sfcs_manager import SFCManager
-from controllers.substrate_network_controller import SubstrateNetworkController
+from muar_sfc.controllers.modules.sfcs_manager import SFCManager
+from muar_sfc.controllers.substrate_network_controller import SubstrateNetworkController
 from datetime import datetime as dt
-from core.poisson_emitter import PoissonEmitter
-from controllers.sfc_queue import SFCQueue
-from controllers.sfc_generator import SFCGenerator
+from muar_sfc.core.poisson_emitter import PoissonEmitter
+from muar_sfc.controllers.sfc_queue import SFCQueue
+from muar_sfc.controllers.sfc_generator import SFCGenerator
 
-from algorithms.instantiator import AlgorithmInstantiator
-from controllers.modules.mobility_manager import MobilityManager
-from controllers.modules.crasher import Crasher
+from muar_sfc.algorithms.instantiator import AlgorithmInstantiator
+from muar_sfc.controllers.modules.mobility_manager import MobilityManager
+from muar_sfc.controllers.modules.crasher import Crasher
 from sumo.tracer_instantiator import TracerInstantiator
-from topology.instantiator import TopologyInstantiator
-from utils.manager_results import create_output_dir, OutputWritter
+from muar_sfc.topology.instantiator import TopologyInstantiator
+from muar_sfc.utils.manager_results import create_output_dir, OutputWritter
 
 
 # seed = 42

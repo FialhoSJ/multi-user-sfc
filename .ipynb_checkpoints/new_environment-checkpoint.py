@@ -5,7 +5,7 @@ import networkx as nx
 from gymnasium import spaces
 
 # Supondo que essas funções existem em um módulo `algorithms.networkUtils`
-from algorithms.networkUtils import get_available_shortest_path_optimized, calculate_computational_latency, calculate_latency_betwen_nodes
+from muar_sfc.algorithms.networkUtils import get_available_shortest_path_optimized, calculate_computational_latency, calculate_latency_betwen_nodes
 
 # --- CONSTANTES ---
 SHAREABLE_PREFIXES = ('IA_DET_FT_', 'RE_region_', 'MA_region_')

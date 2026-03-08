@@ -1,18 +1,18 @@
-#=====Mecanismo para resolver importação relativa==================
+# =====Mecanismo para resolver importação relativa==================
 import sys
 import os
+
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
-#============================
+# ============================
 
-import gymnasium as gym
 import numpy as np
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.logger import configure
 
-from utils.salvar_var import carregar_lista
-from algorithms.environments.env_replic import SFC_AllocationEnv
+from muar_sfc.utils.salvar_var import carregar_lista
+from muar_sfc.algorithms.environments.env_replic import SFC_AllocationEnv
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import EvalCallback
@@ -20,6 +20,7 @@ from sb3_contrib import MaskablePPO
 from sb3_contrib.common.maskable.callbacks import MaskableEvalCallback
 
 USE_MASKING = True
+
 
 # ==============================================================================
 #      FUNÇÃO PARA CARREGAR O AMBIENTE
@@ -34,7 +35,7 @@ def carregar_dados_do_ambiente():
         for i in range(1, 5):
             list_graph = list_graph + carregar_lista(f"list_graph{i}")
             list_sfc = list_sfc + carregar_lista(f"list_sfc{i}")
-            
+
     except FileNotFoundError as e:
         print(f"Erro ao carregar dados: {e}")
         print("Certifique-se que os arquivos de dados existem.")
@@ -46,29 +47,29 @@ def carregar_dados_do_ambiente():
             if list_graph[0].nodes[node]["type"] == "server":
                 valid_nodes.append(node)
     valid_nodes.append("M")
-    
+
     env = SFC_AllocationEnv(list_graph=list_graph, list_sfc=list_sfc, valid_nodes=valid_nodes)
     return env
 
 
 # ==============================================================================
-#               FLUXO PRINCIPAL DE TREINAMENTO 
+#               FLUXO PRINCIPAL DE TREINAMENTO
 # ==============================================================================
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     modelos = ["REPLIC", "DRL"]
     print("Iniciando com um único processo (sem paralelismo).")
 
     # ==========================================================================
     # 🎯 ÁREA DE CONFIGURAÇÃO DO MODELO (MUDE AQUI PARA TREINAR NOVOS MODELOS)
     # ==========================================================================
-    
+
     # 1. Defina o nome do projeto/modelo atual (Ex: "REPLIC", "DRL", etc.)
     for model in modelos:
         project_name = model  # <--- MUDE ESTE NOME ANTES DE RODAR O PRÓXIMO TREINO
-        
+
         # 2. Defina o nome da tarefa (opicional)
-        task_name = "allocation_model" # <--- PODE MUDAR TAMBÉM SE DESEJAR
+        task_name = "allocation_model"  # <--- PODE MUDAR TAMBÉM SE DESEJAR
 
         # ==========================================================================
 
@@ -79,11 +80,11 @@ if __name__ == '__main__':
             ModelClass = PPO
             print("Configurado para usar PPO Padrão.")
 
-        algorithm_name = ModelClass.__name__ 
+        algorithm_name = ModelClass.__name__
 
         # --- 1. DEFINIÇÃO DOS DIRETÓRIOS DINÂMICOS ---
         # Agora o log_dir cria uma subpasta automática com o nome do seu projeto!
-        log_dir = f"logs/{project_name}/" 
+        log_dir = f"logs/{project_name}/"
         tensorboard_log_dir = "tensorboard_logs/"
         save_dir = "rl_saved_models/"
 
@@ -95,11 +96,11 @@ if __name__ == '__main__':
         # Cria o ambiente de treino e envolve com Monitor
         train_env = carregar_dados_do_ambiente()
         train_env = Monitor(train_env, os.path.join(log_dir, "train"))
-        
+
         # Cria o ambiente de avaliação e envolve com Monitor
         eval_env = carregar_dados_do_ambiente()
         eval_env = Monitor(eval_env, os.path.join(log_dir, "eval"))
-        
+
         # ===== GERAÇÃO DINÂMICA DO NOME DO MODELO =====
         model_name = f"{algorithm_name.upper()}_{project_name}_{task_name}.zip"
         model_log_name = f"{algorithm_name}_{project_name}_SFC_Allocation"
@@ -107,17 +108,18 @@ if __name__ == '__main__':
         final_model_path = os.path.join(save_dir, model_name)
 
         if os.path.exists(final_model_path):
-            print(f"Modelo salvo encontrado em '{final_model_path}'. Carregando para continuar o treinamento...")
-            model = ModelClass.load(final_model_path, env=train_env) 
+            print(
+                f"Modelo salvo encontrado em '{final_model_path}'. Carregando para continuar o treinamento..."
+            )
+            model = ModelClass.load(final_model_path, env=train_env)
             new_logger = configure(tensorboard_log_dir, ["stdout", "tensorboard"])
             model.set_logger(new_logger)
         else:
-            print(f"Nenhum modelo salvo encontrado. Iniciando novo treinamento para {model_name}...")
-            model = ModelClass( 
-                "MultiInputPolicy",
-                train_env,
-                verbose=1,
-                tensorboard_log=tensorboard_log_dir
+            print(
+                f"Nenhum modelo salvo encontrado. Iniciando novo treinamento para {model_name}..."
+            )
+            model = ModelClass(
+                "MultiInputPolicy", train_env, verbose=1, tensorboard_log=tensorboard_log_dir
             )
 
         # --- 4. TREINAMENTO (NOVO OU CONTINUADO) ---
@@ -129,38 +131,40 @@ if __name__ == '__main__':
                 eval_freq=1000,
                 n_eval_episodes=100,
                 deterministic=False,
-                render=False
+                render=False,
             )
         else:
             print("Usando EvalCallback padrão.")
-            eval_callback = EvalCallback( 
+            eval_callback = EvalCallback(
                 eval_env,
                 log_path=log_dir,
                 eval_freq=1000,
                 n_eval_episodes=100,
                 deterministic=False,
-                render=False
+                render=False,
             )
-        
+
         additional_timesteps = 150_000
-        
-        print(f"--- Iniciando/Continuando o treinamento por mais {additional_timesteps} passos ---")
+
+        print(
+            f"--- Iniciando/Continuando o treinamento por mais {additional_timesteps} passos ---"
+        )
         model.learn(
             total_timesteps=additional_timesteps,
             callback=eval_callback,
-            tb_log_name=model_log_name, 
-            reset_num_timesteps=False
+            tb_log_name=model_log_name,
+            reset_num_timesteps=False,
         )
         print("--- Treinamento finalizado ---")
 
         # --- 5. SALVAR O MODELO ATUALIZADO ---
-        model.save(final_model_path) 
+        model.save(final_model_path)
         print(f"\nModelo final salvo em: {final_model_path}")
 
         # --- 6. TESTE COM O MODELO FINAL ---
         print(f"\n--- Iniciando teste com o modelo {model_name} em 1000 episódios ---")
-        
-        num_episodes = 1000 
+
+        num_episodes = 1000
         all_rewards = []
         successful_runs = 0
         total_latency_on_success = 0.0
@@ -176,20 +180,22 @@ if __name__ == '__main__':
                     action, _ = model.predict(obs, action_masks=action_masks, deterministic=False)
                 else:
                     action, _ = model.predict(obs, deterministic=False)
-                
+
                 obs, reward, terminated, truncated, info = eval_env.step(action)
-                
+
                 total_reward += reward
                 done = terminated or truncated
 
             all_rewards.append(total_reward)
-            if eval_env.env.success: 
+            if eval_env.env.success:
                 successful_runs += 1
                 total_latency_on_success += eval_env.env.latency_used
 
             if (i + 1) % 100 == 0:
                 success_status = eval_env.env.success
-                print(f"Episódio {i + 1}/{num_episodes} concluído. Recompensa: {total_reward:.2f}, Sucesso: {success_status}")
+                print(
+                    f"Episódio {i + 1}/{num_episodes} concluído. Recompensa: {total_reward:.2f}, Sucesso: {success_status}"
+                )
 
         # --- 7. CÁLCULO E EXIBIÇÃO DAS MÉTRICAS DE DESEMPENHO ---
         print(f"\n--- Métricas de Desempenho ({num_episodes} execuções) ---")

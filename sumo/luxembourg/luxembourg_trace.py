@@ -1,6 +1,4 @@
-import csv
 import threading
-import traceback
 from sumo.base.tracer_base import AbstractTracer
 import traci
 import time
@@ -9,19 +7,18 @@ import datetime
 import random
 import math
 import numpy as np
-from scipy.spatial import KDTree
 import sys
-from traci.exceptions import FatalTraCIError
-from sumo.luxembourg.config_routes import topology,positions,server_ids,server_tree,routers
+from sumo.luxembourg.config_routes import topology, positions, server_ids, server_tree, routers
 import traci.step
 # Tracer utilizando SUMO.
-# Autor: Rodrigo Flexa 
+# Autor: Rodrigo Flexa
 # Data: 17/09/2023
 
 # Tracer utilizando SUMO.
 # A simulação é controlada, por meio da biblioteca traci e das funções da classe
-# Autor: Rodrigo Flexa 
+# Autor: Rodrigo Flexa
 # Data: 17/09/2023
+
 
 class Sumo_Luxembourg(AbstractTracer):
     def __init__(self, config_file="sumo//luxembourg//luxembourg.sumocfg"):
@@ -39,7 +36,7 @@ class Sumo_Luxembourg(AbstractTracer):
 
     def calculate_kmph(self, m_per_s):
         return round(m_per_s * 3.6, 2)
-    
+
     def connect_to_sumo(self):
         traci.start(["sumo", "-c", self.config_file])
         self.traci_connected = True
@@ -52,7 +49,7 @@ class Sumo_Luxembourg(AbstractTracer):
                 self.traci_connected = False
             self.simulation_running = False
         # Fecha o arquivo CSV
-        #self.csv_file.close()
+        # self.csv_file.close()
 
     def get_distance(self, server_i, server_j):
         """
@@ -66,7 +63,7 @@ class Sumo_Luxembourg(AbstractTracer):
     def check_route(self, server_start, server_end):
         distance = self.get_distance(server_start, server_end)
         # Loop until we find a server_end that is different from the server_start
-        while  distance < 800:
+        while distance < 800:
             # Choose a random server_end, but ensure it's sufficiently distant
             server_end = random.choice(list(self.positions.keys()))
             distance = self.get_distance(server_start, server_end)
@@ -74,7 +71,7 @@ class Sumo_Luxembourg(AbstractTracer):
         return server_start, server_end
 
     # Função para encontrar o servidor mais próximo
-    def get_closest_server(self,vehicle_id):
+    def get_closest_server(self, vehicle_id):
         # Posição do veículo
         x, y = traci.vehicle.getPosition(vehicle_id)
         # Encontra o servidor mais próximo entre os disponíveis
@@ -82,30 +79,29 @@ class Sumo_Luxembourg(AbstractTracer):
 
         # Recupera o ID do servidor mais próximo
         closest_server_id = server_ids[index]
-        return closest_server_id,distance
-
+        return closest_server_id, distance
 
     def get_server_distance_from_car(self, vehicle_id, server):
         # Posição do veículo (x, y)
         x, y = traci.vehicle.getPosition(vehicle_id)
-        
+
         # Coordenadas do servidor
         server_coords = self.topology[server]  # Supondo que isso seja uma tupla (x, y)
-        
+
         # Calculando a distância euclidiana
         ####
-        # Sumo não atualiza automaticamente a posição do usuário na simulação quando ele é criado. 
-        # Caso ele não atualiza, então iremos considerar ou a distância da Edge ou 500m 
+        # Sumo não atualiza automaticamente a posição do usuário na simulação quando ele é criado.
+        # Caso ele não atualiza, então iremos considerar ou a distância da Edge ou 500m
         ####
-        distance = math.sqrt((server_coords[0] - x)**2 + (server_coords[1] - y)**2)
+        distance = math.sqrt((server_coords[0] - x) ** 2 + (server_coords[1] - y) ** 2)
         if distance > 10000 or distance < -10000:
             traci.simulationStep()
-            distance = math.sqrt((server_coords[0] - x)**2 + (server_coords[1] - y)**2)
+            distance = math.sqrt((server_coords[0] - x) ** 2 + (server_coords[1] - y) ** 2)
             if distance > 10000 or distance < -10000:
                 distance = 250
         return distance
 
-        #distance, index = server_tree.query([x, y])
+        # distance, index = server_tree.query([x, y])
 
     # def vehicle_is_created(self,vehicle_id):
     #     #try:
@@ -113,48 +109,50 @@ class Sumo_Luxembourg(AbstractTracer):
     #         return True  # O veículo existe na simulação
     #     else:
     #         return False  # O veículo não existe na simulação
-        
-        # except Exception as e:
-        #     print(f"Error in vehicle is created: {str(e)}")
-        #     return False
-        
-    def create_vehicle(self,vehicle_id,server_start):
-        server_end = random.choice(routers)    
-        server_start, server_end =  self.check_route(server_start,server_end)
+
+    # except Exception as e:
+    #     print(f"Error in vehicle is created: {str(e)}")
+    #     return False
+
+    def create_vehicle(self, vehicle_id, server_start):
+        server_end = random.choice(routers)
+        server_start, server_end = self.check_route(server_start, server_end)
 
         start_edge = random.choice(self.positions[server_start])
         end_edge = random.choice(self.positions[server_end])
-        way = [start_edge,end_edge]
-        
+        way = [start_edge, end_edge]
+
         traci.route.add(vehicle_id, way)
-        traci.vehicle.add(vehicle_id, vehicle_id) 
+        traci.vehicle.add(vehicle_id, vehicle_id)
         traci.simulationStep()
         x, y = traci.vehicle.getPosition(vehicle_id)
-        self.vehicles_info[vehicle_id] = {  'closest_server': server_start,
-                                            'server_end':server_end,
-                                            'start_edge':start_edge,
-                                            'end_edge':end_edge,
-                                            'connected':True}
-                                            #'coord': (x,y)}
-                                        
+        self.vehicles_info[vehicle_id] = {
+            "closest_server": server_start,
+            "server_end": server_end,
+            "start_edge": start_edge,
+            "end_edge": end_edge,
+            "connected": True,
+        }
+        #'coord': (x,y)}
+
     def disconnect_vehicle(self, vehicle_id):
-        #try:
+        # try:
         # Check if the vehicle exists in the simulation
-        #if self.vehicle_is_created(vehicle_id):
-            # Remove the vehicle from SUMO
-            #traci.vehicle.remove(vehicle_id)
+        # if self.vehicle_is_created(vehicle_id):
+        # Remove the vehicle from SUMO
+        # traci.vehicle.remove(vehicle_id)
 
         # Remove the vehicle from the internal tracking dictionary
         if vehicle_id in self.vehicles_info:
-            self.vehicles_info[vehicle_id]['connected'] = False
-            #traci.simulationStep()
+            self.vehicles_info[vehicle_id]["connected"] = False
+            # traci.simulationStep()
         # except Exception as e:
         #     print(f"Error removing vehicle {vehicle_id}: {str(e)}")
 
-    def connect_vehicle(self,vehicle_id):
+    def connect_vehicle(self, vehicle_id):
         if vehicle_id in list(self.vehicles_info.keys()):
-            self.vehicles_info[vehicle_id]['connected'] = True
-            #traci.simulationStep()
+            self.vehicles_info[vehicle_id]["connected"] = True
+            # traci.simulationStep()
 
     # def reroute_vehicle(self, vehicle_id):
     #     #try:
@@ -172,12 +170,12 @@ class Sumo_Luxembourg(AbstractTracer):
     def reroute_vehicle(self, vehicle_id):
         # Filtra os servidores disponíveis, removendo os servidores que estão na lista de crashed_servers
         server_end = random.choice(routers)  # Escolhe um servidor disponível
-        current_server = self.vehicles_info[vehicle_id]['server_end']
+        current_server = self.vehicles_info[vehicle_id]["server_end"]
         current_server, server_end = self.check_route(current_server, server_end)
         edge_end = random.choice(self.positions[server_end])
 
-        self.vehicles_info[vehicle_id]['end_edge'] = edge_end
-        self.vehicles_info[vehicle_id]['server_end'] = server_end
+        self.vehicles_info[vehicle_id]["end_edge"] = edge_end
+        self.vehicles_info[vehicle_id]["server_end"] = server_end
 
         print(vehicle_id, " was rerouted")
         traci.vehicle.changeTarget(vehicle_id, edge_end)
@@ -186,11 +184,13 @@ class Sumo_Luxembourg(AbstractTracer):
         vehicles = list(self.vehicles_info.keys())
         for vehicle_id in vehicles:
             try:
-                if self.vehicles_info[vehicle_id]['connected'] == True: # Veh desconectados são aqueles que não atualizamos mais porque não existem mais na simulação. 
+                if (
+                    self.vehicles_info[vehicle_id]["connected"]
+                ):  # Veh desconectados são aqueles que não atualizamos mais porque não existem mais na simulação.
                     # Check if vehicle has reached the last edge of its current route
                     current_route = traci.vehicle.getRoute(vehicle_id)
                     current_route_index = traci.vehicle.getRouteIndex(vehicle_id)
-                    
+
                     # If the vehicle is at the last edge or close to it, reroute it
                     if current_route_index >= len(current_route) - 2:  # A bit before the last edge
                         self.reroute_vehicle(vehicle_id)
@@ -201,11 +201,11 @@ class Sumo_Luxembourg(AbstractTracer):
         #     print("Erro in update vehicle")
 
     def update_coords(self):
-        #try:
+        # try:
         vehicle_ids = list(self.vehicles_info.keys())
         for vehicle_id in vehicle_ids:
-            self.vehicles_info[vehicle_id]['closest_server'] = self.get_closest_server(vehicle_id)
-            #self.vehicles_info[vehicle_id]['coord'] = traci.vehicle.getPosition(vehicle_id)
+            self.vehicles_info[vehicle_id]["closest_server"] = self.get_closest_server(vehicle_id)
+            # self.vehicles_info[vehicle_id]['coord'] = traci.vehicle.getPosition(vehicle_id)
         # except:
         #     print("Erro in update vehicle")
 
@@ -222,7 +222,8 @@ class Sumo_Luxembourg(AbstractTracer):
                     #     traceback.print_exc()
         except:
             sys.exit(0)
-            #self.stop_simulation()
+            # self.stop_simulation()
+
     def start_simulation(self):
         self.connect_to_sumo()
         # Thread do movimento dos veículos
@@ -235,5 +236,3 @@ class Sumo_Luxembourg(AbstractTracer):
 if __name__ == "__main__":
     sim = Sumo_Luxembourg()
     sim.start_simulation()
-
-

@@ -8,7 +8,7 @@ from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.logger import configure
 
 from salvar_var import carregar_lista
-from algorithms.environment import SFC_AllocationEnv
+from muar_sfc.algorithms.environment import SFC_AllocationEnv
 
 from sb3_contrib import MaskablePPO
 from sb3_contrib.common.maskable.callbacks import MaskableEvalCallback
