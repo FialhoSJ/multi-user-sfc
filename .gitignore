@@ -29,3 +29,17 @@ resultsu.tar.gz
 teste.csv
 results.tar.gz
 arquivos.zip
+
+# --- Artefatos Dinâmicos e Saídas do Simulador ---
+/logs/
+/plots/
+/results/
+/rl_saved_models/
+/variaveis_salvas/
+
+# --- Ambientes e Caches do Python (Caso não estejam) ---
+/.venv/
+/.ruff_cache/
+/__pycache__/
+/.ipynb_checkpoints/
+/.vscode/

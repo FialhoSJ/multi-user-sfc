@@ -60,6 +60,15 @@ select = [
 minversion = "7.0"
 testpaths = ["tests"]
 
+[project.optional-dependencies]
+dev = [
+    "ipykernel",
+    "nbformat",
+    "ruff",    # O linter/formatador ultrarrápido padrão da indústria
+    "pytest",  # O framework de testes padrão absoluto
+    "pyright"  # O analisador de tipos estático determinístico
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/muar_sfc"]
 
@@ -67,3 +76,13 @@ packages = ["src/muar_sfc"]
 dev = [
     "ruff>=0.15.5",
 ]
+
+
+[tool.pyright]
+include = ["src"]
+exclude = ["**/__pycache__", ".venv", "tests"]
+# Ativando a tipagem estrita para máxima robustez arquitetural
+typeCheckingMode = "strict"
+# Ajustes finos caso alguma biblioteca de terceiros (como simpy ou traci) não tenha tipos perfeitos
+reportMissingTypeStubs = false
+reportUnknownMemberType = false
