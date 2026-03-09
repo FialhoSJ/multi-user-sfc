@@ -184,8 +184,5 @@ uv run pyright
 
 ```
 
----
-
-Com isso, a porta da frente do seu repositório está impecável. Posso assumir que você vai criar o `src/muar_sfc/core/config.py` e o `.env.example` na sua máquina agora? Qual é o próximo arquivo que você quer dissecar?
 
 ```
