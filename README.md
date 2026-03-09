@@ -74,7 +74,7 @@ milissegundos.
 Para garantir que o seu código utilize o interpretador correto sem
 ativar o ambiente manualmente:
 
-    uv run python src/muar_sfc/main.py
+    uv run python scripts/main.py
 
 ------------------------------------------------------------------------
 

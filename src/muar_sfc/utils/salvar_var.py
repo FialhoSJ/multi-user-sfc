@@ -50,7 +50,7 @@ def salvar_variavel(variavel, nome_lista, pasta="variaveis_salvas", valor_unico=
             #     f"lista: {len(lista)}."
             # )
             break  # Sai do loop de tentativas
-        except (OSError, PermissionError) as e:
+        except (OSError, PermissionError):
             # Se ocorrer um erro de permissão ou I/O, espera e tenta novamente
             # print(
             #     f"Tentativa {_tentativa + 1}/{max_tentativas}: Falha ao salvar "
@@ -136,7 +136,7 @@ def salvar_lista(
             #     f"{len(lista_salva)}."
             # )
             break
-        except (OSError, PermissionError) as e:
+        except (OSError, PermissionError):
             # print(
             #     f"Tentativa {_tentativa + 1}/{max_tentativas}: Falha ao salvar "
             #     f"'{caminho_arquivo}' (Erro: {e})..."

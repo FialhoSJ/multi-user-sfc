@@ -764,9 +764,9 @@ class Net(nx.Graph):
         #     cpu_free = self.get_node_cpu_free(node)
         #     cpu_capacity = self.get_node_cpu_capacity(node)
         #     sfc_vnf_list = self.get_node_sfc_vnf_list(node)
-        # print "node id:", node_id, ":", "CPU: used:", cpu_used, "free:", cpu_free, 
+        # print "node id:", node_id, ":", "CPU: used:", cpu_used, "free:", cpu_free,
         # "capacity:", cpu_capacity, "vnf", sfc_vnf_list
-        # print "total cpu used: ", self.total_cpu_used, "total cpu capacity: ", 
+        # print "total cpu used: ", self.total_cpu_used, "total cpu capacity: ",
         # self.total_cpu_capacity
         if failure_cpu is None:
             print(
@@ -807,9 +807,9 @@ class Net(nx.Graph):
             self.get_link_bandwidth_free(edge[0], edge[1])
             self.get_link_bandwidth_used(edge[0], edge[1])
             self.get_link_latency(edge[0], edge[1])
-            # print "edge:", edge, ":", "BW: used:", ud, "free:", fr, "capacity:", cp, 
+            # print "edge:", edge, ":", "BW: used:", ud, "free:", fr, "capacity:", cp,
             # "latency:", lt
-        # print "total bandwidth used: ", self.total_bandwidth_used, 
+        # print "total bandwidth used: ", self.total_bandwidth_used,
         # "total bandwidth capacity: ", self.total_bandwidth_capacity
         if failure_band is None:
             print(
