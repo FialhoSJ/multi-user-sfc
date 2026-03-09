@@ -40,8 +40,6 @@ ch.setFormatter(formatter)
 logger.addHandler(ch)
 
 
-
-
 class Goku(Algorithm):
     def __init__(self):
         self.name = "goku"
@@ -91,7 +89,9 @@ class Goku(Algorithm):
 
     def install_substrate_network(self, substrate_network):
         self.substrate_network = substrate_network
-        # self.single_source_minimum_latency_path = self.substrate_network.single_source_minimum_latency_path
+        # self.single_source_minimum_latency_path = (
+        #     self.substrate_network.single_source_minimum_latency_path
+        # )
         return self.substrate_network
 
     def install_SFC(self, sfc):
@@ -116,7 +116,10 @@ class Goku(Algorithm):
     #             route_info = route_info[real_sfc_id]
     #         else:
     #             return sfc
-    #         servers_used = list(set([item for chave, valor in route_info.items() if chave not in ['src', 'dst'] for item in valor]))
+    #         servers_used = list(set([
+    #             item for chave, valor in route_info.items()
+    #             if chave not in ['src', 'dst'] for item in valor
+    #         ]))
     #         return new_sfc
     #     else:
     #         return sfc
@@ -144,12 +147,8 @@ class Goku(Algorithm):
     def start_algorithm(self, shareable_sfs=None, **kwargs):
         substrate_network = self.substrate_network
         sfc = self.sfc
-        # logger.info('Algorithm start')
-        if self.algorithm(substrate_network, sfc, shareable_sfs):
-            # logger.info('Algorithm end, success')
-            return True
-        # logger.info('Algorithm end, failed')
-        return False
+        # Retorna diretamente o resultado booleano (resolve SIM103)
+        return bool(self.algorithm(substrate_network, sfc, shareable_sfs))
 
     def set_nodes_resources(self, substrate_network, shareable_sfs):
         net_info = substrate_network
@@ -159,12 +158,24 @@ class Goku(Algorithm):
         # Inicializa o dicionário de recursos dos servidores
         server_resources = {
             server: {
-                "cpu_capacity": round(self.substrate_network.get_node_cpu_capacity(server), 3),
-                "cache_capacity": round(self.substrate_network.get_node_cache_capacity(server), 3),
-                "cpu_used": round(self.substrate_network.get_node_cpu_used(server), 3),
-                "cache_used": round(self.substrate_network.get_node_cache_used(server), 3),
-                "cpu_free": round(self.substrate_network.get_node_cpu_free(server), 3),
-                "cache_free": round(self.substrate_network.get_node_cache_free(server), 3),
+                "cpu_capacity": round(
+                    self.substrate_network.get_node_cpu_capacity(server), 3
+                ),
+                "cache_capacity": round(
+                    self.substrate_network.get_node_cache_capacity(server), 3
+                ),
+                "cpu_used": round(
+                    self.substrate_network.get_node_cpu_used(server), 3
+                ),
+                "cache_used": round(
+                    self.substrate_network.get_node_cache_used(server), 3
+                ),
+                "cpu_free": round(
+                    self.substrate_network.get_node_cpu_free(server), 3
+                ),
+                "cache_free": round(
+                    self.substrate_network.get_node_cache_free(server), 3
+                ),
                 "position": old_server_resources[server]["position"],
                 "reuse": [],
             }
@@ -179,7 +190,6 @@ class Goku(Algorithm):
         return server_resources
 
     def algorithm(self, substrate_network, sfc, shareable_sfs):
-
         src_vnf = sfc.get_src_vnf()
         dst_vnf = sfc.get_dst_vnf()
         sfc.get_substrate_node(src_vnf)
@@ -201,10 +211,12 @@ class Goku(Algorithm):
         # for bitrate in bit_rate_trials:
         # service_requirements_altered = copy.deepcopy(service_requirements)
 
-        # Percorre o dicionário e altera o valor de out_bw para chaves que começam com "EC_TC"
+        # Percorre o dicionário e altera o valor de out_bw
         # for chave in service_requirements_altered:
         #     if chave.startswith('EC_TC'):
-        #         service_requirements_altered[chave]['out_bw'] = service_requirements_altered[chave]['out_bw'] * bitrate
+        #         service_requirements_altered[chave]['out_bw'] = (
+        #             service_requirements_altered[chave]['out_bw'] * bitrate
+        #         )
 
         route_info, latency = self.find_best_allocation_for_sfc(
             G, service_requirements, nodes_resource, network_links, services, dst
@@ -249,7 +261,13 @@ class Goku(Algorithm):
                 "in_bw": item["in_bw"],
                 "latency": item["latency"],
             }
-        service_requirements["dst"] = {"CPU": 0, "cache": 0, "out_bw": 0, "in_bw": 0, "latency": 0}
+        service_requirements["dst"] = {
+            "CPU": 0,
+            "cache": 0,
+            "out_bw": 0,
+            "in_bw": 0,
+            "latency": 0,
+        }
         services = list(reversed(services))
         return services, service_requirements
 
@@ -277,7 +295,7 @@ class Goku(Algorithm):
         current_location = dst  # começa a alocação de trás pra frente
         success = True
 
-        for i, service in enumerate(services):
+        for _i, service in enumerate(services):
             # # Verifica se há um próximo serviço na lista
             # if i + 1 < len(services):
             #     next_service = services[i + 1]
@@ -305,18 +323,18 @@ class Goku(Algorithm):
             # Se existe um servidor ótimo
             if best_server:  # Verifica se um servidor foi escolhido
                 if cost_details["reuse"]:
-                    server_resources[best_server]["cpu_used"] += service_requirements[service][
-                        "CPU"
-                    ]
-                    server_resources[best_server]["cache_used"] += service_requirements[service][
-                        "cache"
-                    ]
-                    server_resources[best_server]["cpu_free"] -= service_requirements[service][
-                        "CPU"
-                    ]
-                    server_resources[best_server]["cache_free"] -= service_requirements[service][
-                        "cache"
-                    ]
+                    server_resources[best_server]["cpu_used"] += service_requirements[
+                        service
+                    ]["CPU"]
+                    server_resources[best_server]["cache_used"] += service_requirements[
+                        service
+                    ]["cache"]
+                    server_resources[best_server]["cpu_free"] -= service_requirements[
+                        service
+                    ]["CPU"]
+                    server_resources[best_server]["cache_free"] -= service_requirements[
+                        service
+                    ]["cache"]
             else:
                 # print(f"Falha.")
                 success = False
@@ -393,9 +411,13 @@ class Goku(Algorithm):
 
         # Função para verificar disponibilidade de largura de banda e recursos do servidor
         def check_resources(server, path, bandwidth_requirement, cpu_required, cache_required):
-            if all(G[u][v]["bandwidth"] > bandwidth_requirement for u, v in zip(path, path[1:])):
+            if all(
+                G[u][v]["bandwidth"] > bandwidth_requirement
+                for u, v in zip(path, path[1:], strict=False)
+            ):
                 available_cpu = (
-                    server_resources[server]["cpu_capacity"] - server_resources[server]["cpu_used"]
+                    server_resources[server]["cpu_capacity"]
+                    - server_resources[server]["cpu_used"]
                 )
                 available_cache = (
                     server_resources[server]["cache_capacity"]
@@ -409,7 +431,7 @@ class Goku(Algorithm):
             cost = 0
             epsilon = 1e-6  # Pequeno valor para evitar divisão por zero
 
-            for u, v in zip(path, path[1:]):
+            for u, v in zip(path, path[1:], strict=False):
                 available_bandwidth = G[u][v]["bandwidth"]
                 if available_bandwidth >= bandwidth_requirement:
                     cost += bandwidth_requirement / (available_bandwidth + epsilon)
@@ -446,7 +468,10 @@ class Goku(Algorithm):
             available_cpu = (
                 server_resources[server]["cpu_capacity"] - server_resources[server]["cpu_used"]
             )
-            (server_resources[server]["cache_capacity"] - server_resources[server]["cache_used"])
+            (
+                server_resources[server]["cache_capacity"]
+                - server_resources[server]["cache_used"]
+            )
 
             if available_cpu > 0:
                 node_resource_cost = cpu_required / available_cpu  #

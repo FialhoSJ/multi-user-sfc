@@ -66,9 +66,7 @@ class BetweennessCentralityAlgorithm(Algorithm):
     def start_algorithm(self) -> bool:
         substrate_network = self.substrate_network
         sfc = self.sfc
-        if self.algorithm(substrate_network, sfc):
-            return True
-        return False
+        return bool(self.algorithm(substrate_network, sfc))
 
     def get_latency(self):
         return self.latency

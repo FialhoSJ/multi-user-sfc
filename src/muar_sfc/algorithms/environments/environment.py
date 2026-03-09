@@ -263,7 +263,8 @@ class SFC_AllocationEnv(gymnasium.Env):
         """
 
         # --- 1. Determinação do Último Nó Escolhido ---
-        # (Lógica original, embora 'primeira_sf' e 'current_loc' pareçam não utilizados diretamente na obs final, mantidos)
+        # (Lógica original: 'primeira_sf' e 'current_loc' parecem não ser
+        # utilizados diretamente na obs final, mas mantidos)
         primeira_sf = np.zeros(1, dtype=np.float32)
         self.current_location if not isinstance(self.current_location, str) else "M"
 
@@ -319,7 +320,8 @@ class SFC_AllocationEnv(gymnasium.Env):
         Calcula o vetor de features para cada nó candidato.
         """
         # Features mapping:
-        # [0:cpu_used, 1:cache_used, 2:reusable, 3:N/A, 4:band_cost, 5:latency_cost, 6:is_invalid, 7:is_dst]
+        # [0:cpu_used, 1:cache_used, 2:reusable, 3:N/A,
+        #  4:band_cost, 5:latency_cost, 6:is_invalid, 7:is_dst]
         num_valid_nodes = len(self.valid_nodes)
         features = np.zeros((num_valid_nodes, 8))
 
@@ -442,7 +444,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         Aloca largura de banda ao longo de um caminho de forma atômica.
         """
         # 1. Verificar se todos os links no caminho têm capacidade suficiente
-        for u, v in zip(path[:-1], path[1:]):
+        for u, v in zip(path[:-1], path[1:], strict=False):
             edge = self.graph.edges[u, v]
             available_bw = edge.get("bandwidth_capacity", 0) - edge.get("bandwidth_used", 0)
             if available_bw < bandwidth_required:
@@ -451,7 +453,7 @@ class SFC_AllocationEnv(gymnasium.Env):
                 return False
 
         # 2. Se a verificação passou, alocar a banda em todos os links
-        for u, v in zip(path[:-1], path[1:]):
+        for u, v in zip(path[:-1], path[1:], strict=False):
             self.graph.edges[u, v]["bandwidth_used"] += bandwidth_required
 
         return True
@@ -547,7 +549,7 @@ class SFC_AllocationEnv(gymnasium.Env):
             return 0, latency_cost
 
         bw_cost = 0
-        for u, v in zip(path[:-1], path[1:]):
+        for u, v in zip(path[:-1], path[1:], strict=False):
             edge = self.graph.edges.get((u, v), {})
             bd_capacity = edge.get("bandwidth_capacity", None)
             bd_used = edge.get("bandwidth_used", 0)

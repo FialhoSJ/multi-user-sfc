@@ -19,9 +19,8 @@ route info :=
 import copy
 import logging
 
-from config import ROOT_PATH
-
 from muar_sfc.algorithms.greedy_algorithm import GreedyAlgorithm
+from muar_sfc.config import ROOT_DIR
 from muar_sfc.utils.k_shortest_paths import k_shortest_paths
 
 # create logger
@@ -30,7 +29,7 @@ logger.setLevel(logging.DEBUG)
 
 # create console handler and set level to debug
 # ch = logging.StreamHandler()
-ch = logging.FileHandler(ROOT_PATH + "./logs/musfico.log")
+ch = logging.FileHandler(ROOT_DIR + "./logs/musfico.log")
 ch.setLevel(logging.DEBUG)
 # create formatter
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -98,7 +97,7 @@ class Musfico:
 
         for node in self.substrate_network.nodes():
             self.node_info[node] = {}
-            for vnf_id, vnf in list(sfc.vnfs.items()):
+            for vnf_id, _vnf in list(sfc.vnfs.items()):
                 # Not include src and dst.
                 self.node_info[node][vnf_id] = {}
                 self.node_info[node][vnf_id]["flag"] = (
@@ -150,11 +149,7 @@ class Musfico:
         substrate_network = self.substrate_network
         sfc = self.sfc
         # logger.info('Algorithm start')
-        if self.algorithm(substrate_network, sfc):
-            # logger.info('Algorithm end, success')
-            return True
-        # logger.info('Algorithm end, failed')
-        return False
+        return self.algorithm(substrate_network, sfc)
 
     def algorithm(self, substrate_network, sfc):
         nodes = substrate_network.nodes()
@@ -181,7 +176,8 @@ class Musfico:
         # For dst:
         (node_latency, node_path) = self.single_source_minimum_latency_path[
             dst_substrate_node
-        ]  # Get single source path from substrate node to all other substrate node
+        ]
+        # Get single source path from substrate node to all other substrate node
         # here node in latency and path results is the node host previous vnf
         previous_vnf = sfc.get_previous_vnf(dst_vnf)
         previous_vnf_id = previous_vnf.id
@@ -189,7 +185,7 @@ class Musfico:
         bandwidth_request = sfc.get_link_bandwidth_request(previous_vnf_id, dst_vnf.id)
 
         for node, latency in list(node_latency.items()):
-            if node == dst_substrate_node or node == src_substrate_node:
+            if node in (dst_substrate_node, src_substrate_node):
                 # if node is ingress or egress, continue
                 continue
 
@@ -204,10 +200,14 @@ class Musfico:
                 edge_key = frozenset((path[i], path[i + 1]))
                 residual_bandwidth = None
                 if edge_key in bandwidth_usage_info:
-                    residual_bandwidth = bandwidth_usage_info[edge_key] - bandwidth_request
+                    residual_bandwidth = (
+                        bandwidth_usage_info[edge_key] - bandwidth_request
+                    )
                 else:
                     residual_bandwidth = (
-                        self.substrate_network.get_link_bandwidth_free(path[i], path[i + 1])
+                        self.substrate_network.get_link_bandwidth_free(
+                            path[i], path[i + 1]
+                        )
                         - bandwidth_request
                     )
                 if residual_bandwidth < 0:
@@ -219,74 +219,84 @@ class Musfico:
                 # check next path
                 continue
             _latency = self.node_info[node][previous_vnf_id]["latency"]
-            if (
-                not self.node_info[dst_substrate_node][dst_vnf.id]["latency"]
-                or _latency + latency < self.node_info[dst_substrate_node][dst_vnf.id]["latency"]
+            if not self.node_info[dst_substrate_node][dst_vnf.id][
+                "latency"
+            ] or _latency + latency < self.node_info[dst_substrate_node][dst_vnf.id].get(
+                "latency", float("inf")
             ):
                 self.node_info[dst_substrate_node][dst_vnf.id]["latency"] = _latency + latency
                 self.node_info[dst_substrate_node][dst_vnf.id]["path"] = node_path[node]
                 self.node_info[dst_substrate_node][dst_vnf.id]["path"].reverse()
-                self.node_info[dst_substrate_node][dst_vnf.id]["current_substrate_nodes"] = (
-                    self.node_info[node][previous_vnf_id]["current_substrate_nodes"][:]
-                )
+                self.node_info[dst_substrate_node][dst_vnf.id][
+                    "current_substrate_nodes"
+                ] = self.node_info[node][previous_vnf_id][
+                    "current_substrate_nodes"
+                ][
+                    :
+                ]
                 self.node_info[dst_substrate_node][dst_vnf.id]["current_substrate_nodes"].append(
                     dst_substrate_node
                 )
-                self.node_info[dst_substrate_node][dst_vnf.id]["src_path"] = (
+                self.node_info[dst_substrate_node][dst_vnf.id][
+                    "src_path"
+                ] = (
                     self.node_info[node][previous_vnf_id]["src_path"][:]
                     + self.node_info[dst_substrate_node]["dst"]["path"][:]
                 )
                 self.node_info[dst_substrate_node][dst_vnf.id]["flag"] = True
 
         if self.node_info[dst_substrate_node][dst_vnf.id]["flag"]:
-            # There is a solution
-            # Backtracking
-            # Start from dst to backtracking to src
-            previous_vnf = dst_vnf
-            previous_substrate_node = dst_substrate_node
-            print("backtrack pvs node:", previous_substrate_node)
-            while True:
-                path = self.node_info[previous_substrate_node][previous_vnf.id]["path"]
-                if not path:
-                    break
-                previous_substrate_node = path[0]
-                previous_vnf = sfc.get_previous_vnf(previous_vnf)
-                if previous_vnf:
-                    self.route_info[previous_vnf.id] = path
-                else:
-                    break
-            self.route_info[dst_vnf.id] = []
-            self.latency = self.node_info[dst_substrate_node][dst_vnf.id]["latency"]
-            self.route_info[previous_vnf.id][0]
+            return self._process_solution(sfc, dst_vnf, dst_substrate_node)
+        return False
 
-            # Se chegou aqui e `self.route_info` não está vazio (ou a flag de que achou caminho é True):
-            oversubscribed = self.check_resource_excess(sfc)
+    def _process_solution(self, sfc, dst_vnf, dst_substrate_node):
+        # There is a solution
+        # Backtracking
+        # Start from dst to backtracking to src
+        previous_vnf = dst_vnf
+        previous_substrate_node = dst_substrate_node
+        print("backtrack pvs node:", previous_substrate_node)
+        while True:
+            path = self.node_info[previous_substrate_node][previous_vnf.id]["path"]
+            if not path:
+                break
+            previous_substrate_node = path[0]
+            previous_vnf = sfc.get_previous_vnf(previous_vnf)
+            if previous_vnf:
+                self.route_info[previous_vnf.id] = path
+            else:
+                break
+        self.route_info[dst_vnf.id] = []
+        self.latency = self.node_info[dst_substrate_node][dst_vnf.id]["latency"]
+        self.route_info[previous_vnf.id][0]
 
-            if oversubscribed != []:
-                print(f"Nós que extrapolaram recursos: {oversubscribed}")
-                if self.solucao_paliativa(sfc):
-                    return True
-                else:
-                    return False
+        # Se chegou aqui e `self.route_info` não está vazio
+        # (ou a flag de que achou caminho é True):
+        oversubscribed = self.check_resource_excess(sfc)
 
-            # remove latency from dst to previous vnf
-            # self.latency_minus_dst = self.latency - len(self.route_info[previous_vnf.id])
-            if "src" not in self.route_info.keys():
-                return True
-            path = self.route_info["src"]
-            for i in range(len(path) - 1):
-                edge_latency = self.substrate_network.get_link_latency(path[i], path[i + 1])
-                self.latency = self.latency - edge_latency
-            if self.latency > sfc.get_latency_request():
-                self.route_info = {}
-                return False
+        if oversubscribed != []:
+            print(f"Nós que extrapolaram recursos: {oversubscribed}")
+            return bool(self.solucao_paliativa(sfc))
+
+        # remove latency from dst to previous vnf
+        # self.latency_minus_dst = self.latency - len(self.route_info[previous_vnf.id])
+        if "src" not in self.route_info:
             return True
-        else:
+        path = self.route_info["src"]
+        for i in range(len(path) - 1):
+            edge_latency = self.substrate_network.get_link_latency(
+                path[i], path[i + 1]
+            )
+            self.latency = self.latency - edge_latency
+        if self.latency > sfc.get_latency_request():
+            self.route_info = {}
             return False
+        return True
 
     def _dp(self, substrate_node, vnf):
         """
-        Start from substrate node substrate_node, calculate all paths and latency from substrate_node to other nodes N.
+        Start from substrate node substrate_node, calculate all paths and
+        latency from substrate_node to other nodes N.
         update information in nodes N for vnf, if latency is minimum.
         """
         # Get precedent of the vnf
@@ -314,7 +324,10 @@ class Musfico:
             # if node == substrate_node:
             #    # Cannot use the current substrate node to host this vnf.
             #    continue
-            # if node in self.node_info[substrate_node][previous_vnf_id]['current_substrate_nodes']:
+
+            # if node in self.node_info[substrate_node][previous_vnf_id][
+            #     'current_substrate_nodes'
+            # ]:
             #    # If node has been used, cannot host this vnf
             #    # Current_substrate_nodes contains the nodes that have been used
             #    continue
@@ -343,10 +356,14 @@ class Musfico:
                 edge_key = frozenset((path[i], path[i + 1]))
                 residual_bandwidth = None
                 if edge_key in bandwidth_usage_info:
-                    residual_bandwidth = bandwidth_usage_info[edge_key] - bandwidth_request
+                    residual_bandwidth = (
+                        bandwidth_usage_info[edge_key] - bandwidth_request
+                    )
                 else:
                     residual_bandwidth = (
-                        self.substrate_network.get_link_bandwidth_free(path[i], path[i + 1])
+                        self.substrate_network.get_link_bandwidth_free(
+                            path[i], path[i + 1]
+                        )
                         - bandwidth_request
                     )
                 if residual_bandwidth < 0:
@@ -365,9 +382,13 @@ class Musfico:
                 self.node_info[node][vnf_id]["path"] = node_path[node]
                 self.node_info[node][vnf_id]["flag"] = True
                 self.node_info[node][vnf_id]["previous_substrate_node"] = substrate_node
-                self.node_info[node][vnf_id]["current_substrate_nodes"] = self.node_info[
-                    substrate_node
-                ][previous_vnf_id]["current_substrate_nodes"][:]
+                self.node_info[node][vnf_id][
+                    "current_substrate_nodes"
+                ] = self.node_info[substrate_node][previous_vnf_id][
+                    "current_substrate_nodes"
+                ][
+                    :
+                ]
                 self.node_info[node][vnf_id]["current_substrate_nodes"].append(node)
                 self.node_info[node][vnf_id]["src_path"] = (
                     self.node_info[substrate_node][previous_vnf_id]["src_path"][:]
@@ -437,7 +458,8 @@ class Musfico:
 
     def solucao_paliativa(self, sfc):
         # Se houver algum nó que estourou CPU ou Cache, descarta a solução
-        # Como solução parcial, caso o MSF dê uma solução inválida, iremos usar a abordagem greedy para alocação
+        # Como solução parcial, caso o MSF dê uma solução inválida, iremos
+        # usar a abordagem greedy para alocação
         greedy_alg = GreedyAlgorithm()
         # self.clear_all()
         greedy_alg.clear_all()

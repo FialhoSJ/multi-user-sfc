@@ -1,4 +1,4 @@
-from net_v2 import Net2
+from muar_sfc.core.net_v2 import Net2
 
 
 def teste_dia_1():
@@ -64,7 +64,7 @@ def teste_dia_1():
             print("   [OK] Nó ressuscitou com 100 de capacidade.")
         else:
             print(
-                f"   [ERRO] Falha na recuperação. Active={node.get('is_active')}, CPU={node.get('cpu_capacity')}"
+                f"Fail_recuperação. Active={node.get('is_active')}, CPU={node.get('cpu_capacity')}"
             )
 
     except Exception as e:

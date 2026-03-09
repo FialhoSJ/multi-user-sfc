@@ -36,7 +36,8 @@ class MobilityManager:
 
     def get_md_distance_from_router(self, id: str, router: str) -> float:
         """
-        Retorna a distância. Se a mobilidade estiver desligada, retorna 0.0 (assumindo co-localização ou irrelevância).
+        Retorna a distância. Se a mobilidade estiver desligada, retorna 0.0
+        (assumindo co-localização ou irrelevância).
         Isso evita que cálculos matemáticos no Controller quebrem.
         """
         if self.tracer is None:

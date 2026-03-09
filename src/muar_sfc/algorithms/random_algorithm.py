@@ -40,19 +40,21 @@ logger.addHandler(ch)
 class RandomAlgorithm:
     """Random algorithm.
 
-    Randomly select k number of substrate nodes from substrate network, where k is equal to the VNFs of an SFC.
-    Note that these k nodes cannot be the substrate nodes who host src and dst of SFC.
-    Start from src, find shortest path one by one and connect the shortest paths among selected nodes.
+    Randomly select k number of substrate nodes from substrate network, where k is equal
+    to the VNFs of an SFC. Note that these k nodes cannot be the substrate nodes who
+    host src and dst of SFC.
+    Start from src, find shortest path one by one and connect the shortest paths among
+    selected nodes.
 
-    By comparing with this random algorithm,
-    The purpose of random allocation is to know
-    whether our approach has a considerable impact on the load balance,
-    or alternatively simply building servers in the preferred node by the network operator
-    is enough to load balance the network.
+    By comparing with this random algorithm, the purpose of random allocation is to know
+    whether our approach has a considerable impact on the load balance, or alternatively
+    simply building servers in the preferred node by the network operator is enough to
+    load balance the network.
 
     Refer to:
     Random fit placement
-    F. Carpio, S. Dhahri, and A. Jukan, "VNF placement with replication for Load balancing in NFV networks," IEEE Int. Conf. Commun., pp. 1-6, 2017.
+    F. Carpio, S. Dhahri, and A. Jukan, "VNF placement with replication for Load balancing
+    in NFV networks," IEEE Int. Conf. Commun., pp. 1-6, 2017.
     """
 
     def __init__(self):
@@ -108,8 +110,8 @@ class RandomAlgorithm:
 
         number_of_vnfs = sfc.get_number_of_vnfs()
 
-        # Randomly generated K number of substrate nodes from all substrate nodes except ingress and egress.
-        # K is equal to the number of vnfs in sfc.
+        # Randomly generated K number of substrate nodes from all substrate nodes except
+        # ingress and egress. K is equal to the number of vnfs in sfc.
         nodes_list = list(nodes)
         try:
             nodes_list.remove(src_substrate_node)  # Remove ingress nodes from substrate node list
@@ -123,7 +125,8 @@ class RandomAlgorithm:
             # have not sufficient nodes for host vnfs
             return False
 
-        # random choose k number of nodes, and append the egress substrate network nodes for host dst vnf
+        # random choose k number of nodes, and append the egress substrate network nodes
+        # for host dst vnf
         random_sampled_substrate_network_nodes = random.sample(nodes_list, k=number_of_vnfs)
         random_sampled_substrate_network_nodes.append(dst_substrate_node)
 
@@ -137,10 +140,14 @@ class RandomAlgorithm:
             # 🔴 Blindagem Arquitetural: Captura específica de erros do NetworkX
             try:
                 # get shortest path length. here shortest path is weighted by latency.
-                path_latency = substrate_network.get_shortest_path_length(pre_substrate_node, node)
+                path_latency = substrate_network.get_shortest_path_length(
+                    pre_substrate_node, node
+                )
                 path = substrate_network.get_shortest_path(pre_substrate_node, node)
             except (nx.NetworkXNoPath, nx.NodeNotFound):
-                logger.warning("have no path between two nodes: %s - %s", pre_substrate_node, node)
+                logger.warning(
+                    "have no path between two nodes: %s - %s", pre_substrate_node, node
+                )
                 return False
 
             pre_substrate_node = node

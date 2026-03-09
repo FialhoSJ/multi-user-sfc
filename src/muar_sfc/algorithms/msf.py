@@ -127,7 +127,7 @@ class MSF:
 
         for node in self.graph.nodes():
             self.node_info[node] = {}
-            for vnf_id, vnf in list(sfc.vnfs.items()):
+            for vnf_id, _vnf in list(sfc.vnfs.items()):
                 # Not include src and dst.
                 self.node_info[node][vnf_id] = {}
                 self.node_info[node][vnf_id]["flag"] = (
@@ -193,13 +193,13 @@ class MSF:
             if sf == "dst":
                 continue
 
-            if prev_path_end is not None and path:
-                # Valida se o fim do caminho atual conecta com o início do próximo
-                if path[-1] != prev_path_end:
-                    logger.debug(
-                        f"Inconsistência de rota detectada antes de {sf}: {prev_path_end} != {path[-1]}"
-                    )
-                    return False
+            # Valida se o fim do caminho atual conecta com o início do próximo (SIM102 resolvido)
+            if prev_path_end is not None and path and path[-1] != prev_path_end:
+                logger.debug(
+                    f"Inconsistência de rota antes de {sf}: "
+                    f"{prev_path_end} != {path[-1]}"
+                )
+                return False
 
             if path:
                 prev_path_end = path[0]
@@ -337,7 +337,7 @@ class MSF:
 
             # Reconstrução limpa da latência
             total_latency = 0.0
-            for sf, path in self.route_info.items():
+            for _sf, path in self.route_info.items():
                 if path and len(path) > 1:
                     for i in range(len(path) - 1):
                         total_latency += get_link_latency(self.graph, path[i], path[i + 1])

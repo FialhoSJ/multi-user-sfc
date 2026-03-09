@@ -16,7 +16,7 @@ sfc_dict
         {type: "TYPE1", "name": "vnf1", "CPU": 100},
         {type: "TYPE1", "name": "vnf1", "CPU": 100},
         {type: "TYPE1", "name": "vnf1", "CPU": 100},
-        
+
     ],
     "bandwidth": 10,
     "src_node": 1,
@@ -38,7 +38,7 @@ class SFCGenerator:
         self.dst_substrate_node = sfc_dict["dst_node"]
         self.latency = sfc_dict["latency"]
         self.duration = sfc_dict["duration"]
-        self.mobile_node = sfc_dict["mobile_node"] if "mobile_node" in sfc_dict else None
+        self.mobile_node = sfc_dict.get("mobile_node", None)
 
     def generate(self):
         vnfs_list = []

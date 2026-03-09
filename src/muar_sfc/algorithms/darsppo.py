@@ -94,7 +94,9 @@ class DARSPPO:
         self.single_source_minimum_latency_path = None
 
     # O método install_substrate_network foi mantido como no original.
-    def install_substrate_network(self, graph, shareable_sfs=[]):
+    def install_substrate_network(self, graph, shareable_sfs=None):
+        if shareable_sfs is None:
+            shareable_sfs = []
         self.graph = graph
         self.valid_nodes = [
             node for node in self.graph.nodes() if self.graph.nodes[node]["type"] != "router"
@@ -109,7 +111,7 @@ class DARSPPO:
         self.route_info = {}
         self.node_info = {}
         self.latency = None
-        is_backup = True if sfc.id.split("_")[2] == "backup" else False
+        is_backup = sfc.id.split("_")[2] == "backup"
 
         self.latency_request = sfc.get_latency_request()
         self.min_latency = 0

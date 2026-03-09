@@ -31,7 +31,7 @@ class NetworkPhysics:
     def calculate_5g_latency(
         packet_size_mb: float,
         distance_m: float | None = None,
-        config: Physics5GConfig = Physics5GConfig(),
+        config: Physics5GConfig | None = None,
     ) -> float:
         """Calcula a latência de transmissão 5G baseada em Shannon-Hartley e Path Loss.
 
@@ -45,6 +45,10 @@ class NetworkPhysics:
         Returns:
             float: Latência estimada em milissegundos (ms).
         """
+        # Instancia a configuração padrão caso nenhuma seja fornecida
+        if config is None:
+            config = Physics5GConfig()
+
         dist = distance_m if distance_m is not None else config.distancia_padrao_m
 
         # Evita log de 0 ou distância negativa

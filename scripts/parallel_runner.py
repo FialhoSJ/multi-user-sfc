@@ -70,7 +70,7 @@ if __name__ == "__main__":
     # Loop para gerar os comandos
     for alg_name in BATCH_ALGS:
         for fail_target in BATCH_FAIL_TARGETS:
-            for i in range(BATCH_TOTAL_RUNS):
+            for _i in range(BATCH_TOTAL_RUNS):
                 for a in avas:
                     for n in number_of_fails:
                         command = (
@@ -109,7 +109,7 @@ if __name__ == "__main__":
 
     pool = Pool(processes=BATCH_PARALLEL_RUNS)
 
-    for i, command in enumerate(cmd):
+    for _i, command in enumerate(cmd):
         pool.apply_async(run_process, (command,), callback=lambda c=command: process_callback(c))
         time.sleep(1.0)  # Pequeno delay para evitar conflito de I/O na criação de logs
 

@@ -1,21 +1,37 @@
+"""
+Consideration:
+Algorithm should not do any modification on substrate network
+
+It should only use network information and sfc information to
+solve and give out a mapping and route info, that
+
+route info :=
+{
+    src:  [1, 2, 3],
+    vnf1: [3, 4, 5],
+    vnf2: [5, 6, 7],
+    vnf3: [7, 8 ,9],
+    dst:  []
+}
+
+"""
+
 import copy
 import logging
 
-from config import ROOT_PATH
+from muar_sfc.config import ROOT_DIR
 
 # create logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 # create console handler and set level to debug
-# ch = logging.StreamHandler()
-ch = logging.FileHandler(ROOT_PATH + "./logs/DynamicProgrammingAlgorithm.log")
+ch = logging.FileHandler(ROOT_DIR + "./logs/DynamicProgrammingAlgorithm.log")
 ch.setLevel(logging.DEBUG)
+
 # create formatter
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-# add formatter to ch
 ch.setFormatter(formatter)
-# add ch to logger
 logger.addHandler(ch)
 
 
@@ -32,7 +48,6 @@ class DynamicProgrammingAlgorithm:
         self.latency = None
 
     def clear_all(self):
-        # logger.debug('clear all')
         self.substrate_network = None
         self.sfc = None
         self.node_info = {}
@@ -59,38 +74,29 @@ class DynamicProgrammingAlgorithm:
 
         for node in self.substrate_network.nodes():
             self.node_info[node] = {}
-            for vnf_id, vnf in list(sfc.vnfs.items()):
+            for vnf_id, _vnf in list(sfc.vnfs.items()):
                 # Not include src and dst.
                 self.node_info[node][vnf_id] = {}
-                self.node_info[node][vnf_id]["flag"] = (
-                    False  # whether vnf/id can be placed on node
-                )
+                self.node_info[node][vnf_id]["flag"] = False
                 self.node_info[node][vnf_id]["latency"] = float("inf")
                 self.node_info[node][vnf_id]["path"] = []
                 self.node_info[node][vnf_id]["src_path"] = []
                 self.node_info[node][vnf_id]["previous_substrate_node"] = None
-                self.node_info[node][vnf_id][
-                    "current_substrate_nodes"
-                ] = []  # The meta information
-                # in which is a set of substrate node
-                # has been assigned to VNFs in order
+                self.node_info[node][vnf_id]["current_substrate_nodes"] = []
                 self.node_info[node][vnf_id]["bandwidth_usage_info"] = {}
 
             self.node_info[node][src_vnf.id] = {}
-            self.node_info[node][src_vnf.id]["flag"] = (
-                False  # src cannot be placed on the node except src node
-            )
+            self.node_info[node][src_vnf.id]["flag"] = False
             self.node_info[node][dst_vnf.id] = {}
 
-        self.node_info[src_substrate_node][src_vnf.id]["flag"] = (
-            True  # src can be placed on the src node
-        )
+        self.node_info[src_substrate_node][src_vnf.id]["flag"] = True
         self.node_info[src_substrate_node][src_vnf.id]["latency"] = 0
         self.node_info[src_substrate_node][src_vnf.id]["src_path"] = []
         self.node_info[src_substrate_node][src_vnf.id]["path"] = []
         self.node_info[src_substrate_node][src_vnf.id]["current_substrate_nodes"] = [
             src_substrate_node
         ]
+
         self.node_info[dst_substrate_node][dst_vnf.id]["flag"] = False
         self.node_info[dst_substrate_node][dst_vnf.id]["latency"] = float("inf")
         self.node_info[dst_substrate_node][dst_vnf.id]["src_path"] = []
@@ -108,17 +114,12 @@ class DynamicProgrammingAlgorithm:
         return self.route_info
 
     def start_algorithm(self):
-        substrate_network = self.substrate_network
-        sfc = self.sfc
-        # logger.info('Algorithm start')
-        if self.algorithm(substrate_network, sfc):
-            # logger.info('Algorithm end, success')
-            return True
-        # logger.info('Algorithm end, failed')
-        return False
+        # Retorno direto da condição para resolver SIM103
+        return self.algorithm(self.substrate_network, self.sfc)
 
     def algorithm(self, substrate_network, sfc):
         nodes = substrate_network.nodes()
+
         # Get src and dst vnf
         src_vnf = sfc.get_src_vnf()
         dst_vnf = sfc.get_dst_vnf()
@@ -142,16 +143,14 @@ class DynamicProgrammingAlgorithm:
         # For dst:
         (node_latency, node_path) = self.single_source_minimum_latency_path[
             dst_substrate_node
-        ]  # Get single source path from substrate node to all other substrate node
-        # here node in latency and path results is the node host previous vnf
+        ]
+
         previous_vnf = sfc.get_previous_vnf(dst_vnf)
         previous_vnf_id = previous_vnf.id
-
         bandwidth_request = sfc.get_link_bandwidth_request(previous_vnf_id, dst_vnf.id)
 
         for node, latency in list(node_latency.items()):
-            if node == dst_substrate_node or node == src_substrate_node:
-                # if node is ingress or egress, continue
+            if node in (dst_substrate_node, src_substrate_node):
                 continue
 
             # Check bandwidth resources
@@ -161,9 +160,11 @@ class DynamicProgrammingAlgorithm:
             )
             path = node_path[node]
             length = len(path)
+
             for i in range(0, length - 1):
                 edge_key = frozenset((path[i], path[i + 1]))
                 residual_bandwidth = None
+
                 if edge_key in bandwidth_usage_info:
                     residual_bandwidth = bandwidth_usage_info[edge_key] - bandwidth_request
                 else:
@@ -171,20 +172,25 @@ class DynamicProgrammingAlgorithm:
                         self.substrate_network.get_link_bandwidth_free(path[i], path[i + 1])
                         - bandwidth_request
                     )
+
                 if residual_bandwidth < 0:
                     logger.warning("Bandwidth resources is not sufficient to dst")
                     is_bandwidth_sufficient = False
                     break
+
                 bandwidth_usage_info[edge_key] = residual_bandwidth
+
             if not is_bandwidth_sufficient:
-                # check next path
                 continue
 
             _latency = self.node_info[node][previous_vnf_id]["latency"]
+
             if not self.node_info[dst_substrate_node][dst_vnf.id]["latency"]:
                 logger.warning("node info")
+
             if not _latency + latency < self.node_info[dst_substrate_node][dst_vnf.id]["latency"]:
                 logger.warning(("node info latency: ", str(_latency + latency)))
+
             if (
                 not self.node_info[dst_substrate_node][dst_vnf.id]["latency"]
                 or _latency + latency < self.node_info[dst_substrate_node][dst_vnf.id]["latency"]
@@ -192,6 +198,7 @@ class DynamicProgrammingAlgorithm:
                 self.node_info[dst_substrate_node][dst_vnf.id]["latency"] = _latency + latency
                 self.node_info[dst_substrate_node][dst_vnf.id]["path"] = node_path[node]
                 self.node_info[dst_substrate_node][dst_vnf.id]["path"].reverse()
+
                 self.node_info[dst_substrate_node][dst_vnf.id]["current_substrate_nodes"] = (
                     self.node_info[node][previous_vnf_id]["current_substrate_nodes"][:]
                 )
@@ -205,11 +212,10 @@ class DynamicProgrammingAlgorithm:
                 self.node_info[dst_substrate_node][dst_vnf.id]["flag"] = True
 
         if self.node_info[dst_substrate_node][dst_vnf.id]["flag"]:
-            # There is a solution
-            # Backtracking
-            # Start from dst to backtracking to src
+            # Backtracking from dst to src
             previous_vnf = dst_vnf
             previous_substrate_node = dst_substrate_node
+
             while True:
                 path = self.node_info[previous_substrate_node][previous_vnf.id]["path"]
                 if not path:
@@ -220,8 +226,10 @@ class DynamicProgrammingAlgorithm:
                     self.route_info[previous_vnf.id] = path
                 else:
                     break
+
             self.route_info[dst_vnf.id] = []
             self.latency = self.node_info[dst_substrate_node][dst_vnf.id]["latency"]
+
             # refuse if latency is too high
             if self.latency > 6:
                 self.route_info = {}
@@ -232,15 +240,16 @@ class DynamicProgrammingAlgorithm:
 
     def dp(self, substrate_node, vnf):
         """
-        Start from substrate node substrate_node, calculate all paths and latency from substrate_node to other nodes N.
+        Start from substrate node substrate_node, calculate all paths and latency
+        from substrate_node to other nodes N.
         update information in nodes N for vnf, if latency is minimum.
         """
         # Get precedent of the vnf
         sfc = self.sfc
         previous_vnf = sfc.get_previous_vnf(vnf)
         previous_vnf_id = previous_vnf.id
+
         if not self.node_info[substrate_node][previous_vnf_id]["flag"]:
-            # This substrate node cannot host precedent vnf, thus, no need to exam further.
             return False
 
         vnf_id = vnf.id
@@ -257,18 +266,15 @@ class DynamicProgrammingAlgorithm:
 
         for node, latency in list(node_latency.items()):
             if node == self.src_substrate_node == self.dst_substrate_node:
-                # Ingress and egress cannot host this vnf
                 continue
+
             # Check CPU and cache resources
             cpu_available = self.substrate_network.get_node_cpu_free(node)
             cache_available = self.substrate_network.get_node_cache_free(node)
+
             if cpu_request >= cpu_available:
-                # if node has not sufficient cpu, check next node.
-                # logger.warning("not sufficient CPU in Node " + str(node))
                 continue
             if cache_request >= cache_available:
-                # if node has not sufficient cache, check next node.
-                # logger.warning("not sufficient cache in Node " + str(node))
                 continue
 
             # Check bandwidth resources
@@ -281,9 +287,11 @@ class DynamicProgrammingAlgorithm:
             if path[0] != substrate_node:
                 path.reverse()
             length = len(path)
+
             for i in range(0, length - 1):
                 edge_key = frozenset((path[i], path[i + 1]))
                 residual_bandwidth = None
+
                 if edge_key in bandwidth_usage_info:
                     residual_bandwidth = bandwidth_usage_info[edge_key] - bandwidth_request
                 else:
@@ -291,14 +299,17 @@ class DynamicProgrammingAlgorithm:
                         self.substrate_network.get_link_bandwidth_free(path[i], path[i + 1])
                         - bandwidth_request
                     )
+
                 if residual_bandwidth < 0:
                     logger.warning("dp Bandwidth resources is not sufficient")
                     is_bandwidth_sufficient = False
                     break
-                # condition to check latency
+
                 bandwidth_usage_info[edge_key] = residual_bandwidth
+
             if not is_bandwidth_sufficient:
                 continue
+
             self.node_info[node][vnf_id]["bandwidth_usage_info"] = bandwidth_usage_info
 
             if (
@@ -309,12 +320,15 @@ class DynamicProgrammingAlgorithm:
                 self.node_info[node][vnf_id]["path"] = node_path[node]
                 self.node_info[node][vnf_id]["flag"] = True
                 self.node_info[node][vnf_id]["previous_substrate_node"] = substrate_node
+
                 self.node_info[node][vnf_id]["current_substrate_nodes"] = self.node_info[
                     substrate_node
                 ][previous_vnf_id]["current_substrate_nodes"][:]
+
                 self.node_info[node][vnf_id]["current_substrate_nodes"].append(node)
                 self.node_info[node][vnf_id]["src_path"] = (
                     self.node_info[substrate_node][previous_vnf_id]["src_path"][:]
                     + node_path[node][:-1]
                 )
+
         return True

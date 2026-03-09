@@ -4,10 +4,10 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.spatial import Voronoi, cKDTree, voronoi_plot_2d
 
 # Atualizando importação para a nova arquitetura src-layout
-from muar_sfc.topology.paloalto import generate_substrate_network
-from scipy.spatial import Voronoi, cKDTree, voronoi_plot_2d
+from muar_sfc.topology.predefined.sample_topology import generate_substrate_network
 
 # Modernização Orientada a Objetos Multiplataforma (pathlib)
 PATH_TRACE = Path("traces") / "sumoTraceVehicle.xml"
@@ -23,7 +23,6 @@ def generate_trace(edges_position: np.ndarray) -> dict:
     voronoi_kdtree = cKDTree(edges_position)
     vehicles_dict = {}
 
-    # Tratamento de erro seguro focado no paradigma EAFP (Easier to Ask Forgiveness than Permission)
     try:
         tree = ET.parse(PATH_TRACE)
     except FileNotFoundError:
@@ -38,7 +37,6 @@ def generate_trace(edges_position: np.ndarray) -> dict:
         if timestamp == "100.00":
             break
 
-        # O método getchildren() foi removido no Python 3.9+. A conversão nativa é iterar diretamente.
         vehicles = list(time_obj)
         vehicles_attr = {"speed": [], "id": [], "position": [], "region": []}
 

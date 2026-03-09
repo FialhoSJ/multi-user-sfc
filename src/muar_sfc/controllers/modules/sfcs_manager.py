@@ -232,7 +232,7 @@ class SFCManager:
 
         key_ingress = "src_virt"
         key_egress = None
-        for k in backup_route.keys():
+        for k in backup_route:
             if k.endswith("_b") and k != "src_virt" and k != "dst_virt":
                 key_egress = k
                 break
@@ -319,7 +319,7 @@ class SFCManager:
 
         if self.verbose:
             print(
-                f"✅ [STITCH-SUCCESS] {sfc_obj.id}: VNF {affected_vnf_id} recuperada em {backup_node}"
+                f"[STITCH-SUCCESS] {sfc_obj.id}: VNF {affected_vnf_id} recuperada em {backup_node}"
             )
 
         return True
@@ -346,7 +346,7 @@ class SFCManager:
 
         # Lógica aproximada baseada na nomenclatura (sfc_pX_Y)
         # Ajuste conforme seu padrão de nomes
-        for group_id, info in running_sfcs.items():
+        for group_id, _info in running_sfcs.items():
             sessions.add(group_id)
             # Extração heurística do player ID
             # Ex: sfc_list_p1_10 -> p1

@@ -30,7 +30,6 @@ class Monitor:
         cpu_free = self.substrate_network.get_node_cpu_free(node_id)
         cpu_capacity = self.substrate_network.get_node_cpu_capacity(node_id)
         sfc_vnf_list = self.substrate_network.get_node_sfc_vnf_list(node_id)
-        # print "node id:", node_id, ":", "CPU: used:", cpu_used, "free:", cpu_free, "capacity:", cpu_capacity
         return (cpu_used, cpu_free, cpu_capacity, sfc_vnf_list)
 
     def update(self):

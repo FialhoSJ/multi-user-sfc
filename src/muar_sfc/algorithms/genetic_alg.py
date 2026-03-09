@@ -124,7 +124,7 @@ class Genetic(Algorithm):
         self.route_info = {}
         self.node_info = {}
         self.latency = None
-        is_backup = True if sfc.id.split("_")[2] == "backup" else False
+        is_backup = sfc.id.split("_")[2] == "backup"
 
         self.latency_request = sfc.get_latency_request()
         self.min_latency = 0
@@ -286,7 +286,6 @@ class Genetic(Algorithm):
                 LAMBDA = 0.0001
 
                 if service != "dst":
-                    # Note que mudei de '<' para '<=' para evitar que alocações exatas sejam rejeitadas injustamente
                     if cpu_request <= cpu_available and cache_request <= cache_available:
                         node_resource_cost = (
                             self.graph.nodes[server_id]["cpu_used"] + cpu_request + LAMBDA
@@ -321,7 +320,7 @@ class Genetic(Algorithm):
                         return (float("inf"),)
 
                     if len(path) > 1:
-                        for u, v in zip(path[:-1], path[1:]):
+                        for u, v in zip(path[:-1], path[1:], strict=False):
                             edge_latency += calculate_latency_betwen_nodes(self.graph, u, v, vnf)
 
                             bw_used = self.graph[u][v].get("bandwidth_used")
@@ -350,7 +349,8 @@ class Genetic(Algorithm):
 
         def custom_crossover(parent1, parent2):
             """
-            Realiza o crossover entre dois pais, garantindo que os filhos não tenham elementos repetidos.
+            Realiza o crossover entre dois pais, garantindo que os filhos não tenham
+            elementos repetidos.
             Sobrescreve os pais diretamente.
             """
             start_time = time.time()
@@ -488,12 +488,11 @@ class Genetic(Algorithm):
         for sf, path in self.route_info.items():
             if sf == "dst":
                 continue
-            if prev_path_end is not None:
-                if path[-1] != prev_path_end:
-                    logger.warning(
-                        f"Inconsistência entre {prev_sf} e {sf}: {prev_path_end} != {path[0]}"
-                    )
-                    return False  # ou raise Exception se quiser abortar
+            if prev_path_end is not None and path[-1] != prev_path_end:
+                logger.warning(
+                    f"Inconsistência entre {prev_sf} e {sf}: {prev_path_end} != {path[0]}"
+                )
+                return False  # ou raise Exception se quiser abortar
             prev_path_end = path[0]
             prev_sf = sf
 

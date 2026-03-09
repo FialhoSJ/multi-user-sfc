@@ -365,7 +365,7 @@ class BackupManager:
             if len(path) > 1:
                 vnf_obj = sfc.get_vnf_by_id(vnf_name)
                 bw_req = vnf_obj.get_outcome_interface_bandwidth() if vnf_obj else 0
-                for u, v in zip(path[:-1], path[1:]):
+                for u, v in zip(path[:-1], path[1:], strict=False):
                     if graph.has_edge(u, v):
                         graph.edges[u, v]["bandwidth_used"] = (
                             graph.edges[u, v].get("bandwidth_used", 0) + bw_req
@@ -535,24 +535,30 @@ class BackupManager:
                     continue
 
                 # Commit temporário de banda
-                for u, v in zip(p_in[:-1], p_in[1:]):
+                for u, v in zip(p_in[:-1], p_in[1:], strict=False):
                     link_usage[tuple(sorted((u, v)))] += bw_req
 
                 p_out = get_path(target_server, dst_n, bw_req)
                 if not p_out:
-                    for u, v in zip(p_in[:-1], p_in[1:]):
+                    for u, v in zip(p_in[:-1], p_in[1:], strict=False):
                         link_usage[tuple(sorted((u, v)))] -= bw_req
                     continue
 
-                for u, v in zip(p_out[:-1], p_out[1:]):
+                for u, v in zip(p_out[:-1], p_out[1:], strict=False):
                     link_usage[tuple(sorted((u, v)))] += bw_req
 
                 node_resources[target_server]["cpu"] -= cpu_req
                 node_resources[target_server]["cache"] -= cache_req
 
+                # Separa os componentes do sfc_id para organizar melhor o dicionário
+                s_parts = sfc_id.split("_")
+                p0, p1, p2, p3 = s_parts[0], s_parts[1], s_parts[2], s_parts[3]
+
+                new_sfc_name = f"{p0}_{p1}_backup_{v_id}_{p2}_{p3}"
+
                 new_sfc = SFCGenerator(
                     {
-                        "name": f"{sfc_id.split('_')[0]}_{sfc_id.split('_')[1]}_backup_{v_id}_{sfc_id.split('_')[2]}_{sfc_id.split('_')[3]}",
+                        "name": new_sfc_name,
                         "vnf_list": [
                             {
                                 "type": 2,
@@ -600,11 +606,9 @@ class BackupManager:
                     }
                 ).generate()
 
-                new_sfc.original_sfc_id, new_sfc.is_backup, new_sfc.target_vnf_id = (
-                    sfc_id,
-                    True,
-                    v_id,
-                )
+                new_sfc.original_sfc_id = sfc_id
+                new_sfc.is_backup = True
+                new_sfc.target_vnf_id = v_id
                 new_sfc.pre_calculated_route = {
                     "src_virt": p_in,
                     v_id + "_b": p_out,
@@ -706,16 +710,16 @@ class BackupManager:
             }
         ).generate()
 
-        mini_sfc.original_sfc_id, mini_sfc.is_backup, mini_sfc.target_vnf_id = (
-            original_sfc.id,
-            True,
-            vnf_to_replicate_id,
+        mini_sfc.original_sfc_id = original_sfc.id
+        mini_sfc.is_backup = True
+        mini_sfc.target_vnf_id = vnf_to_replicate_id
+
+        mini_sfc.session_id = getattr(
+            original_sfc, "session_id", original_sfc.id.split("_")[-1]
         )
-        mini_sfc.session_id, mini_sfc.src_virt, mini_sfc.dst_virt = (
-            getattr(original_sfc, "session_id", original_sfc.id.split("_")[-1]),
-            p_n,
-            n_n,
-        )
+        mini_sfc.src_virt = p_n
+        mini_sfc.dst_virt = n_n
+
         return mini_sfc
 
     def get_backups_instantiated_q(self) -> int:

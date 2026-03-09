@@ -86,7 +86,7 @@ class DynamicProgrammingAlgorithm(Algorithm):
         dst_substrate_node = self.sfc.get_substrate_node(dst_vnf)
         for node in self.substrate_network.nodes():
             self.node_info[node] = {}
-            for vnf_id, vnf in list(sfc.vnfs.items()):
+            for vnf_id, _vnf in list(sfc.vnfs.items()):
                 # Not include src and dst.
                 self.node_info[node][vnf_id] = {}
                 self.node_info[node][vnf_id]["flag"] = (
@@ -138,11 +138,9 @@ class DynamicProgrammingAlgorithm(Algorithm):
         substrate_network = self.substrate_network
         sfc = self.sfc
         # logger.info('Algorithm start')
-        if self.algorithm(substrate_network, sfc, shareable_sfs):
-            # logger.info('Algorithm end, success')
-            return True
-        # logger.info('Algorithm end, failed')
-        return False
+
+        # O método self.algorithm já retorna um booleano
+        return self.algorithm(substrate_network, sfc, shareable_sfs)
 
     def algorithm(self, substrate_network, sfc, shareable_sfs=None):
         # faça alguma coisa
@@ -182,7 +180,7 @@ class DynamicProgrammingAlgorithm(Algorithm):
 
         #        i = 0
         for node, latency in list(node_latency.items()):
-            if node == dst_substrate_node or node == src_substrate_node:
+            if node in (dst_substrate_node, src_substrate_node):
                 # if node is ingress or egress, continue
                 continue
 
@@ -218,7 +216,10 @@ class DynamicProgrammingAlgorithm(Algorithm):
             _latency = self.node_info[node][previous_vnf_id]["latency"]
             # if not self.node_info[dst_substrate_node][dst_vnf.id]['latency']:
             #    logger.warning('node info')
-            # if not _latency + latency < self.node_info[dst_substrate_node][dst_vnf.id]['latency']:
+            #
+            # Quebra de linha no comentário abaixo para respeitar 99 caracteres
+            # if not _latency + latency < self.node_info[dst_substrate_node][
+            #     dst_vnf.id]['latency']:
             #    logger.warning(('node info latency: ',str(_latency + latency)))
             if (
                 not self.node_info[dst_substrate_node][dst_vnf.id]["latency"]
@@ -258,7 +259,7 @@ class DynamicProgrammingAlgorithm(Algorithm):
             self.route_info[dst_vnf.id] = []
             self.latency = self.node_info[dst_substrate_node][dst_vnf.id]["latency"]
             # refuse if latency is too high
-            if "src" not in self.route_info.keys():
+            if "src" not in self.route_info:
                 return True
             path = self.route_info["src"]
             for i in range(len(path) - 1):
@@ -273,7 +274,8 @@ class DynamicProgrammingAlgorithm(Algorithm):
 
     def _dp(self, substrate_node, vnf):
         """
-        Start from substrate node substrate_node, calculate all paths and latency from substrate_node to other nodes N.
+        Start from substrate node substrate_node, calculate all paths and
+        latency from substrate_node to other nodes N.
         update information in nodes N for vnf, if latency is minimum.
         """
 

@@ -1,5 +1,6 @@
 # --- Standard Library Imports ---
 import _thread
+import contextlib
 import copy
 import logging
 import random
@@ -164,10 +165,11 @@ class SubstrateNetworkController:
 
     def handle_mobility(self):
         """Gerencia a mobilidade de acordo com o intervalo definido."""
-        if self.mobility_manager.activated:
-            if time.time() - self.last_mobility_time >= self.mobility_interval:
-                self.check_mobility()
-                self.last_mobility_time = time.time()
+        if self.mobility_manager.activated and (
+            time.time() - self.last_mobility_time >= self.mobility_interval
+        ):
+            self.check_mobility()
+            self.last_mobility_time = time.time()
 
     def handle_backups(self) -> None:
         """
@@ -176,7 +178,7 @@ class SubstrateNetworkController:
         Orquestra a chamada ao gerenciador para criação lógica e, subsequentemente,
         realiza o deploy físico na rede para garantir consistência de estado.
         """
-        # Guard Clause para evitar aninhamento excessivo e execução desnecessária [cite: 75]
+        # Guard Clause para evitar aninhamento excessivo e execução desnecessária
         if not self.sfc_manager.backup_manager.backup_activated:
             return
 
@@ -188,7 +190,7 @@ class SubstrateNetworkController:
 
         # Definição do Agente (se aplicável)
         agent = None
-        if self.alg == "REPLICMASKABLEPPO" or "ga":
+        if True:
             agent = self.sfc_instantiator.alg
 
         # 1. Criação Lógica (Factory)
@@ -259,20 +261,25 @@ class SubstrateNetworkController:
                 crashed_nodes, _ = self.server_fail_operation()
                 if crashed_nodes and duration > 0:
                     recovery_time = elapsed_time + duration
-                    self.active_failures.append(
-                        {"type": "node", "target": crashed_nodes, "recovery_time": recovery_time}
-                    )
+                    self.active_failures.append({
+                        "type": "node",
+                        "target": crashed_nodes,
+                        "recovery_time": recovery_time
+                    })
                     print(
-                        f"   -> Recuperação agendada para T={recovery_time:.2f}s (Daqui a {duration}s)"
+                        f"   -> Recuperação agendada para T={recovery_time:.2f}s "
+                        f"(Daqui a {duration}s)"
                     )
 
             elif event["type"] == "link":
                 link_crashed, _ = self.link_fail_operation()
                 if link_crashed and duration > 0:
                     recovery_time = elapsed_time + duration
-                    self.active_failures.append(
-                        {"type": "link", "target": link_crashed, "recovery_time": recovery_time}
-                    )
+                    self.active_failures.append({
+                        "type": "link",
+                        "target": link_crashed,
+                        "recovery_time": recovery_time
+                    })
                     print(f"   -> Recuperação agendada para T={recovery_time:.2f}s")
 
     def update(self) -> None:
@@ -439,7 +446,7 @@ class SubstrateNetworkController:
 
     def backup_in_qeue(self):
         sfc_deque = self.sfc_queue.queue
-        for index, sfc_list in enumerate(sfc_deque):
+        for _index, sfc_list in enumerate(sfc_deque):
             for sfc in sfc_list:
                 is_backup = sfc.id.split("_")[2]
                 if is_backup == "backup":
@@ -454,7 +461,7 @@ class SubstrateNetworkController:
         if self.sfc_manager.sfcs_tracker != {}:
             sfcs_moved, new_locations = self.mobility_manager.check_all_vehicles_position_changes()
 
-            for sfc_list, new_location in zip(sfcs_moved, new_locations):
+            for sfc_list, new_location in zip(sfcs_moved, new_locations, strict=False):
                 obj_sfc_list = []
                 valid_move = True
 
@@ -585,10 +592,9 @@ class SubstrateNetworkController:
         else:
             low_risk = total_victims
 
+        bucket_name = 'High' if high_risk else 'Med' if med_risk else 'Low'
         print(f"   -> Crash Source Reliability: {server_reliability:.4f}")
-        print(
-            f"   -> Impact bucket: {'High' if high_risk else 'Med' if med_risk else 'Low'} Risk Node"
-        )
+        print(f"   -> Impact bucket: {bucket_name} Risk Node")
 
         return high_risk, med_risk, low_risk
 
@@ -740,11 +746,11 @@ class SubstrateNetworkController:
 
             # CAMINHO 1: Sem Backup -> Fila
             if not has_viable_backup:
-                if self.verbose:
-                    if "backup" not in sfc_id:
-                        print(
-                            f"⚠️ [FAIL-FAST] SFC {sfc_id} perdeu VNF {affected_vnf_id} e NÃO tem backup. Enviando para fila."
-                        )
+                if self.verbose and "backup" not in sfc_id:
+                    print(
+                        f"⚠️ [FAIL-FAST] SFC {sfc_id} perdeu VNF {affected_vnf_id} "
+                        "e NÃO tem backup. Enviando para fila."
+                    )
 
                 self.sfcs_crash_affected[sfc_id] = {
                     "fall_time": time.time(),
@@ -849,7 +855,6 @@ class SubstrateNetworkController:
         total_affected = len(affected_sfc_ids)
 
         # [CORREÇÃO] Usar apenas SFCs primárias como universo total
-        # Antes: total_active_sfcs = len(self.substrate_network.sfc_dict)
         total_active_sfcs = self.substrate_network.get_number_active_primary_sfcs()
 
         avg_lat_before = (
@@ -959,7 +964,7 @@ class SubstrateNetworkController:
         last_sf_dec = f"sfc_mono_p{self.players}_{self.flows}"
 
         for sfc_id in sfc_list:
-            if sfc_id == last_sf_mono or sfc_id == last_sf_dec:
+            if sfc_id in (last_sf_mono, last_sf_dec):
                 print(f"[INFO] Last SFC released detected: {sfc_id}")
                 print("Max queue size:", self.max_queue_size)
                 time.sleep(1)
@@ -975,7 +980,7 @@ class SubstrateNetworkController:
         if self.sfc_manager and self.sfc_manager.backup_manager:
             backups_dict = self.sfc_manager.backup_manager.sfcs_backups_instatiated
 
-        for sfc_id, sfc in self.substrate_network.sfc_dict.items():
+        for sfc_id, _sfc in self.substrate_network.sfc_dict.items():
             if sfc_id not in self.substrate_network.sfc_route_info:
                 continue
             if "backup" in sfc_id:
@@ -1071,12 +1076,13 @@ class SubstrateNetworkController:
         if zombie_ids:
             if self.verbose:
                 print(
-                    f"[GC] Inconsistência detectada. Removendo {len(zombie_ids)} SFCs órfãs: {zombie_ids}"
+                    f"[GC] Inconsistência detectada. Removendo {len(zombie_ids)} "
+                    f"SFCs órfãs: {zombie_ids}"
                 )
 
             for z_id in zombie_ids:
                 try:
-                    # Delegação: O Controller manda a Rede limpar, sem saber como a Rede faz isso.
+                    # Delegação: O Controller manda a Rede limpar.
                     self.substrate_network.undeploy_sfc(z_id)
                 except Exception as e:
                     print(f"[GC] Erro crítico ao limpar zumbi {z_id}: {e}")
@@ -1090,16 +1096,12 @@ class SubstrateNetworkController:
                 b_id = backup_entry["sfc_backup_id"]
                 self._safe_undeploy_backup(b_id)
 
-        try:
+        with contextlib.suppress(Exception):
             self.substrate_network.undeploy_sfc(sfc_id)
-        except Exception:
-            pass
 
     def _safe_undeploy_backup(self, backup_id: str) -> None:
-        try:
+        with contextlib.suppress(Exception):
             self.substrate_network.undeploy_sfc(backup_id)
-        except Exception:
-            pass
 
         if self.sfc_manager.backup_manager:
             self.sfc_manager.backup_manager.cleanup_internal_state(backup_id)

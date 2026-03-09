@@ -41,11 +41,11 @@ ch.setFormatter(formatter)
 logger.addHandler(ch)
 
 
-
 class KShortestPathsAlgorithm(Algorithm):
     """k-shortest paths algorithm.
     Find k shortest paths between src and dst.
-    Use the longest path as the candidate path. (initial path, who has the most number of node along the path)
+    Use the longest path as the candidate path. (initial path, who has the most
+    number of node along the path)
     If the number of nodes along the path cannot host all the VNFs in the SFC,
     find the edge with least available bandwidth resource, say edge (m,n).
     Remove the edge (m,n) from the path.
@@ -53,9 +53,11 @@ class KShortestPathsAlgorithm(Algorithm):
     Select the node who has the most available CPU capacity to host VNF, say node c.
     Find the shortest paths from c to m, and c to n.
 
-    Refer to the following paper.
-
-    L. Qu, C. Assi, K. Shaban, and M. J. Khabbaz, "A reliability-aware network service chain provisioning with delay guarantees in NFV-enabled enterprise datacenter networks," IEEE Trans. Netw. Service Manag.,vol. 14, no. 3, pp. 554-568, Sep. 2017.
+    Refer to the following paper:
+    L. Qu, C. Assi, K. Shaban, and M. J. Khabbaz, "A reliability-aware network
+    service chain provisioning with delay guarantees in NFV-enabled enterprise
+    datacenter networks," IEEE Trans. Netw. Service Manag., vol. 14, no. 3,
+    pp. 554-568, Sep. 2017.
     """
 
     def __init__(self, k):
@@ -135,9 +137,10 @@ class KShortestPathsAlgorithm(Algorithm):
             min_bandwidth = None
             current_node = longest_path[0]
             m_edge = None
-            count = 0
             index = None
-            for node in longest_path[1:]:
+
+            # Utilizando enumerate no lugar de um contador manual (SIM113)
+            for count, node in enumerate(longest_path[1:]):
                 if current_node == node:
                     logger.warn("duplicate nodes")
                     return False
@@ -147,11 +150,11 @@ class KShortestPathsAlgorithm(Algorithm):
                     m_edge = [current_node, node]
                     index = count
                 current_node = node
-                count += 1
 
             if m_edge is None:
                 logger.warn("m edge is None")
                 return False
+
             # find the node with maximum residual CPU capacity
             # find m_head's adjacent edges
             m_head = m_edge[0]
@@ -161,13 +164,15 @@ class KShortestPathsAlgorithm(Algorithm):
             max_residual_cache_capacity = 0
             candidate_node_head = None
             candidate_node_tail = None
+
             for e in m_head_adjacent_edges:
                 adjacent_node = e[1]
                 if adjacent_node in used_node:
                     continue
                 substrate_network.get_node_cpu_free(adjacent_node)
                 residual_cache_capacity = substrate_network.get_node_cache_free(adjacent_node)
-                #                if residual_cpu_capacity > max_residual_cpu_capacity or residual_cache_capacity > max_residual_cache_capacity:
+                # if residual_cpu_capacity > max_residual_cpu_capacity or \
+                #    residual_cache_capacity > max_residual_cache_capacity:
                 if residual_cache_capacity > max_residual_cache_capacity:
                     max_residual_cache_capacity = residual_cache_capacity
                     candidate_node_head = adjacent_node
@@ -180,7 +185,8 @@ class KShortestPathsAlgorithm(Algorithm):
                     continue
                 substrate_network.get_node_cpu_free(adjacent_node)
                 residual_cache_capacity = substrate_network.get_node_cache_free(adjacent_node)
-                # if residual_cpu_capacity > max_residual_cpu_capacity or residual_cache_capacity > max_residual_cache_capacity:
+                # if residual_cpu_capacity > max_residual_cpu_capacity or \
+                #    residual_cache_capacity > max_residual_cache_capacity:
                 if residual_cache_capacity > max_residual_cache_capacity:
                     max_residual_cache_capacity = residual_cache_capacity
                     candidate_node_tail = adjacent_node
@@ -304,6 +310,7 @@ class KShortestPathsAlgorithm(Algorithm):
                     ):
                         logger.debug("node %s has not sufficient overloaded cache usage", e[1])
                         continue
+
                     cache_request / (
                         substrate_network.get_node_cache_capacity(e[1]) * cache_overload_rate
                         - substrate_network.get_node_cache_used(e[1])

@@ -90,7 +90,6 @@ class Osfem(Algorithm):
 
     def install_substrate_network(self, substrate_network):
         self.substrate_network = substrate_network
-        # self.single_source_minimum_latency_path = self.substrate_network.single_source_minimum_latency_path
         return self.substrate_network
 
     def install_SFC(self, sfc):
@@ -125,11 +124,7 @@ class Osfem(Algorithm):
         substrate_network = self.substrate_network
         sfc = self.sfc
         # logger.info('Algorithm start')
-        if self.algorithm(substrate_network, sfc, shareable_sfs):
-            # logger.info('Algorithm end, success')
-            return True
-        # logger.info('Algorithm end, failed')
-        return False
+        return self.algorithm(substrate_network, sfc, shareable_sfs)
 
     def algorithm(self, substrate_network, sfc, shareable_sfs=None):
         # Parte 1: Preparação dos dados de entrada
@@ -139,7 +134,7 @@ class Osfem(Algorithm):
         shareable_sfs = (
             shareable_sfs
             if shareable_sfs is not None
-            else {node_id: [] for node_id in server_resources.keys()}
+            else {node_id: [] for node_id in server_resources}
         )
 
         src_vnf = sfc.get_src_vnf()
@@ -251,12 +246,8 @@ class Osfem(Algorithm):
         success = True
 
         for i, service in enumerate(services):
-            # Verifica se há um próximo serviço na lista
-            if i + 1 < len(services):
-                next_service = services[i + 1]
-            else:
-                # Caso não exista, define o próximo serviço como None
-                next_service = None
+            # Verifica se há um próximo serviço na lista usando operador ternário
+            next_service = services[i + 1] if i + 1 < len(services) else None
 
             try:
                 # Chama a função com o serviço atual e o próximo serviço (ou None)
@@ -386,7 +377,11 @@ class Osfem(Algorithm):
 
         # Função para verificar disponibilidade de largura de banda e recursos do servidor
         def check_resources(server, path, bandwidth_requirement, cpu_required, cache_required):
-            if all(G[u][v]["bandwidth"] >= bandwidth_requirement for u, v in zip(path, path[1:])):
+            has_bandwidth = all(
+                G[u][v]["bandwidth"] >= bandwidth_requirement
+                for u, v in zip(path, path[1:], strict=False)
+            )
+            if has_bandwidth:
                 available_cpu = server_resources[server]["cpu_free"]
                 available_cache = server_resources[server]["cache_free"]
                 if available_cpu >= cpu_required and available_cache >= cache_required:

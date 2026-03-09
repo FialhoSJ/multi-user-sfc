@@ -52,13 +52,15 @@ SHAREABLE_PREFIXES = ("IA_DET_FT_", "RE_region_", "MA_region_")
 
 class GreedyOptAlgorithm(Algorithm):
     """Greedy Algorithm.
-    This algorithm starts from the substrate network node which hosts src of an SFC, checks its neighbor nodes,
-    finds the neighbor node with a shortest latency edge, and use the node to host the vnf.
+    This algorithm starts from the substrate network node which hosts src of an SFC,
+    checks its neighbor nodes, finds the neighbor node with a shortest latency edge,
+    and use the node to host the vnf.
     The algorithm greedily finds all nodes for hosting vnf.
-    Finally, the algorithm finds a shortest path from the substrate node who hosts the last vnf in the SFC
-    to the substrate node who hosts dst of the SFC.
+    Finally, the algorithm finds a shortest path from the substrate node who hosts
+    the last vnf in the SFC to the substrate node who hosts dst of the SFC.
 
-    Deploy VNF one by one, with a shortest path from the node to the previous substrate node.
+    Deploy VNF one by one, with a shortest path from the node to the previous
+    substrate node.
     """
 
     def __init__(self):
@@ -117,9 +119,7 @@ class GreedyOptAlgorithm(Algorithm):
             or not self.route_info
         ):
             return False
-        if len(list(self.route_info.keys())) != 6:
-            return False
-        return True
+        return len(list(self.route_info.keys())) == 6
 
     def handle_failure(self):
         self.route_info = False
@@ -201,7 +201,7 @@ class GreedyOptAlgorithm(Algorithm):
         nodes_used = []
         servers_to_check = list(server_resources.keys())
 
-        for i in range(number_of_vnfs - 1, -1, -1):
+        for _ in range(number_of_vnfs - 1, -1, -1):
             prev_vnf = current_vnf.get_previous_vnf()
             cpu_request = self.sfc.get_vnf_cpu_request(prev_vnf)
             cache_request = self.sfc.get_vnf_cache_request(prev_vnf)
@@ -254,7 +254,7 @@ class GreedyOptAlgorithm(Algorithm):
                 comp_latency = calculate_computational_latency(self.graph, node_a, prev_vnf)
                 edge_latency = 0
                 if len(path) > 1:
-                    for u, v in zip(path[:-1], path[1:]):
+                    for u, v in zip(path[:-1], path[1:], strict=False):
                         edge_latency += calculate_latency_betwen_nodes(self.graph, u, v, prev_vnf)
 
                 total_latency = comp_latency + edge_latency

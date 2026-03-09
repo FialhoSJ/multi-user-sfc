@@ -83,7 +83,6 @@ class Rodrigo(Algorithm):
 
     def install_substrate_network(self, substrate_network):
         self.substrate_network = substrate_network
-        # self.single_source_minimum_latency_path = self.substrate_network.single_source_minimum_latency_path
         return self.substrate_network
 
     def install_SFC(self, sfc):
@@ -107,11 +106,7 @@ class Rodrigo(Algorithm):
         substrate_network = self.substrate_network
         sfc = self.sfc
         # logger.info('Algorithm start')
-        if self.algorithm(substrate_network, sfc, shareable_sfs):
-            # logger.info('Algorithm end, success')
-            return True
-        # logger.info('Algorithm end, failed')
-        return False
+        return self.algorithm(substrate_network, sfc, shareable_sfs)
 
     def algorithm(self, substrate_network, sfc, shareable_sfs=None):
         sfs_dict = self.sfc.vnfs_dict
@@ -122,7 +117,7 @@ class Rodrigo(Algorithm):
         shareable_sfs = (
             shareable_sfs
             if shareable_sfs is not None
-            else {node_id: [] for node_id in server_resources.keys()}
+            else {node_id: [] for node_id in server_resources}
         )
 
         # Get src and dst vnf
@@ -274,7 +269,10 @@ class Rodrigo(Algorithm):
 
         for server, num_hops in paths.items():
             path = nx.shortest_path(G, current_location, server, weight="weight")
-            if all(G[u][v]["bandwidth"] >= bandwidth_requirement for u, v in zip(path, path[1:])):
+            if all(
+                G[u][v]["bandwidth"] >= bandwidth_requirement
+                for u, v in zip(path, path[1:], strict=False)
+            ):
                 reuse = service in server_resources[server]["reuse"]
                 node_resource_cost = (
                     0 if reuse else 1
@@ -296,7 +294,7 @@ class Rodrigo(Algorithm):
                 ]  # - server_resources[server]['cache_used']
 
                 if server_resources[server]["cpu_used"] >= 17.27 or reuse:  # já estava ligado
-                    boot_cost == 0
+                    boot_cost = 0
                 elif (
                     server_resources[server]["cpu_used"] + cpu_required
                 ) >= 17.27:  # tem que ligar
@@ -308,11 +306,13 @@ class Rodrigo(Algorithm):
                     bandwidth_cost = num_hops  # Custo de 1 por salto
                     latency_cost = calculate_latency_cost(num_hops)
 
-                    total_cost = node_resource_cost * self.cpu_factor
-                    +(node_resource_cost * self.cache_factor)
-                    +(boot_cost * self.boot_factor)
-                    +(bandwidth_cost * self.band_factor)
-                    +(latency_cost)
+                    total_cost = (
+                        node_resource_cost * self.cpu_factor
+                        + (node_resource_cost * self.cache_factor)
+                        + (boot_cost * self.boot_factor)
+                        + (bandwidth_cost * self.band_factor)
+                        + latency_cost
+                    )
 
                     if total_cost < min_cost:
                         min_cost = total_cost
@@ -332,7 +332,7 @@ class Rodrigo(Algorithm):
         if (
             best_path and best_server != current_location
         ):  # Evita atualizar banda se alocação é no mesmo servidor
-            for u, v in zip(best_path, best_path[1:]):
+            for u, v in zip(best_path, best_path[1:], strict=False):
                 G[u][v]["bandwidth"] -= bandwidth_requirement
                 G[v][u]["bandwidth"] -= bandwidth_requirement  # Bidirecional
 

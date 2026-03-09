@@ -16,14 +16,14 @@ sfc_dict = {sfc_id: sfc_object}
 
 route_info
 {
-    sfc_id : 
+    sfc_id :
         {
             src:  [1, 2, 3],
             vnf1: [3, 4, 5],
             vnf2: [5, 6, 7],
             vnf3: [7, 8 ,9],
             dst:  []
-        }        
+        }
 }
 
 node
@@ -519,7 +519,6 @@ class Net(nx.Graph):
                     print(f"VNF {vnf_id} não encontrado.")
 
                 # print('#########  sfc net.py  ###########')
-                # self.nodes[sfc.get_substrate_node(sfc.get_vnf_by_id(vnf_id))]['sfc_vnf_list'].remove((sfc_id, sfc.get_vnf_by_id(vnf_id)))
             self.sfc_route_info.pop(sfc_id, None)
             self.sfc_dict.pop(sfc_id, None)
 

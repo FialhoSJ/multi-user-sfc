@@ -171,7 +171,8 @@ class NetworkTopology:
         # adicionar o nó móvel ao grafo de infraestrutura APENAS para fins de roteamento?
         # Pelo código original, parecia haver uma mistura.
         #
-        # SOLUÇÃO SEGURA: Mantemos a conexão lógica no grafo de infraestrutura para permitir Dijkstra.
+        # SOLUÇÃO SEGURA: Mantemos a conexão lógica no grafo de infraestrutura para
+        # permitir Dijkstra.
 
         # Copia dados essenciais do mobile para o grafo principal para fins de roteamento
         # (Isso simula a conexão física na topologia global)

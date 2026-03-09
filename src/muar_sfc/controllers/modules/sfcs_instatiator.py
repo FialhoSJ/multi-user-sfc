@@ -220,18 +220,20 @@ class SFCInstatiator:
             #             fallback_route_info[vnf_names[i]] = [fallback_node_id]
 
             #         last_vnf_name = vnf_names[-1]
-            #         path_list = k_shortest_paths(fallback_graph, fallback_node_id, dst_node, k=1, weight='latency')
+            #         path_list = k_shortest_paths(fallback_graph, fallback_node_id,
+            #           dst_node, k=1, weight='latency')
 
             #         if not path_list:
-            #             logging.error(f"Fallback {sfc.id} falhou: Sem caminho do node 0 para {dst_node}")
+            #             logging.error(f"{sfc.id} falhou: Sem caminho do node 0 para {dst_node}")
             #             algorithm.route_info = None
             #         else:
             #             fallback_route_info[last_vnf_name] = path_list[0]
 
             #             # Tenta submeter no grafo temporário
-            #             total_latency, comp_latency, comm_latency, res_info = self.submit_solution(fallback_graph, sfc, fallback_route_info)
+            #             total_latency, comp_latency, comm_latency, res_info =
+            #             self.submit_solution(fallback_graph, sfc, fallback_route_info)
 
-            #             logging.info(f"Fallback {sfc.id} BEM SUCEDIDO (Latência: {total_latency}).")
+            #             logging.info(f"Fallback {sfc.id} BEM SUCEDIDO (Latência: total_latency}")
             #             algorithm.route_info = fallback_route_info
 
             #     except ValueError as ve:
@@ -309,7 +311,6 @@ class SFCInstatiator:
                 node = graph.nodes[node_id]
             else:
                 node = graph.graph.nodes[node_id]
-            # print(f"Alocando VNF {service_id} na sessão {session_id} no nó {node_id} (CPU: {cpu_required}, Cache: {cache_required})")
             latency = calculate_computational_latency(graph, node_id, vnf)
 
             allocated_resources = 0.0  # rastreia o custo real de recursos
@@ -329,7 +330,7 @@ class SFCInstatiator:
 
             # Varre o nó para ver se a versão "limpa" (primária) já existe
             if self.is_shareable(service_id) or self.is_shareable(clean_current_id):
-                for existing_id, existing_session in node["services"].keys():
+                for existing_id, existing_session in node["services"]:
                     existing_clean = existing_id.replace("_b", "")
                     if existing_clean == clean_current_id and existing_session == session_id:
                         compatible_instance_found = True
@@ -436,7 +437,7 @@ class SFCInstatiator:
 
             # Comunicação (links)
             if len(path) > 1:
-                for u, v in zip(path[:-1], path[1:]):
+                for u, v in zip(path[:-1], path[1:], strict=False):
                     comm_latency = allocate_bandwidth(u, v, vnf, ms_name)
                     total_latency += comm_latency
 
@@ -552,7 +553,7 @@ class SFCInstatiator:
         route_info[previous_vnf.id] = shortest_path[0]
         latency = 0
 
-        for vnf_id in route_info.keys():
+        for vnf_id in route_info:
             if vnf_id == "src":
                 continue
             path = route_info[vnf_id]

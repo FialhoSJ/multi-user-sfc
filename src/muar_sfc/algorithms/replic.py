@@ -111,7 +111,9 @@ class REPLIC:
         self.single_source_minimum_latency_path = None
 
     # O método install_substrate_network foi mantido como no original.
-    def install_substrate_network(self, graph, shareable_sfs=[]):
+    def install_substrate_network(self, graph, shareable_sfs=None):
+        if shareable_sfs is None:
+            shareable_sfs = []
         self.graph = graph
         self.valid_nodes = [
             node for node in self.graph.nodes() if self.graph.nodes[node]["type"] != "router"
@@ -126,7 +128,7 @@ class REPLIC:
         self.route_info = {}
         self.node_info = {}
         self.latency = None
-        is_backup = True if "backup" in sfc.id else False
+        is_backup = "backup" in sfc.id
         self.is_backup = is_backup
 
         self.latency_request = sfc.get_latency_request()
@@ -311,7 +313,8 @@ class REPLIC:
         # --- TRATAMENTO DIFERENCIADO: SFC NORMAL vs BACKUP ---
         if "backup" not in self.sfc.id:
             # Lógica para SFC Normal (Conecta ao SRC Global/Cloud)
-            # Pega o primeiro nó da primeira VNF processada (que é a última na ordem reversa do dict)
+            # Pega o primeiro nó da primeira VNF processada
+            # (que é a última na ordem reversa do dict)
             if route_info:
                 first_vnf_key = list(route_info.keys())[-1]
                 if route_info[first_vnf_key]:

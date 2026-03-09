@@ -93,10 +93,7 @@ def calculate_latency_betwen_nodes(graph, node1, node2, vnf, graph2=None):
 
 
 def is_mobile_node(node):
-    if isinstance(node, str):
-        return True
-    else:
-        return False
+    return bool(isinstance(node, str))
 
 
 def pre_get_single_source_minimum_latency_path(graph):
@@ -226,7 +223,8 @@ def get_available_shortest_path_optimized(
         if d.get("bandwidth_capacity", 0) - d.get("bandwidth_used", 0) >= bandwidth_required:
             # Se sim, retorna o peso apropriado baseado nos parâmetros da função principal
             if rounded:
-                # Supondo que latency_rounded() seja uma função externa, como no seu código original
+                # Supondo que latency_rounded() seja uma função externa,
+                # como no seu código original
                 return latency_rounded(u, v, d)
             elif latencia_saltos:
                 return 1  # Peso padrão para contar saltos
@@ -452,7 +450,8 @@ def calcular_energia_movel_total(
 
             if d_in_bits > 0 and distancia_d > 0:
                 # 1. Chamar a função de net_v2.py para obter a latência (em ms)
-                #    Ela usa TODOS os seus próprios parâmetros internos (50MHz, 20dBm, pathloss, etc.)
+                #    Ela usa TODOS os seus próprios parâmetros internos
+                # (50MHz, 20dBm, pathloss, etc.)
                 latencia_ms = net_instance.calculate_5g_latency(
                     graph=None,  # O 'graph' não é usado dentro da função
                     data=d_in_bits,

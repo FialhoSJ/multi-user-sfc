@@ -19,27 +19,22 @@ route info :=
 import copy
 import logging
 
-from config import ROOT_PATH
-
 from muar_sfc.algorithms.algorithm import Algorithm
 from muar_sfc.algorithms.greedy_algorithm import GreedyAlgorithm
+from muar_sfc.config import ROOT_DIR
 from muar_sfc.utils.k_shortest_paths import k_shortest_paths
 
 # create logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-# create console handler and set level to debug
 # ch = logging.StreamHandler()
-ch = logging.FileHandler(ROOT_PATH + "./logs/MSF.log")
+ch = logging.FileHandler(ROOT_DIR + "./logs/MSF.log")
 ch.setLevel(logging.DEBUG)
 # create formatter
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-# add formatter to ch
 ch.setFormatter(formatter)
-# add ch to logger
 logger.addHandler(ch)
-
 
 
 class MSF(Algorithm):
@@ -74,7 +69,6 @@ class MSF(Algorithm):
         self.route_info[previous_vnf.id] = shortest_path[0]
 
     def clear_all(self):
-        # logger.debug('clear all')
         self.substrate_network = None
         self.sfc = None
         self.node_info = {}
@@ -101,7 +95,7 @@ class MSF(Algorithm):
 
         for node in self.substrate_network.nodes():
             self.node_info[node] = {}
-            for vnf_id, vnf in list(sfc.vnfs.items()):
+            for vnf_id, _vnf in list(sfc.vnfs.items()):
                 # Not include src and dst.
                 self.node_info[node][vnf_id] = {}
                 self.node_info[node][vnf_id]["flag"] = (
@@ -152,12 +146,8 @@ class MSF(Algorithm):
     def start_algorithm(self):
         substrate_network = self.substrate_network
         sfc = self.sfc
-        # logger.info('Algorithm start')
-        if self.algorithm(substrate_network, sfc):
-            # logger.info('Algorithm end, success')
-            return True
-        # logger.info('Algorithm end, failed')
-        return False
+
+        return self.algorithm(substrate_network, sfc)
 
     def algorithm(self, substrate_network, sfc):
         nodes = substrate_network.nodes()
@@ -192,7 +182,7 @@ class MSF(Algorithm):
         bandwidth_request = sfc.get_link_bandwidth_request(previous_vnf_id, dst_vnf.id)
 
         for node, latency in list(node_latency.items()):
-            if node == dst_substrate_node or node == src_substrate_node:
+            if node in (dst_substrate_node, src_substrate_node):
                 # if node is ingress or egress, continue
                 continue
 
@@ -214,12 +204,10 @@ class MSF(Algorithm):
                         - bandwidth_request
                     )
                 if residual_bandwidth < 0:
-                    # logger.warning('Bandwidth resources is not sufficient to dst')
                     is_bandwidth_sufficient = False
                     break
                 bandwidth_usage_info[edge_key] = residual_bandwidth
             if not is_bandwidth_sufficient:
-                # check next path
                 continue
             _latency = self.node_info[node][previous_vnf_id]["latency"]
             if (
@@ -262,19 +250,7 @@ class MSF(Algorithm):
             self.latency = self.node_info[dst_substrate_node][dst_vnf.id]["latency"]
             self.route_info[previous_vnf.id][0]
 
-            # # Se chegou aqui e `self.route_info` não está vazio (ou a flag de que achou caminho é True):
-            # oversubscribed = self.check_resource_excess(sfc)
-
-            # if oversubscribed != []:
-            #     print(f"Nós que extrapolaram recursos: {oversubscribed}")
-            #     if self.solucao_paliativa(sfc):
-            #         return True
-            #     else:
-            #         return False
-
-            # remove latency from dst to previous vnf
-            # self.latency_minus_dst = self.latency - len(self.route_info[previous_vnf.id])
-            if "src" not in self.route_info.keys():
+            if "src" not in self.route_info:
                 return True
             path = self.route_info["src"]
             for i in range(len(path) - 1):
@@ -291,16 +267,14 @@ class MSF(Algorithm):
 
     def _dp(self, substrate_node, vnf):
         """
-        Start from substrate node substrate_node, calculate all paths and latency from substrate_node to other nodes N.
+        Start from substrate node substrate_node, calculate all paths and latency from
+        substrate_node to other nodes N.
         update information in nodes N for vnf, if latency is minimum.
         """
         # Get precedent of the vnf
         sfc = self.sfc
         previous_vnf = sfc.get_previous_vnf(vnf)
         previous_vnf_id = previous_vnf.id
-        # if not self.node_info[substrate_node][previous_vnf_id]['flag']:
-        #    # This substrate node cannot host precedent vnf, thus, no need to exam further.
-        #    return False
 
         vnf_id = vnf.id
         # Get single source path from substrate node to all other substrate node
@@ -354,7 +328,6 @@ class MSF(Algorithm):
                         - bandwidth_request
                     )
                 if residual_bandwidth < 0:
-                    # logger.warning('Bandwidth resources is not sufficient')
                     is_bandwidth_sufficient = False
                     break
                 bandwidth_usage_info[edge_key] = residual_bandwidth
@@ -441,7 +414,8 @@ class MSF(Algorithm):
 
     def solucao_paliativa(self, sfc):
         # Se houver algum nó que estourou CPU ou Cache, descarta a solução
-        # Como solução parcial, caso o MSF dê uma solução inválida, iremos usar a abordagem greedy para alocação
+        # Como solução parcial, caso o MSF dê uma solução inválida,
+        # iremos usar a abordagem greedy para alocação
         greedy_alg = GreedyAlgorithm()
         # self.clear_all()
         greedy_alg.clear_all()

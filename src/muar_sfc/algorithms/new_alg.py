@@ -87,7 +87,7 @@ class NewAlg(Algorithm):
         dst_substrate_node = self.sfc.get_substrate_node(dst_vnf)
         for node in self.substrate_network.nodes():
             self.node_info[node] = {}
-            for vnf_id, vnf in list(sfc.vnfs.items()):
+            for vnf_id, _vnf in list(sfc.vnfs.items()):
                 # Not include src and dst.
                 self.node_info[node][vnf_id] = {}
                 self.node_info[node][vnf_id]["flag"] = (
@@ -150,16 +150,12 @@ class NewAlg(Algorithm):
     def start_algorithm(self, shareable_sfs=None, **kwargs):
         substrate_network = self.substrate_network
         sfc = self.sfc
-        # logger.info('Algorithm start')
         if kwargs:
             self.weights = kwargs["weights"]
         if shareable_sfs is not None:
             self.shareable_sfs = shareable_sfs
-        if self.algorithm(substrate_network, sfc):
-            # logger.info('Algorithm end, success')
-            return True
-        # logger.info('Algorithm end, failed')
-        return False
+
+        return self.algorithm(substrate_network, sfc)
 
     def _compute_cost(self, length=0, bw_saved=0, cpu_saved=0, cache_saved=0, latency=0):
         # normalizar custos
@@ -212,7 +208,7 @@ class NewAlg(Algorithm):
         bandwidth_request = sfc.get_link_bandwidth_request(previous_vnf_id, dst_vnf.id)
         saved_band = 0
         for node, latency in list(node_latency.items()):
-            if node == dst_substrate_node or node == src_substrate_node:
+            if node in (dst_substrate_node, src_substrate_node):
                 # if node is ingress or egress, continue
                 continue
             # Check bandwidth resources
@@ -302,7 +298,7 @@ class NewAlg(Algorithm):
             self.saved_cache = self.node_info[dst_substrate_node][dst_vnf.id]["saved_cache"]
             self.saved_cpu = self.node_info[dst_substrate_node][dst_vnf.id]["saved_cpu"]
             # refuse if latency is too high
-            if "src" not in self.route_info.keys():
+            if "src" not in self.route_info:
                 return True
             path = self.route_info["src"]
             for i in range(len(path) - 1):
@@ -317,7 +313,8 @@ class NewAlg(Algorithm):
 
     def _dp(self, substrate_node, vnf):
         """
-        Start from substrate node substrate_node, calculate all paths and latency from substrate_node to other nodes N.
+        Start from substrate node substrate_node, calculate all paths and latency
+        from substrate_node to other nodes N.
         update information in nodes N for vnf, if latency is minimum.
         """
 
@@ -365,12 +362,14 @@ class NewAlg(Algorithm):
                 # logger.warning("not sufficient cache in Node " + str(node))
                 is_enough_cache = False
                 self.fail_for_cache += 1
-            # map resources saved
-            if self.shareable_sfs is not None:
-                if vnf_id in list(map(lambda sf: sf.id, self.shareable_sfs[node])):
-                    saved_cpu = vnf.get_cpu_request()
-                    saved_cache = vnf.get_cache_request()
-                    # check bandwidth resources
+
+            # map resources saved (SIM102 resolvido aqui)
+            if self.shareable_sfs is not None and vnf_id in list(map(lambda sf: sf.id,
+                                                                     self.shareable_sfs[node])):
+                saved_cpu = vnf.get_cpu_request()
+                saved_cache = vnf.get_cache_request()
+
+            # check bandwidth resources
             is_bandwidth_sufficient = True
             bandwidth_usage_info = copy.copy(
                 self.node_info[substrate_node][previous_vnf_id]["bandwidth_usage_info"]

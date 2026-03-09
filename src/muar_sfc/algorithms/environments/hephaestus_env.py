@@ -193,7 +193,7 @@ class SFC_AllocationEnv_hephaestus(gymnasium.Env):
             return self._fail_step("resource")
 
         if not path or not self.allocate_bandwidth_along_path(path, band_req):
-            # Importante: se a alocação de banda falhar, precisamos reverter a alocação de CPU/Cache
+            # A alocação de banda falhar, precisamos reverter a alocação de CPU/Cache
             return self._fail_step("bandwidth")
 
         # 4. Ação bem-sucedida. CALCULAR GINI DEPOIS E A MELHORA
@@ -302,11 +302,11 @@ class SFC_AllocationEnv_hephaestus(gymnasium.Env):
                 features[i, 5] = 1.0  # Marca inválido imediatamente
 
             # Verifica Sobrecarga (Apenas se o nó ainda for válido)
-            if features[i, 5] == 0:
-                if (node_data["cpu_used"] + cpu_req) > node_data["cpu_capacity"] or (
-                    node_data["cache_used"] + cache_req
-                ) > node_data["cache_capacity"]:
-                    features[i, 5] = 1.0
+            if features[i, 5] == 0 and (
+                (node_data["cpu_used"] + cpu_req) > node_data["cpu_capacity"] or
+                (node_data["cache_used"] + cache_req) > node_data["cache_capacity"]
+            ):
+                features[i, 5] = 1.0
 
             # Verifica Caminho e Banda
             # (Só calcula se o nó ainda for considerado válido para economizar tempo)
@@ -411,7 +411,7 @@ class SFC_AllocationEnv_hephaestus(gymnasium.Env):
         for key, value in obs.items():
             if np.any(np.isnan(value)) or np.any(np.isinf(value)):
                 print(f"--- DEBUG: NaN ou Inf detectado na observação (chave: {key})! ---")
-                assert False, "Observação inválida gerada."
+                raise AssertionError("Observação inválida gerada.")
 
         return obs
 
@@ -471,14 +471,14 @@ class SFC_AllocationEnv_hephaestus(gymnasium.Env):
         Retorna True em caso de sucesso, False caso contrário.
         """
         # 1. Verificar se todos os links no caminho têm capacidade suficiente
-        for u, v in zip(path[:-1], path[1:]):
+        for u, v in zip(path[:-1], path[1:], strict=False):
             edge = self.graph.edges[u, v]
             available_bw = edge.get("bandwidth_capacity", 0) - edge.get("bandwidth_used", 0)
             if available_bw < bandwidth_required + 1e-9:  # Tolerância para ponto flutuante
                 return False
 
         # 2. Se a verificação passou, alocar a banda em todos os links
-        for u, v in zip(path[:-1], path[1:]):
+        for u, v in zip(path[:-1], path[1:], strict=False):
             self.graph.edges[u, v]["bandwidth_used"] += bandwidth_required
 
         return True
@@ -614,7 +614,7 @@ class SFC_AllocationEnv_hephaestus(gymnasium.Env):
             return 0, latency_cost
 
         bw_cost = 0
-        for u, v in zip(path[:-1], path[1:]):
+        for u, v in zip(path[:-1], path[1:], strict=False):
             # Acesso à aresta da rede
             edge = self.graph.edges.get((u, v), {})
             bd_capacity = edge.get("bandwidth_capacity", None)
@@ -650,10 +650,7 @@ class SFC_AllocationEnv_hephaestus(gymnasium.Env):
             aux.append(self.graph.nodes[n].get("cpu_capacity", 0))
 
         # Proteção se a lista estiver vazia ou só tiver zeros
-        if not aux:
-            max_cpu_capacity = 1.0
-        else:
-            max_cpu_capacity = max(aux)
+        max_cpu_capacity = 1.0 if not aux else max(aux)
 
         # Evita divisão por zero se todos os nós tiverem capacidade 0
         if max_cpu_capacity == 0:

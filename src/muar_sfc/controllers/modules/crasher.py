@@ -103,9 +103,8 @@ class Crasher:
                         should_include = True
 
                 # Intervalo 3: Low Risk (Nós robustos) -> Acima de 95%
-                elif user_target == "low_risk":
-                    if reliability > 0.9333:
-                        should_include = True
+                elif user_target == "low_risk" and reliability > 0.9333:
+                    should_include = True
 
                 if not should_include:
                     continue

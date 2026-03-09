@@ -43,12 +43,13 @@ Funcionamento:
 
 Para cada SF pertencente à uma SFC
 
-Verifique se para a SF atual, existe uma SF existente compatível em algum lugar da topologia. Ordene os 
-nós de acordo com a distância para a SF anterior.
+Verifique se para a SF atual, existe uma SF existente compatível em algum lugar da topologia.
+Ordene os nós de acordo com a distância para a SF anterior.
 
 Caso exista, aloque-a nesse ponto e faça o shortest path entre ela e a SF anterior.
 
-Caso contrário, aloque-a o mais próximo possível da SF anterior em um nó com recurso disponível e por um caminho com banda disponível.
+Caso contrário, aloque-a o mais próximo possível da SF anterior em um nó com recurso
+disponível e por um caminho com banda disponível.
 
 Se SF for a penúltima, aplique k shortest path para chegar na dst
 
@@ -100,7 +101,7 @@ class BrunoAlg(Algorithm):
         self.sfc = sfc
         src_vnf = self.sfc.get_src_vnf()
         dst_vnf = self.sfc.get_dst_vnf()
-        for vnf_id, vnf in list(sfc.vnfs.items()):
+        for vnf_id, _vnf in list(sfc.vnfs.items()):
             self.path_info[vnf_id] = {}
             self.path_info[vnf_id]["path"] = []
             self.path_info[vnf_id]["latency"] = float("inf")
@@ -132,11 +133,9 @@ class BrunoAlg(Algorithm):
             self.weights = kwargs["weights"]
         if shareable_sfs is not None:
             self.shareable_sfs = shareable_sfs
-        if self.algorithm(substrate_network, sfc):
-            # logger.info('Algorithm end, success')
-            return True
-        # logger.info('Algorithm end, failed')
-        return False
+
+        # O método self.algorithm já retorna True ou False
+        return self.algorithm(substrate_network, sfc)
 
     def algorithm(self, substrate_network, sfc):
         # informações sf = (nó, sf_id, sf)
@@ -174,8 +173,8 @@ class BrunoAlg(Algorithm):
                       '
                       7
                       '        5 - dst
-                      '      / 
-        src - 1 - 2 - 3 - 4  
+                      '      /
+        src - 1 - 2 - 3 - 4
                              \
                                6 - dst
 
@@ -220,6 +219,7 @@ class BrunoAlg(Algorithm):
                 break
             previous_vnf = previous_vnf.get_previous_vnf()
         self.route_info[dst_vnf.id] = []
+        return True
 
     def _alg(self, vnf):
         sfc = self.sfc
@@ -242,8 +242,8 @@ class BrunoAlg(Algorithm):
         total_latency = 100000
         # check if shareable sf found
         is_shareable_sf = False
-        # O(n x m x k ) where n = number of nodes in the topology, m = number of shareable sfs in node
-        # k = number of SFs for a SFC
+        # O(n x m x k ) where n = number of nodes in the topology,
+        # m = number of shareable sfs in node, k = number of SFs for a SFC
         for node, sfs in self.shareable_sfs.items():
             if vnf.id in list(map(lambda sf: sf.id, sfs)):
                 candidate_path = node_path[node]
@@ -280,7 +280,7 @@ class BrunoAlg(Algorithm):
             return True
         # if there are no shareable SFs available, then we try to allocate the SF
         # as close as possible to the previouss SF.
-        for idx, (node, latency) in enumerate(node_latency.items()):
+        for _idx, (node, latency) in enumerate(node_latency.items()):
             # print("currently testing node ", idx)
             if node == self.src_substrate_node or node == self.dst_substrate_node:
                 continue
@@ -318,6 +318,4 @@ class BrunoAlg(Algorithm):
             self.path_info[previous_vnf.id]["latency"] = latency
             self.path_info[vnf.id]["substrate_node"] = path[-1]
             self.path_info[vnf.id]["flag"] = True
-        if len(self.path_info[previous_vnf.id]["path"]) == 0:
-            return False
-        return True
+        return len(self.path_info[previous_vnf.id]["path"]) != 0

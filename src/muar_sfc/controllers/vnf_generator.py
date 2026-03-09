@@ -21,7 +21,6 @@ class VNFGenerator:
             vnf.set_cache_request(vnf_cache_request)
             vnf.set_income_interface_bandwidth(vnf_in_bw_request)
             vnf.set_outcome_interface_bandwidth(vnf_out_bw_request)
-            # print("CPU",round(vnf_cpu_request,2),"IN",round(vnf_in_bw_request,2),"OUT",round(vnf_out_bw_request,2), " \tNAME",vnf_name)
             return vnf
         elif vnf_type == VNFType.TYPE2:
             print("TYPE 2 is not defined. exit")

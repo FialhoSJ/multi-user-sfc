@@ -84,7 +84,7 @@ class BrunoAlgNew(Algorithm):
         dst_vnf = self.sfc.get_dst_vnf()
         for node in self.substrate_network.nodes():
             self.node_info[node] = {}
-            for vnf_id, vnf in list(sfc.vnfs.items()):
+            for vnf_id, _vnf in list(sfc.vnfs.items()):
                 self.node_info[node][vnf_id] = {}
                 self.node_info[node][vnf_id]["path"] = []
             self.node_info[node][src_vnf.id] = {}
@@ -107,11 +107,7 @@ class BrunoAlgNew(Algorithm):
             self.weights = kwargs["weights"]
         if shareable_sfs is not None:
             self.shareable_sfs = shareable_sfs
-        if self.algorithm(substrate_network, sfc):
-            # logger.info('Algorithm end, success')
-            return True
-        # logger.info('Algorithm end, failed')
-        return False
+        return self.algorithm(substrate_network, sfc)
 
     def algorithm(self, substrate_network, sfc):
         # Get src and dst vnf

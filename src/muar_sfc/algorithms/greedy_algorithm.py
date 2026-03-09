@@ -40,13 +40,15 @@ logger.addHandler(ch)
 
 class GreedyAlgorithm:
     """Greedy Algorithm.
-    This algorithm starts from the substrate network node which hosts src of an SFC, checks its neighbor nodes,
-    finds the neighbor node with a shortest latency edge, and use the node to host the vnf.
-    The algorithm greedily finds all nodes for hosting vnf.
-    Finally, the algorithm finds a shortest path from the substrate node who hosts the last vnf in the SFC
-    to the substrate node who hosts dst of the SFC.
+    This algorithm starts from the substrate network node which hosts src of an SFC,
+    checks its neighbor nodes, finds the neighbor node with a shortest latency edge,
+    and use the node to host the vnf. The algorithm greedily finds all nodes for
+    hosting vnf.
+    Finally, the algorithm finds a shortest path from the substrate node who hosts
+    the last vnf in the SFC to the substrate node who hosts dst of the SFC.
 
-    Deploy VNF one by one, with a shortest path from the node to the previous substrate node.
+    Deploy VNF one by one, with a shortest path from the node to the previous
+    substrate node.
     """
 
     def __init__(self):
@@ -115,10 +117,13 @@ class GreedyAlgorithm:
             src_substrate_node, dst_substrate_node
         )
         if dist_src_dst > 4:
-            servers = substrate_network.get_shortest_path(src_substrate_node, dst_substrate_node)
+            servers = substrate_network.get_shortest_path(
+                src_substrate_node, dst_substrate_node
+            )
 
         # Inicializa o dicionário de recursos dos servidores
-        # Atribuído à variável de descarte '_' para evitar erros de linting em operações sem efeito colateral
+        # Atribuído à variável de descarte '_' para evitar erros de linting
+        # em operações sem efeito colateral
         _ = {
             server: {
                 "cpu_capacity": substrate_network.get_node_cpu_capacity(server),
@@ -134,7 +139,7 @@ class GreedyAlgorithm:
         }
 
         node = 0
-        for i in range(0, number_of_vnfs):
+        for _ in range(0, number_of_vnfs):
             substrate_network.edges(current_substrate_node)
             next_vnf = current_vnf.get_next_vnf()
 
@@ -190,7 +195,9 @@ class GreedyAlgorithm:
         try:
             # get shortest path length. here shortest path length is weighted by latency.
             path = substrate_network.get_shortest_path(node, dst_substrate_node)
-            path_latency = substrate_network.get_shortest_path_length(node, dst_substrate_node)
+            path_latency = substrate_network.get_shortest_path_length(
+                node, dst_substrate_node
+            )
         # 🔴 Substituição arquitetural: Captura focada do NetworkX
         except (nx.NetworkXNoPath, nx.NodeNotFound):
             logger.warning(

@@ -475,7 +475,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         return True
 
     def allocate_bandwidth_along_path(self, path: list, bandwidth_required: float) -> bool:
-        for u, v in zip(path[:-1], path[1:]):
+        for u, v in zip(path[:-1], path[1:], strict=False):
             edge = self.graph.edges[u, v]
             available_bw = edge.get("bandwidth_capacity", 0) - edge.get("bandwidth_used", 0)
             if available_bw < bandwidth_required:
@@ -483,7 +483,7 @@ class SFC_AllocationEnv(gymnasium.Env):
                     print(f"Não houve banda o suficiente no link {u} e {v}")
                 return False
 
-        for u, v in zip(path[:-1], path[1:]):
+        for u, v in zip(path[:-1], path[1:], strict=False):
             self.graph.edges[u, v]["bandwidth_used"] += bandwidth_required
 
         return True
@@ -578,7 +578,7 @@ class SFC_AllocationEnv(gymnasium.Env):
             return 0, latency_cost
 
         bw_cost = 0
-        for u, v in zip(path[:-1], path[1:]):
+        for u, v in zip(path[:-1], path[1:], strict=False):
             edge = self.graph.edges.get((u, v), {})
             bd_capacity = edge.get("bandwidth_capacity", None)
             bd_used = edge.get("bandwidth_used", 0)

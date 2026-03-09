@@ -138,15 +138,10 @@ class Vegeta(Algorithm):
         sfc = self.sfc
 
         if backup:
-            if self.backup_algorithm(substrate_network, sfc):
-                return True
-            else:
-                return False
+            return bool(self.backup_algorithm(substrate_network, sfc))
 
         # Removido o shareable_sfs da chamada
-        if self.algorithm(substrate_network, sfc):
-            return True
-        return False
+        return bool(self.algorithm(substrate_network, sfc))
 
     def set_nodes_resources(self, substrate_network):
         """
@@ -258,7 +253,6 @@ class Vegeta(Algorithm):
         # ultima iteração para o src
         path_to_src = nx.dijkstra_path(G, 0, src, weight="weight")
 
-        # route_info = {key: list(reversed(value['path'])) for key, value in allocation_results.items()}
         route_info = {key: list(value["path"]) for key, value in allocation_results.items()}
 
         # calculo da latencia antes do src
@@ -281,10 +275,14 @@ class Vegeta(Algorithm):
         current_location,
         service,
         services,
-        restrictions=[],
-        solution=[],
+        restrictions=None,
+        solution=None,
         current_session_id=None,
     ):
+        if solution is None:
+            solution = []
+        if restrictions is None:
+            restrictions = []
         best_cost, best_candidate, candidates = self.find_candidates_serves_for_sf(
             G,
             service_requirements,
@@ -326,10 +324,14 @@ class Vegeta(Algorithm):
         current_location,
         service,
         current_session_id,
-        restriction=[],
-        solutions=[],
+        restriction=None,
+        solutions=None,
     ):
 
+        if solutions is None:
+            solutions = []
+        if restriction is None:
+            restriction = []
         paths = dict(nx.single_source_shortest_path_length(G, current_location, cutoff=8))
         paths[current_location] = 0  # Custo de 'mover' para o mesmo servidor é 0
 
@@ -366,7 +368,8 @@ class Vegeta(Algorithm):
         def check_resources(
             server, path, bandwidth_requirement, cpu_required, cache_required, restriction
         ):
-            if all(G[u][v]["bandwidth"] > bandwidth_requirement for u, v in zip(path, path[1:])):
+            if all(G[u][v]["bandwidth"] > bandwidth_requirement for u, v in
+                   zip(path, path[1:], strict=False)):
                 available_cpu = (
                     server_resources[server]["cpu_capacity"] - server_resources[server]["cpu_used"]
                 )
@@ -386,7 +389,7 @@ class Vegeta(Algorithm):
             cost = 0
             epsilon = 1e-6  # Pequeno valor para evitar divisão por zero
 
-            for u, v in zip(path, path[1:]):
+            for u, v in zip(path, path[1:], strict=False):
                 available_bandwidth = G[u][v]["bandwidth"]
                 if available_bandwidth >= bandwidth_requirement:
                     cost += bandwidth_requirement / (available_bandwidth + epsilon)
@@ -398,7 +401,7 @@ class Vegeta(Algorithm):
 
         bandwidth_requirement = service_requirements[service]["out_bw"]
 
-        for server, num_hops in paths.items():
+        for server, _num_hops in paths.items():
             path = nx.shortest_path(G, current_location, server, weight="weight")
 
             # =========================================================
@@ -586,7 +589,7 @@ class Vegeta(Algorithm):
         allocation_results = {"dst": {"allocated_server": dst, "path": [], "cost": 0}}
         current_location = dst  # começa a alocação de trás pra frente
         success = True
-        for i, service in enumerate(services):
+        for _i, service in enumerate(services):
             # # Verifica se há um próximo serviço na lista
             # if i + 1 < len(services):
             #     next_service = services[i + 1]

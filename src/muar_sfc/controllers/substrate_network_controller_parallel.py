@@ -15,6 +15,7 @@ from muar_sfc.controllers.modules.crasher import Crasher
 from muar_sfc.controllers.modules.mobility_manager import MobilityManager
 from muar_sfc.controllers.modules.sfcs_manager import SFCManager
 from muar_sfc.controllers.sfc_generator import SFCGenerator
+from muar_sfc.core.net import Net
 from muar_sfc.utils.manager_results import OutputWritter
 
 # Configuração do Logger
@@ -159,7 +160,8 @@ class SubstrateNetworkControllerP:
                     if elapsed_time < self.update_interval:
                         sleep_time = self.update_interval - elapsed_time
                     else:
-                        sleep_time = 0  # Se o tempo de execução for maior que o intervalo, reexecuta imediatamente
+                        # Se o tempo de execução for maior que o intervalo, reexecuta imediatamente
+                        sleep_time = 0
 
                 if not self.is_stopped:
                     time.sleep(sleep_time)  # Aguarda o tempo restante para completar o intervalo
@@ -179,7 +181,7 @@ class SubstrateNetworkControllerP:
                         sfcs_moved, new_locations = (
                             self.mobility_manager.check_all_vehicles_position_changes()
                         )
-                        for sfc_list, new_location in zip(sfcs_moved, new_locations):
+                        for sfc_list, new_location in zip(sfcs_moved, new_locations, strict=False):
                             for sfc_id in sfc_list:
                                 try:
                                     sfc = self.substrate_network.get_sfc_by_id(sfc_id)
@@ -197,7 +199,7 @@ class SubstrateNetworkControllerP:
                     # end_time = time.time()  # Marca o tempo de fim
                     # elapsed_time = end_time - start_time
 
-                    # # Abre o arquivo de log em modo append para não sobrescrever os dados existentes
+                    # # Abre o arquivo de log em modo append para não sobrescrever
                     # with open(self.log_file, "a") as log:
                     #     log.write(f"Tempo total de execução: {elapsed_time:.2f} segundos\n")
                 time.sleep(interval)  # Intervalo entre as verificações
@@ -223,7 +225,9 @@ class SubstrateNetworkControllerP:
                     )
                     self.recover_sfcs(sfcs_affected)
 
-                    # sfcs_moved, new_locations = self.mobility_manager.check_all_vehicles_position_changes()
+                    # sfcs_moved, new_locations = (
+                    #     self.mobility_manager.check_all_vehicles_position_changes()
+                    # )
                     for sfc_id in sfcs_affected:
                         try:
                             sfc = self.substrate_network.get_sfc_by_id(sfc_id)
@@ -242,7 +246,9 @@ class SubstrateNetworkControllerP:
     def recover_sfcs(self, sfc_affected):
         return
         # for sfc_id in sfc_affected:
-        #     self.mobility_manager.remove_sfc(sfc_id) # TODO sfcs que foram afetadas pelo crasher não de movimentam mais por comodidade de código
+        #     # TODO sfcs que foram afetadas pelo crasher não se
+        #     # movimentam mais por comodidade de código
+        #     self.mobility_manager.remove_sfc(sfc_id)
         #     sfc = self.substrate_network.get_sfc_by_id(sfc_id)
         #     sfcs_with_backup = list(self.sfc_manager.sfs_backup.keys())
         #     if sfc.id in sfcs_with_backup:
@@ -300,40 +306,39 @@ class SubstrateNetworkControllerP:
         new_sfc_list = []
         for sfc in sfc_list:
             sfc_id = sfc.id
-            location = sfc.dst.substrate_node if not new_location else new_location
+            location = new_location if new_location else sfc.dst.substrate_node
             new_vnfs_list_dict = copy.deepcopy(sfc.vnfs_dict)
-            if (
-                changed_location
-            ):  # Checar depois se esse procedimento não é necessário também para Unique
-                if re.search("cache", sfc_id) is not None:
-                    old_loc = str(sfc.dst.substrate_node)
-                    new_loc = str(location)
 
-                    ma_old_key = "MA_region_" + old_loc
-                    re_old_key = "RE_region_" + old_loc
+            # Checar depois se esse procedimento não é necessário também para Unique
+            if changed_location and re.search("cache", sfc_id) is not None:
+                old_loc = str(sfc.dst.substrate_node)
+                new_loc = str(location)
 
-                    old_routing_info = copy.deepcopy(self.sfc_manager.sfcs_routing_info)
-                    # routing_info = self.sfc_manager.sfcs_routing_info
+                ma_old_key = "MA_region_" + old_loc
+                re_old_key = "RE_region_" + old_loc
 
-                    if ma_old_key in old_routing_info[sfc_id].keys():
-                        stored_info = old_routing_info[sfc_id][ma_old_key]
-                        del self.sfc_manager.sfcs_routing_info[sfc_id][ma_old_key]
-                        ma_new_key = re.sub(old_loc, new_loc, ma_old_key)
-                        self.sfc_manager.sfcs_routing_info[sfc_id][ma_new_key] = stored_info
-                        new_vnfs_list_dict[1]["name"] = ma_new_key
+                old_routing_info = copy.deepcopy(self.sfc_manager.sfcs_routing_info)
+                # routing_info = self.sfc_manager.sfcs_routing_info
 
-                    if re_old_key in old_routing_info[sfc.id].keys():
-                        stored_info = old_routing_info[sfc_id][re_old_key]
-                        del self.sfc_manager.sfcs_routing_info[sfc_id][re_old_key]
-                        re_new_key = re.sub(old_loc, new_loc, re_old_key)
-                        self.sfc_manager.sfcs_routing_info[sfc_id][re_new_key] = stored_info
-                        new_vnfs_list_dict[2]["name"] = re_new_key
+                if ma_old_key in old_routing_info[sfc_id]:
+                    stored_info = old_routing_info[sfc_id][ma_old_key]
+                    del self.sfc_manager.sfcs_routing_info[sfc_id][ma_old_key]
+                    ma_new_key = re.sub(old_loc, new_loc, ma_old_key)
+                    self.sfc_manager.sfcs_routing_info[sfc_id][ma_new_key] = stored_info
+                    new_vnfs_list_dict[1]["name"] = ma_new_key
 
-                    src_path = old_routing_info[sfc_id]["src"]
-                    del self.sfc_manager.sfcs_routing_info[sfc_id]["src"]
-                    del self.sfc_manager.sfcs_routing_info[sfc_id]["dst"]
-                    self.sfc_manager.sfcs_routing_info[sfc_id]["src"] = src_path
-                    self.sfc_manager.sfcs_routing_info[sfc_id]["dst"] = []
+                if re_old_key in old_routing_info[sfc.id]:
+                    stored_info = old_routing_info[sfc_id][re_old_key]
+                    del self.sfc_manager.sfcs_routing_info[sfc_id][re_old_key]
+                    re_new_key = re.sub(old_loc, new_loc, re_old_key)
+                    self.sfc_manager.sfcs_routing_info[sfc_id][re_new_key] = stored_info
+                    new_vnfs_list_dict[2]["name"] = re_new_key
+
+                src_path = old_routing_info[sfc_id]["src"]
+                del self.sfc_manager.sfcs_routing_info[sfc_id]["src"]
+                del self.sfc_manager.sfcs_routing_info[sfc_id]["dst"]
+                self.sfc_manager.sfcs_routing_info[sfc_id]["src"] = src_path
+                self.sfc_manager.sfcs_routing_info[sfc_id]["dst"] = []
 
             new_sfc_dict = {}
             new_sfc_dict["name"] = sfc_id
@@ -351,7 +356,7 @@ class SubstrateNetworkControllerP:
             new_sfc_list.append(new_sfc)
         self.sfc_queue.put_begin(new_sfc_list)  # coloca a nova
         # except Exception as e:
-        #    print(f"Erro na tentativa de mandar de volta pra fila: {e}")
+        #     print(f"Erro na tentativa de mandar de volta pra fila: {e}")
 
     def get_node_information(self, node_id: int) -> tuple:
         """f
@@ -407,9 +412,12 @@ class SubstrateNetworkControllerP:
             self.output_writter.output_cache_utilization(
                 self.substrate_network, deploy_time, self.crasher_manager.nodes_crashed
             )
-            self.output_writter.output_bandwidth_utilization(self.substrate_network, deploy_time)
-            self.output_writter.output_nodes_sf_utilization(self.substrate_network, deploy_time)
-            # self.output_utils.output_edges_sf_utilization(self.edges_vnf, self.existing_vnf, self.sfc_list, deploy_time, route_info, sfc)
+            self.output_writter.output_bandwidth_utilization(
+                self.substrate_network, deploy_time
+            )
+            self.output_writter.output_nodes_sf_utilization(
+                self.substrate_network, deploy_time
+            )
 
         def output_flows(
             current_time,
@@ -446,22 +454,21 @@ class SubstrateNetworkControllerP:
             self.output_writter.resilient_output(sfc_id, info, self.crashs_trials)
 
         """Updates the network state and check for resource overhead."""
-        if results_dict:
+        if results_dict and not res_output:
             # output of the simulation
-            if not res_output:
-                output_network_resources(deploy_time=results_dict["current_time"])
-                output_flows(
-                    results_dict["current_time"],
-                    sfc_id,
-                    results_dict["latency"],
-                    results_dict["run_duration"],
-                    results_dict["is_success"],
-                    results_dict["backup_sfc"],
-                    results_dict["fail_reason"],
-                )
+            output_network_resources(deploy_time=results_dict["current_time"])
+            output_flows(
+                results_dict["current_time"],
+                sfc_id,
+                results_dict["latency"],
+                results_dict["run_duration"],
+                results_dict["is_success"],
+                results_dict["backup_sfc"],
+                results_dict["fail_reason"],
+            )
 
-                if not results_dict["backup_sfc"]:
-                    self.success.append(results_dict["is_success"])
+            if not results_dict["backup_sfc"]:
+                self.success.append(results_dict["is_success"])
 
         sfcs_crash_aff = copy.deepcopy(list(self.sfcs_crash_affected.keys()))
         if sfc_id in sfcs_crash_aff:
@@ -498,7 +505,7 @@ class SubstrateNetworkControllerP:
                                 old_resource_reuse - results_dict["resource_info"]
                             ) / old_resource_reuse
                         else:
-                            resource_factor = 0  # (old_resource_reuse - results_dict['resource_info'])/old_resource_reuse
+                            resource_factor = 0
                     if resource_factor is not None:
                         if resource_factor > 2:
                             resource_factor = 1
@@ -559,7 +566,9 @@ class SubstrateNetworkControllerP:
 
     # def seq_recover_sfcs(self,sfc_affected):
     #     for sfc_id in sfc_affected:
-    #         self.mobility_manager.remove_sfc(sfc_id,all=True) # TODO sfcs que foram afetadas pelo crasher não de movimentam mais por comodidade de código
+    #         # TODO sfcs que foram afetadas pelo crasher não se
+    #         # movimentam mais por comodidade de código
+    #         self.mobility_manager.remove_sfc(sfc_id,all=True)
     #         sfc = self.substrate_network.get_sfc_by_id(sfc_id)
     #         sfcs_with_backup = list(self.sfc_manager.sfs_backup.keys())
     #         # if sfc.id in sfcs_with_backup:
@@ -574,7 +583,9 @@ class SubstrateNetworkControllerP:
 
     #         # Filtrando os nós com 'rel' maior que o 'threshold'
     #         filtered_nodes = {node: rel for node, rel in nodes_rel.items() if rel > threshold}
-    #         top_1_node = dict(sorted(filtered_nodes.items(), key=lambda item: item[1], reverse=True)[:1])
+    #         top_1_node = dict(
+    #             sorted(filtered_nodes.items(), key=lambda item: item[1], reverse=True)[:1]
+    #         )
 
     #         self.risk_servers = list(top_1_node.keys())
     #         backups = self.sfc_manager.set_risk_sfcs(top_1_node,self.substrate_network)
@@ -583,7 +594,7 @@ class SubstrateNetworkControllerP:
     #                 self.sfc_queue.put_begin(backup)
     def backup_in_qeue(self):
         sfc_deque = self.sfc_queue.queue
-        for index, sfc_list in enumerate(sfc_deque):
+        for _index, sfc_list in enumerate(sfc_deque):
             for sfc in sfc_list:
                 is_backup = sfc.id.split("_")[2]
                 if is_backup == "backup":
@@ -608,7 +619,8 @@ class SubstrateNetworkControllerP:
             # if not results_dict['backup_sfc']: #and (results_dict['is_success'] == True):
             return results_dict
         return False
-        # self.mobility_manager.add_vehicle(sfc) # Se não é Backup e tiver sido um sucesso, adiciona um veículo para essa SFC;
+        # # Se não é Backup e tiver sido sucesso, adiciona um veículo para essa SFC;
+        # self.mobility_manager.add_vehicle(sfc)
         # else:
         #     self.mobility_manager.remove_sfc(sfc.id,all=True) # Se não remove ()
         # else:
@@ -627,7 +639,7 @@ class SubstrateNetworkControllerP:
 
         while self.sfc_queue.qsize() != 0:
             player_sfc_id_list = []
-            deploy_log = {}  # Indicador para verificar se todas as SFCs foram implantadas com sucesso
+            deploy_log = {}  # Indicador para verificar se todas as SFCs foram um sucesso
             all_success = True
 
             sfc_list = self.sfc_queue.peek_sfc()
@@ -647,7 +659,10 @@ class SubstrateNetworkControllerP:
                     self.mobility_manager.add_vehicle(sfc_list)
                     time.time()
                     # for sfc in sfc_list:
-                    #     self.sfc_manager.sfc_id_duration[sfc.id] = {"duration":sfc.duration,"timer":sfc_duration_timer}
+                    #     self.sfc_manager.sfc_id_duration[sfc.id] = {
+                    #         "duration":sfc.duration,
+                    #         "timer":sfc_duration_timer
+                    #     }
                 else:  # Se todas não foram um sucesso, retira quem foi um sucesso
                     for sfc_id, result_dict in deploy_log.items():
                         if result_dict["is_success"]:
@@ -686,7 +701,7 @@ class SubstrateNetworkControllerP:
 
         vnfs_backup_util = 0
         if self.alg.name == "ga":
-            for backup_id, original_sfc in backups.items():
+            for _backup_id, original_sfc in backups.items():
                 sfc_backups = self.sfc_manager.backup_manager.sfcs_backups_instatiated[
                     original_sfc
                 ]
@@ -703,7 +718,9 @@ class SubstrateNetworkControllerP:
             self.substrate_network.set_node_cpu_capacity(server, -0.0000001)
             self.substrate_network.set_node_cache_free(server, 0)
             self.substrate_network.set_node_cpu_free(server, 0)
-            for sfc_vnf in server_info:  # Aqui serve para tirarmos as sfcs de backup da análise e também montarmos uam estrutura boa.
+
+            # Remove as sfcs de backup da análise e monta uma estrutura boa.
+            for sfc_vnf in server_info:
                 if self.sfc_manager.is_Backup(sfc_vnf[0]):
                     self.sfc_manager.remove_backup_by_id(sfc_vnf[0], self.substrate_network)
                     continue
@@ -726,7 +743,9 @@ class SubstrateNetworkControllerP:
                     new_rf[vnf_id] = backup_found["route_info"][backup_found["vnf_id"]]
                     keys = list(new_rf)
                     if vnf_id in keys[:-1]:
-                        new_rf[keys[keys.index(vnf_id) + 1]] = backup_found["route_info"]["source"]
+                        new_rf[keys[keys.index(vnf_id) + 1]] = backup_found["route_info"][
+                            "source"
+                        ]
                     time_to_r = random.uniform(1, 3)
                 else:
                     vnfs_backup_util += 4
@@ -846,14 +865,15 @@ class SubstrateNetworkControllerP:
         pass
         # if self.timer_qeue_sfcs:
         #     final_time = time.time()
-        #     new_timer_qeue_sfcs = []  # Nova lista para armazenar itens que não atendem à condição
+        #     # Nova lista para armazenar itens que não atendem à condição
+        #     new_timer_qeue_sfcs = []
 
         #     for entry in self.timer_qeue_sfcs:
         #         time_elapsed = final_time - entry['timer']
         #         if time_elapsed >= random.uniform(3, 4):
         #             self.sfc_queue.put_begin(entry["new_sfc_list"])  # Coloca na fila
         #         else:
-        #             new_timer_qeue_sfcs.append(entry)  # Mantém na lista se não atender à condição
+        #             new_timer_qeue_sfcs.append(entry)  # Mantém na lista se não atender
 
         #     # Atualiza a lista original com os itens restantes
         #     self.timer_qeue_sfcs = new_timer_qeue_sfcs
@@ -867,7 +887,7 @@ class SubstrateNetworkControllerP:
             sfcs_moved, new_locations = (
                 self.mobility_manager.check_all_vehicles_position_changes()
             )  # Checagem dos Veh que mudaram de posição
-            for sfc_list, new_location in zip(sfcs_moved, new_locations):
+            for sfc_list, new_location in zip(sfcs_moved, new_locations, strict=False):
                 print(f"SFCs moved: {sfc_list} | New Location: {new_location}")
                 # try:
                 obj_sfc_list = [
@@ -895,7 +915,7 @@ class SubstrateNetworkControllerP:
         mobility_interval = 5
         crasher_interval = (
             self.crasher_manager.fail_interval
-        )  # 260  # Intervalo em segundos para ativar o Crasher repetidamente
+        )  # 260  # Intervalo para ativar o Crasher repetidamente
         self.crashs_trials = 0
         crash_limit = self.crasher_manager.number_of_fails
 

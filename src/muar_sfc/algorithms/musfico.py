@@ -21,7 +21,8 @@ import logging
 
 import networkx as nx
 
-# Imports adicionados para lidar com a rede como um Grafo e calcular a latência de comunicação realista
+# Imports adicionados para lidar com a rede como um Grafo e
+# calcular a latência de comunicação realista
 from muar_sfc.algorithms.networkUtils import (
     calculate_latency_betwen_nodes,
     get_link_bandwidth_free,
@@ -83,7 +84,7 @@ class Musfico:
 
         for node in self.graph.nodes():
             self.node_info[node] = {}
-            for vnf_id, vnf in list(sfc.vnfs.items()):
+            for vnf_id, _vnf in list(sfc.vnfs.items()):
                 self.node_info[node][vnf_id] = {}
                 self.node_info[node][vnf_id]["flag"] = False
                 self.node_info[node][vnf_id]["latency"] = float("inf")
@@ -167,7 +168,7 @@ class Musfico:
         bandwidth_request = sfc.get_link_bandwidth_request(previous_vnf_id, dst_vnf.id)
 
         for node in self.graph.nodes():
-            if node == dst_substrate_node or node == src_substrate_node:
+            if node in (dst_substrate_node, src_substrate_node):
                 continue
 
             path = node_path.get(node)
@@ -199,7 +200,8 @@ class Musfico:
                     break
                 bandwidth_usage_info[edge_key] = residual_bandwidth
 
-                # BOA PRÁTICA: Ignora a latência das arestas caso a VNF seja src ou dst, mantendo paridade com o Instantiator
+                # BOA PRÁTICA: Ignora a latência das arestas caso a VNF seja src ou dst,
+                # mantendo paridade com o Instantiator
                 if previous_vnf_id not in ["src", "dst"]:
                     real_comm_latency += calculate_latency_betwen_nodes(
                         self.graph, u, v, previous_vnf
