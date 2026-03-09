@@ -211,14 +211,14 @@ class GreedyAlgorithm:
         for i in range(len(path) - 1):
             edge_latency = self.substrate_network.get_link_latency(path[i], path[i + 1])
             self.latency = self.latency - edge_latency
-            
+
         if len(self.route_info.keys()) != 6:
             self.latency = None
             self.route_info = {}
             return False
-            
+
         if self.latency > sfc.get_latency_request():
             self.route_info = {}
             return False
-            
+
         return True

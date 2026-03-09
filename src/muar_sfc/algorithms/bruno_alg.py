@@ -17,7 +17,9 @@ route info :=
 """
 
 import logging
+
 from config import ROOT_PATH
+from muar_sfc.algorithms.algorithm import Algorithm
 from muar_sfc.utils.k_shortest_paths import k_shortest_paths
 
 # create logger
@@ -35,15 +37,6 @@ ch.setFormatter(formatter)
 # add ch to logger
 logger.addHandler(ch)
 
-from muar_sfc.algorithms.algorithm import Algorithm
-
-# TODO alocar SFs que gastam muita banda no mesmo nó para economizar (Render, Transcoder). Avaliar quando
-# vale a pena separar em nós diferentes.
-
-# {'g1': [sfc1, sfc2, sfc3], 'g2': [sfc2, sfc3, sfc4]}
-
-# [sfc1, ....., sfc200]
-# T = T(sfc1) + .... + T(sfc200)
 
 """
 Funcionamento:

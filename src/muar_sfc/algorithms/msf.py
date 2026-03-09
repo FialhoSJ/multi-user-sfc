@@ -131,16 +131,22 @@ class MSF:
             for vnf_id, vnf in list(sfc.vnfs.items()):
                 # Not include src and dst.
                 self.node_info[node][vnf_id] = {}
-                self.node_info[node][vnf_id]["flag"] = False  # whether vnf/id can be placed on node
+                self.node_info[node][vnf_id]["flag"] = (
+                    False  # whether vnf/id can be placed on node
+                )
                 self.node_info[node][vnf_id]["latency"] = float("inf")
                 self.node_info[node][vnf_id]["path"] = []
                 self.node_info[node][vnf_id]["src_path"] = []
                 self.node_info[node][vnf_id]["previous_substrate_node"] = None
-                self.node_info[node][vnf_id]["current_substrate_nodes"] = []  # The meta information
+                self.node_info[node][vnf_id][
+                    "current_substrate_nodes"
+                ] = []  # The meta information
                 self.node_info[node][vnf_id]["bandwidth_usage_info"] = {}
 
             self.node_info[node][src_vnf.id] = {}
-            self.node_info[node][src_vnf.id]["flag"] = False  # src cannot be placed except src node
+            self.node_info[node][src_vnf.id]["flag"] = (
+                False  # src cannot be placed except src node
+            )
             self.node_info[node][dst_vnf.id] = {}
 
         self.node_info[src_substrate_node][src_vnf.id]["flag"] = True

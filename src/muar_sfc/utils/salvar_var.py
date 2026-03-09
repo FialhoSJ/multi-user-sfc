@@ -1,6 +1,8 @@
 import os
 import pickle
 import time  # ### ADIÇÃO ###: Importa o módulo 'time' para adicionar pausas
+import tempfile
+import shutil
 
 
 def salvar_variavel(variavel, nome_lista, pasta="variaveis_salvas", valor_unico=False):
@@ -145,8 +147,7 @@ def carregar_lista(nome_lista, pasta="variaveis_salvas"):
         return []
 
 
-import tempfile
-import shutil
+
 
 
 def salvar_duas_variaveis_seguramente(

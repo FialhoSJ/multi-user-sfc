@@ -21,6 +21,8 @@ import logging
 from muar_sfc.algorithms.greedy_algorithm import GreedyAlgorithm
 from config import ROOT_PATH
 from muar_sfc.utils.k_shortest_paths import k_shortest_paths
+from muar_sfc.algorithms.algorithm import Algorithm
+
 
 
 # create logger
@@ -38,7 +40,6 @@ ch.setFormatter(formatter)
 # add ch to logger
 logger.addHandler(ch)
 
-from muar_sfc.algorithms.algorithm import Algorithm
 
 
 class MSF(Algorithm):

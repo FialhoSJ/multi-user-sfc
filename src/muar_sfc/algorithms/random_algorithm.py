@@ -143,7 +143,7 @@ class RandomAlgorithm:
             except (nx.NetworkXNoPath, nx.NodeNotFound):
                 logger.warning("have no path between two nodes: %s - %s", pre_substrate_node, node)
                 return False
-                
+
             pre_substrate_node = node
 
             latency = latency + path_latency

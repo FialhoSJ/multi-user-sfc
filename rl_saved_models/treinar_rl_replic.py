@@ -1,23 +1,14 @@
-# =====Mecanismo para resolver importação relativa==================
-import sys
-import os
-
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-sys.path.append(parent_dir)
-# ============================
-
 import numpy as np
-from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.logger import configure
-
-from muar_sfc.utils.salvar_var import carregar_lista
-from muar_sfc.algorithms.environments.env_replic import SFC_AllocationEnv
-
-from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import EvalCallback
+from pathlib import Path
 from sb3_contrib import MaskablePPO
 from sb3_contrib.common.maskable.callbacks import MaskableEvalCallback
+from stable_baselines3 import PPO
+from stable_baselines3.common.callbacks import EvalCallback
+from stable_baselines3.common.logger import configure
+from stable_baselines3.common.monitor import Monitor
+
+from muar_sfc.algorithms.environments.env_replic import SFC_AllocationEnv
+from muar_sfc.utils.salvar_var import carregar_lista
 
 USE_MASKING = True
 
@@ -53,7 +44,7 @@ def carregar_dados_do_ambiente():
 
 
 # ==============================================================================
-#               FLUXO PRINCIPAL DE TREINAMENTO
+#              FLUXO PRINCIPAL DE TREINAMENTO
 # ==============================================================================
 
 if __name__ == "__main__":
@@ -84,42 +75,42 @@ if __name__ == "__main__":
 
         # --- 1. DEFINIÇÃO DOS DIRETÓRIOS DINÂMICOS ---
         # Agora o log_dir cria uma subpasta automática com o nome do seu projeto!
-        log_dir = f"logs/{project_name}/"
-        tensorboard_log_dir = "tensorboard_logs/"
-        save_dir = "rl_saved_models/"
+        log_dir = Path(f"logs/{project_name}/")
+        tensorboard_log_dir = Path("tensorboard_logs/")
+        save_dir = Path("rl_saved_models/")
 
-        os.makedirs(log_dir, exist_ok=True)
-        os.makedirs(tensorboard_log_dir, exist_ok=True)
-        os.makedirs(save_dir, exist_ok=True)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        tensorboard_log_dir.mkdir(parents=True, exist_ok=True)
+        save_dir.mkdir(parents=True, exist_ok=True)
 
         # --- 2. CRIAÇÃO DOS AMBIENTES ---
         # Cria o ambiente de treino e envolve com Monitor
         train_env = carregar_dados_do_ambiente()
-        train_env = Monitor(train_env, os.path.join(log_dir, "train"))
+        train_env = Monitor(train_env, str(log_dir / "train"))
 
         # Cria o ambiente de avaliação e envolve com Monitor
         eval_env = carregar_dados_do_ambiente()
-        eval_env = Monitor(eval_env, os.path.join(log_dir, "eval"))
+        eval_env = Monitor(eval_env, str(log_dir / "eval"))
 
         # ===== GERAÇÃO DINÂMICA DO NOME DO MODELO =====
         model_name = f"{algorithm_name.upper()}_{project_name}_{task_name}.zip"
         model_log_name = f"{algorithm_name}_{project_name}_SFC_Allocation"
 
-        final_model_path = os.path.join(save_dir, model_name)
+        final_model_path = save_dir / model_name
 
-        if os.path.exists(final_model_path):
+        if final_model_path.exists():
             print(
                 f"Modelo salvo encontrado em '{final_model_path}'. Carregando para continuar o treinamento..."
             )
             model = ModelClass.load(final_model_path, env=train_env)
-            new_logger = configure(tensorboard_log_dir, ["stdout", "tensorboard"])
+            new_logger = configure(str(tensorboard_log_dir), ["stdout", "tensorboard"])
             model.set_logger(new_logger)
         else:
             print(
                 f"Nenhum modelo salvo encontrado. Iniciando novo treinamento para {model_name}..."
             )
             model = ModelClass(
-                "MultiInputPolicy", train_env, verbose=1, tensorboard_log=tensorboard_log_dir
+                "MultiInputPolicy", train_env, verbose=1, tensorboard_log=str(tensorboard_log_dir)
             )
 
         # --- 4. TREINAMENTO (NOVO OU CONTINUADO) ---
@@ -127,7 +118,7 @@ if __name__ == "__main__":
             print("Usando MaskableEvalCallback.")
             eval_callback = MaskableEvalCallback(
                 eval_env,
-                log_path=log_dir,
+                log_path=str(log_dir),
                 eval_freq=1000,
                 n_eval_episodes=100,
                 deterministic=False,
@@ -137,7 +128,7 @@ if __name__ == "__main__":
             print("Usando EvalCallback padrão.")
             eval_callback = EvalCallback(
                 eval_env,
-                log_path=log_dir,
+                log_path=str(log_dir),
                 eval_freq=1000,
                 n_eval_episodes=100,
                 deterministic=False,

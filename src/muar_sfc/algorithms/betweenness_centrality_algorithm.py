@@ -125,21 +125,36 @@ class BetweennessCentralityAlgorithm(Algorithm):
                         except IndexError:
                             logger.warning("No node for host vnf (IndexError on sorted_bc)")
                             return False
-                    
+
                     map_res[middle_vnf.id] = candidate_node
                     used_nodes.append(candidate_node)
                     _helper(
-                        substrate_network, sfc, vnf_list, head, middle_index,
-                        map_res[vnf_list[head].id], map_res[vnf_list[middle_index].id],
+                        substrate_network,
+                        sfc,
+                        vnf_list,
+                        head,
+                        middle_index,
+                        map_res[vnf_list[head].id],
+                        map_res[vnf_list[middle_index].id],
                     )
                     _helper(
-                        substrate_network, sfc, vnf_list, middle_index, tail,
-                        map_res[vnf_list[middle_index].id], map_res[vnf_list[tail].id],
+                        substrate_network,
+                        sfc,
+                        vnf_list,
+                        middle_index,
+                        tail,
+                        map_res[vnf_list[middle_index].id],
+                        map_res[vnf_list[tail].id],
                     )
 
         _helper(
-            substrate_network, sfc, vnf_list, 0, len(vnf_list) - 1,
-            map_res[vnf_list[0].id], map_res[vnf_list[len(vnf_list) - 1].id],
+            substrate_network,
+            sfc,
+            vnf_list,
+            0,
+            len(vnf_list) - 1,
+            map_res[vnf_list[0].id],
+            map_res[vnf_list[len(vnf_list) - 1].id],
         )
 
         current_vnf = src_vnf
@@ -147,18 +162,18 @@ class BetweennessCentralityAlgorithm(Algorithm):
         route_info = {}
         bandwidth_usage_info = {}
         latency = 0
-        
+
         while next_vnf:
             node_from = map_res[current_vnf.id]
             node_to = map_res[next_vnf.id]
-            
+
             # Prevenção de exceções nativas do NetworkX
             try:
                 path = substrate_network.get_shortest_path(node_from, node_to)
             except (nx.NetworkXNoPath, nx.NodeNotFound):
                 logger.warning("No shortest path between %s and %s", node_from, node_to)
                 return False
-                
+
             path_latency = substrate_network.get_shortest_path_length(node_from, node_to)
             latency = latency + path_latency
             bandwidth_request = sfc.get_link_bandwidth_request(current_vnf.id, next_vnf.id)

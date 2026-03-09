@@ -1,4 +1,3 @@
-import sys
 import os
 import numpy as np
 
@@ -17,6 +16,7 @@ from muar_sfc.algorithms.environments.hephaestus_env import SFC_AllocationEnv_he
 # --- FLAG DE CONTROLE ADICIONADA ---
 USE_MASKING = True
 # -----------------------------------
+
 
 # ==============================================================================
 #      FUNÇÃO PARA CARREGAR O AMBIENTE

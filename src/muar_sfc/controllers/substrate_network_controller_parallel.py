@@ -37,6 +37,7 @@ formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(messag
 ch.setFormatter(formatter)
 logger.addHandler(ch)
 
+
 class SubstrateNetworkControllerP:
     def __init__(self):
         # Rede
@@ -190,7 +191,9 @@ class SubstrateNetworkControllerP:
                                 except KeyError:
                                     break
 
-                                logger.info(f"SFC {sfc.id} mudou de localização para {new_location}")
+                                logger.info(
+                                    f"SFC {sfc.id} mudou de localização para {new_location}"
+                                )
                                 self.send_back_to_qeue(
                                     sfc, changed_location=True, new_location=new_location
                                 )

@@ -1,4 +1,3 @@
-
 import networkx as nx
 import matplotlib.pyplot as plt
 from muar_sfc.core.net import Net

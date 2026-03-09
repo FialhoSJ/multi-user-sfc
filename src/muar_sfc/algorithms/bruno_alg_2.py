@@ -19,6 +19,8 @@ route info :=
 import logging
 from config import ROOT_PATH
 from muar_sfc.utils.k_shortest_paths import k_shortest_paths
+from muar_sfc.algorithms.algorithm import Algorithm
+
 
 # create logger
 logger = logging.getLogger(__name__)
@@ -35,7 +37,6 @@ ch.setFormatter(formatter)
 # add ch to logger
 logger.addHandler(ch)
 
-from muar_sfc.algorithms.algorithm import Algorithm
 
 
 class BrunoAlgNew(Algorithm):

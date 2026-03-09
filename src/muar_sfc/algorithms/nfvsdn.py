@@ -19,6 +19,7 @@ route info :=
 import copy
 import logging
 from config import ROOT_PATH
+from muar_sfc.algorithms.algorithm import Algorithm
 import networkx as nx
 
 # create logger
@@ -36,7 +37,7 @@ ch.setFormatter(formatter)
 # add ch to logger
 logger.addHandler(ch)
 
-from muar_sfc.algorithms.algorithm import Algorithm
+
 
 
 class Goku(Algorithm):
@@ -443,9 +444,7 @@ class Goku(Algorithm):
             available_cpu = (
                 server_resources[server]["cpu_capacity"] - server_resources[server]["cpu_used"]
             )
-            (
-                server_resources[server]["cache_capacity"] - server_resources[server]["cache_used"]
-            )
+            (server_resources[server]["cache_capacity"] - server_resources[server]["cache_used"])
 
             if available_cpu > 0:
                 node_resource_cost = cpu_required / available_cpu  #

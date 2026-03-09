@@ -1,5 +1,3 @@
-
-
 class Monitor:
     def __init__(self, nw):
         pass

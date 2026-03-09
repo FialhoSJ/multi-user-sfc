@@ -14,6 +14,7 @@ from muar_sfc.core.sfc import SFC
 # Configuração de Logger Local
 logger = logging.getLogger(__name__)
 
+
 class BackupManager:
     """
     Gerencia o ciclo de vida lógico e as estratégias de criação de backups.
@@ -42,9 +43,7 @@ class BackupManager:
         self.alg = args.alg
 
         if user_wants_backup and not is_target_alg:
-            logger.info(
-                f"Backup proativo desativado. '{args.alg}' não suporta essa estratégia."
-            )
+            logger.info(f"Backup proativo desativado. '{args.alg}' não suporta essa estratégia.")
 
         self.standard_reduction_factor = 1.0
 
@@ -250,7 +249,7 @@ class BackupManager:
     ) -> List[List[Any]]:
         """Estratégia baseada em RL com Shadow State para planejamento em lote."""
         from muar_sfc.algorithms.environments.env_replic import SFC_AllocationEnv
-        
+
         backups_mount = []
         target_reliability = 0.96
         MAX_BACKUPS_PER_SFC = 4
@@ -368,7 +367,9 @@ class BackupManager:
                 bw_req = vnf_obj.get_outcome_interface_bandwidth() if vnf_obj else 0
                 for u, v in zip(path[:-1], path[1:]):
                     if graph.has_edge(u, v):
-                        graph.edges[u, v]["bandwidth_used"] = graph.edges[u, v].get("bandwidth_used", 0) + bw_req
+                        graph.edges[u, v]["bandwidth_used"] = (
+                            graph.edges[u, v].get("bandwidth_used", 0) + bw_req
+                        )
 
     def _enrich_graph_with_mobility(self, graph, network, mini_sfc):
         """Adiciona contexto de mobilidade ao grafo de simulação."""
@@ -378,10 +379,18 @@ class BackupManager:
         if mobile_node_id and mobile_node_id in network.md_graph and mobile_node_id not in graph:
             graph.add_node(mobile_node_id, **network.md_graph.nodes[mobile_node_id])
             if closer_router_id and closer_router_id in graph:
-                w_free = max(0.0, graph.nodes[closer_router_id].get("w_channel_capacity", 0.0) - 
-                             graph.nodes[closer_router_id].get("w_channel_used", 0.0))
-                graph.add_edge(mobile_node_id, closer_router_id, bandwidth_capacity=w_free, 
-                               bandwidth_used=0.0, latency=1)
+                w_free = max(
+                    0.0,
+                    graph.nodes[closer_router_id].get("w_channel_capacity", 0.0)
+                    - graph.nodes[closer_router_id].get("w_channel_used", 0.0),
+                )
+                graph.add_edge(
+                    mobile_node_id,
+                    closer_router_id,
+                    bandwidth_capacity=w_free,
+                    bandwidth_used=0.0,
+                    latency=1,
+                )
 
     def greedy_strategy(self, network: Net2, sfc_id_duration: Dict) -> List[List[Any]]:
         """Estratégia gulosa aleatória para criação de backups."""
@@ -391,16 +400,25 @@ class BackupManager:
 
         for sfc_id in sfcs_id:
             parts = sfc_id.split("_")
-            if (len(parts) > 2 and parts[2] == "backup") or sfc_id not in network.sfc_dict or sfc_id in self.sfcs_backups_instatiated:
+            if (
+                (len(parts) > 2 and parts[2] == "backup")
+                or sfc_id not in network.sfc_dict
+                or sfc_id in self.sfcs_backups_instatiated
+            ):
                 continue
 
             if random.random() < 0.6:
                 continue
 
             current_time = time.time()
-            rem = max(10, sfc_id_duration[sfc_id]["duration"] - (current_time - sfc_id_duration[sfc_id]["timer"]) + 10)
+            rem = max(
+                10,
+                sfc_id_duration[sfc_id]["duration"]
+                - (current_time - sfc_id_duration[sfc_id]["timer"])
+                + 10,
+            )
             sfc = network.get_sfc_by_id(sfc_id)
-            
+
             new_vnfs_dict = []
             for info in sfc.vnfs_dict:
                 new_info = info.copy()
@@ -426,33 +444,50 @@ class BackupManager:
 
         return backups_mount
 
-    def seletive_strategy(self, network: Net2, sfc_id_duration: Dict, threshold: float = 0) -> List[List[Any]]:
+    def seletive_strategy(
+        self, network: Net2, sfc_id_duration: Dict, threshold: float = 0
+    ) -> List[List[Any]]:
         """Estratégia seletiva baseada em confiabilidade e snapshots de recursos."""
         backups_mount = []
         nodes_fail_p = network.get_servers_reliability_dict()
         nodes_candidates = {n: r for n, r in nodes_fail_p.items() if r > threshold}
-        
+
         if not nodes_candidates:
             return []
 
         sorted_reliable_servers = sorted(nodes_candidates, key=nodes_candidates.get, reverse=True)
-        node_resources = {n: {"cpu": network.get_node_cpu_free(n), "cache": network.get_node_cache_free(n), 
-                              "is_active": network.get_node_is_active(n)} for n in sorted_reliable_servers}
+        node_resources = {
+            n: {
+                "cpu": network.get_node_cpu_free(n),
+                "cache": network.get_node_cache_free(n),
+                "is_active": network.get_node_is_active(n),
+            }
+            for n in sorted_reliable_servers
+        }
         link_usage = defaultdict(float)
 
         def get_path(src, tgt, bw):
-            if src == tgt: 
+            if src == tgt:
                 return [src]
+
             def filt(u, v):
                 edge = network.graph[u][v]
-                return (edge["bandwidth_capacity"] - edge["bandwidth_used"] - link_usage[tuple(sorted((u,v)))]) >= bw
+                return (
+                    edge["bandwidth_capacity"]
+                    - edge["bandwidth_used"]
+                    - link_usage[tuple(sorted((u, v)))]
+                ) >= bw
+
             try:
-                return nx.dijkstra_path(nx.subgraph_view(network.graph, filter_edge=filt), src, tgt, weight="latency")
+                return nx.dijkstra_path(
+                    nx.subgraph_view(network.graph, filter_edge=filt), src, tgt, weight="latency"
+                )
             except (nx.NetworkXNoPath, nx.NodeNotFound):
                 return None
 
         for sfc_id in list(sfc_id_duration.keys()):
-            if "backup" in sfc_id: continue
+            if "backup" in sfc_id:
+                continue
             try:
                 sfc = network.get_sfc_by_id(sfc_id)
             except KeyError:
@@ -460,93 +495,230 @@ class BackupManager:
 
             for vnf_info in sfc.vnfs_dict:
                 v_id = vnf_info["name"]
-                if v_id in ["src", "dst"] or "virt" in v_id: continue
-                
-                sfc_rf = network.sfc_route_info.get(sfc_id, {})
-                if v_id not in sfc_rf or not sfc_rf[v_id]: continue
-                
-                orig_loc = sfc_rf[v_id][0]
-                cpu_req, cache_req, bw_req = vnf_info["CPU"], vnf_info["cache"], vnf_info.get("out_bw", 0.0)
-                
-                target_server = next((c for c in sorted_reliable_servers if str(c) != str(orig_loc) and 
-                                     node_resources[c]["is_active"] and node_resources[c]["cpu"] >= cpu_req and 
-                                     node_resources[c]["cache"] >= cache_req), None)
-
-                if not target_server: continue
-                
-                dst_n, src_n, lat_req = self.escolher_src_dst(sfc_rf, v_id, getattr(sfc, "latency_request", 10))
-                if lat_req is None or lat_req < 0: continue
-
-                p_in = get_path(src_n, target_server, bw_req)
-                if not p_in: continue
-                
-                # Commit temporário de banda
-                for u, v in zip(p_in[:-1], p_in[1:]): link_usage[tuple(sorted((u,v)))] += bw_req
-                
-                p_out = get_path(target_server, dst_n, bw_req)
-                if not p_out:
-                    for u, v in zip(p_in[:-1], p_in[1:]): link_usage[tuple(sorted((u,v)))] -= bw_req
+                if v_id in ["src", "dst"] or "virt" in v_id:
                     continue
 
-                for u, v in zip(p_out[:-1], p_out[1:]): link_usage[tuple(sorted((u,v)))] += bw_req
-                
+                sfc_rf = network.sfc_route_info.get(sfc_id, {})
+                if v_id not in sfc_rf or not sfc_rf[v_id]:
+                    continue
+
+                orig_loc = sfc_rf[v_id][0]
+                cpu_req, cache_req, bw_req = (
+                    vnf_info["CPU"],
+                    vnf_info["cache"],
+                    vnf_info.get("out_bw", 0.0),
+                )
+
+                target_server = next(
+                    (
+                        c
+                        for c in sorted_reliable_servers
+                        if str(c) != str(orig_loc)
+                        and node_resources[c]["is_active"]
+                        and node_resources[c]["cpu"] >= cpu_req
+                        and node_resources[c]["cache"] >= cache_req
+                    ),
+                    None,
+                )
+
+                if not target_server:
+                    continue
+
+                dst_n, src_n, lat_req = self.escolher_src_dst(
+                    sfc_rf, v_id, getattr(sfc, "latency_request", 10)
+                )
+                if lat_req is None or lat_req < 0:
+                    continue
+
+                p_in = get_path(src_n, target_server, bw_req)
+                if not p_in:
+                    continue
+
+                # Commit temporário de banda
+                for u, v in zip(p_in[:-1], p_in[1:]):
+                    link_usage[tuple(sorted((u, v)))] += bw_req
+
+                p_out = get_path(target_server, dst_n, bw_req)
+                if not p_out:
+                    for u, v in zip(p_in[:-1], p_in[1:]):
+                        link_usage[tuple(sorted((u, v)))] -= bw_req
+                    continue
+
+                for u, v in zip(p_out[:-1], p_out[1:]):
+                    link_usage[tuple(sorted((u, v)))] += bw_req
+
                 node_resources[target_server]["cpu"] -= cpu_req
                 node_resources[target_server]["cache"] -= cache_req
 
-                new_sfc = SFCGenerator({
-                    "name": f"{sfc_id.split('_')[0]}_{sfc_id.split('_')[1]}_backup_{v_id}_{sfc_id.split('_')[2]}_{sfc_id.split('_')[3]}",
-                    "vnf_list": [{"type": 2, "name": "src_virt", "CPU": 0, "cache": 0, "in_bw": 0, "out_bw": 0, "latency": 0, "location": src_n},
-                                 {"type": 2, "name": v_id+"_b", "CPU": cpu_req, "cache": cache_req, "in_bw": 0, "out_bw": bw_req, "latency": 0, "original_loc": orig_loc, "original_sfc": sfc_id},
-                                 {"type": 2, "name": "dst_virt", "CPU": 0, "cache": 0, "in_bw": 0, "out_bw": 0, "latency": 0, "location": dst_n}],
-                    "bandwidth": sfc.input_throughput, "src_node": src_n, "dst_node": dst_n,
-                    "duration": max(10, sfc_id_duration[sfc_id]["duration"] - (time.time() - sfc_id_duration[sfc_id]["timer"]) + 10),
-                    "latency": lat_req, "closer_router": getattr(sfc, "closer_router", None)
-                }).generate()
-                
-                new_sfc.original_sfc_id, new_sfc.is_backup, new_sfc.target_vnf_id = sfc_id, True, v_id
-                new_sfc.pre_calculated_route = {"src_virt": p_in, v_id+"_b": p_out, "dst_virt": []}
+                new_sfc = SFCGenerator(
+                    {
+                        "name": f"{sfc_id.split('_')[0]}_{sfc_id.split('_')[1]}_backup_{v_id}_{sfc_id.split('_')[2]}_{sfc_id.split('_')[3]}",
+                        "vnf_list": [
+                            {
+                                "type": 2,
+                                "name": "src_virt",
+                                "CPU": 0,
+                                "cache": 0,
+                                "in_bw": 0,
+                                "out_bw": 0,
+                                "latency": 0,
+                                "location": src_n,
+                            },
+                            {
+                                "type": 2,
+                                "name": v_id + "_b",
+                                "CPU": cpu_req,
+                                "cache": cache_req,
+                                "in_bw": 0,
+                                "out_bw": bw_req,
+                                "latency": 0,
+                                "original_loc": orig_loc,
+                                "original_sfc": sfc_id,
+                            },
+                            {
+                                "type": 2,
+                                "name": "dst_virt",
+                                "CPU": 0,
+                                "cache": 0,
+                                "in_bw": 0,
+                                "out_bw": 0,
+                                "latency": 0,
+                                "location": dst_n,
+                            },
+                        ],
+                        "bandwidth": sfc.input_throughput,
+                        "src_node": src_n,
+                        "dst_node": dst_n,
+                        "duration": max(
+                            10,
+                            sfc_id_duration[sfc_id]["duration"]
+                            - (time.time() - sfc_id_duration[sfc_id]["timer"])
+                            + 10,
+                        ),
+                        "latency": lat_req,
+                        "closer_router": getattr(sfc, "closer_router", None),
+                    }
+                ).generate()
+
+                new_sfc.original_sfc_id, new_sfc.is_backup, new_sfc.target_vnf_id = (
+                    sfc_id,
+                    True,
+                    v_id,
+                )
+                new_sfc.pre_calculated_route = {
+                    "src_virt": p_in,
+                    v_id + "_b": p_out,
+                    "dst_virt": [],
+                }
                 backups_mount.append([new_sfc])
 
         return backups_mount
 
     def escolher_src_dst(self, dicionario: Dict, vnf_escolhida: str, latency_limit: int = 10):
         chaves = [k for k in dicionario.keys() if k not in ["src", "dst"]]
-        if vnf_escolhida not in chaves: return None, None, None
+        if vnf_escolhida not in chaves:
+            return None, None, None
         idx = chaves.index(vnf_escolhida)
-        
+
         if idx == 0:
-            dst, src, lat_d = chaves[idx], chaves[idx + 1], len(dicionario[chaves[idx+1]]) - 1
+            dst, src, lat_d = chaves[idx], chaves[idx + 1], len(dicionario[chaves[idx + 1]]) - 1
         elif idx == len(chaves) - 1:
             dst, src, lat_d = chaves[idx - 1], chaves[idx], len(dicionario[vnf_escolhida]) - 1
         else:
-            dst, src, lat_d = chaves[idx - 1], chaves[idx + 1], (len(dicionario[chaves[idx+1]]) - 1) + (len(dicionario[vnf_escolhida]) - 1)
+            dst, src, lat_d = (
+                chaves[idx - 1],
+                chaves[idx + 1],
+                (len(dicionario[chaves[idx + 1]]) - 1) + (len(dicionario[vnf_escolhida]) - 1),
+            )
 
         return dicionario[dst][0], dicionario[src][0], latency_limit - lat_d
 
-    def create_contextual_mini_sfc(self, network: Net2, original_sfc: SFC, vnf_to_replicate_id: str, primary_node_id: str) -> Optional[SFC]:
-        target_info = next((i for i in original_sfc.vnfs_dict if i["name"] == vnf_to_replicate_id), None)
-        if not target_info or not network.sfc_route_info.get(original_sfc.id): return None
-        
+    def create_contextual_mini_sfc(
+        self, network: Net2, original_sfc: SFC, vnf_to_replicate_id: str, primary_node_id: str
+    ) -> Optional[SFC]:
+        target_info = next(
+            (i for i in original_sfc.vnfs_dict if i["name"] == vnf_to_replicate_id), None
+        )
+        if not target_info or not network.sfc_route_info.get(original_sfc.id):
+            return None
+
         cur_v = original_sfc.get_vnf_by_id(vnf_to_replicate_id)
         p_v = original_sfc.get_previous_vnf(cur_v)
-        p_n = original_sfc.src.substrate_node if p_v.id == "src" else network.sfc_route_info[original_sfc.id][p_v.id][0]
+        p_n = (
+            original_sfc.src.substrate_node
+            if p_v.id == "src"
+            else network.sfc_route_info[original_sfc.id][p_v.id][0]
+        )
         n_v = original_sfc.get_next_vnf(cur_v)
-        n_n = original_sfc.dst.substrate_node if n_v.id == "dst" else network.sfc_route_info[original_sfc.id][n_v.id][0]
+        n_n = (
+            original_sfc.dst.substrate_node
+            if n_v.id == "dst"
+            else network.sfc_route_info[original_sfc.id][n_v.id][0]
+        )
 
-        mini_sfc = SFCGenerator({
-            "name": f"{original_sfc.id}_backup_{vnf_to_replicate_id}",
-            "vnf_list": [{"type": 2, "name": "src_virt", "CPU": 0, "cache": 0, "in_bw": 0, "out_bw": 0, "latency": 0, "location": p_n},
-                         {"type": 2, "name": vnf_to_replicate_id + "_b", "CPU": target_info["CPU"], "cache": target_info["cache"], "in_bw": 0, "out_bw": 0, "latency": 0, "original_sfc": original_sfc.id},
-                         {"type": 2, "name": "dst_virt", "CPU": 0, "cache": 0, "in_bw": 0, "out_bw": 0, "latency": 0, "location": n_n}],
-            "bandwidth": original_sfc.input_throughput, "src_node": p_n, "dst_node": n_n,
-            "duration": max(10, original_sfc.duration - (time.time() - getattr(original_sfc, "arrival_time", time.time())) + 10),
-            "latency": getattr(original_sfc, "latency_request", 10),
-            "closer_router": getattr(original_sfc, "closer_router", None), "mobile_node": getattr(original_sfc, "dst_node", None)
-        }).generate()
+        mini_sfc = SFCGenerator(
+            {
+                "name": f"{original_sfc.id}_backup_{vnf_to_replicate_id}",
+                "vnf_list": [
+                    {
+                        "type": 2,
+                        "name": "src_virt",
+                        "CPU": 0,
+                        "cache": 0,
+                        "in_bw": 0,
+                        "out_bw": 0,
+                        "latency": 0,
+                        "location": p_n,
+                    },
+                    {
+                        "type": 2,
+                        "name": vnf_to_replicate_id + "_b",
+                        "CPU": target_info["CPU"],
+                        "cache": target_info["cache"],
+                        "in_bw": 0,
+                        "out_bw": 0,
+                        "latency": 0,
+                        "original_sfc": original_sfc.id,
+                    },
+                    {
+                        "type": 2,
+                        "name": "dst_virt",
+                        "CPU": 0,
+                        "cache": 0,
+                        "in_bw": 0,
+                        "out_bw": 0,
+                        "latency": 0,
+                        "location": n_n,
+                    },
+                ],
+                "bandwidth": original_sfc.input_throughput,
+                "src_node": p_n,
+                "dst_node": n_n,
+                "duration": max(
+                    10,
+                    original_sfc.duration
+                    - (time.time() - getattr(original_sfc, "arrival_time", time.time()))
+                    + 10,
+                ),
+                "latency": getattr(original_sfc, "latency_request", 10),
+                "closer_router": getattr(original_sfc, "closer_router", None),
+                "mobile_node": getattr(original_sfc, "dst_node", None),
+            }
+        ).generate()
 
-        mini_sfc.original_sfc_id, mini_sfc.is_backup, mini_sfc.target_vnf_id = original_sfc.id, True, vnf_to_replicate_id
-        mini_sfc.session_id, mini_sfc.src_virt, mini_sfc.dst_virt = getattr(original_sfc, "session_id", original_sfc.id.split("_")[-1]), p_n, n_n
+        mini_sfc.original_sfc_id, mini_sfc.is_backup, mini_sfc.target_vnf_id = (
+            original_sfc.id,
+            True,
+            vnf_to_replicate_id,
+        )
+        mini_sfc.session_id, mini_sfc.src_virt, mini_sfc.dst_virt = (
+            getattr(original_sfc, "session_id", original_sfc.id.split("_")[-1]),
+            p_n,
+            n_n,
+        )
         return mini_sfc
 
     def get_backups_instantiated_q(self) -> int:
-        return len(self.backups_sfc_instantiated) * (len(self.sfcs_backups_instatiated) if self.alg == "ga" else 4)
+        return len(self.backups_sfc_instantiated) * (
+            len(self.sfcs_backups_instatiated) if self.alg == "ga" else 4
+        )

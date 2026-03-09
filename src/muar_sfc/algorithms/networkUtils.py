@@ -134,8 +134,6 @@ def get_shortest_path(graph, source, target):
         return []
 
 
-
-
 def get_available_shortest_path(
     graph, source, target, bandwidth_required, rounded=False, latencia_saltos=False
 ):
@@ -163,8 +161,6 @@ def get_available_shortest_path(
         return []
     except nx.NodeNotFound:
         return []
-
-
 
 
 def get_available_shortest_path_fast(

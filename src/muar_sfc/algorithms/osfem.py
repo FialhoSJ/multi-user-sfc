@@ -20,6 +20,8 @@ import copy
 import logging
 from config import ROOT_PATH
 import networkx as nx
+from muar_sfc.algorithms.algorithm import Algorithm
+
 
 # create logger
 logger = logging.getLogger(__name__)
@@ -36,7 +38,6 @@ ch.setFormatter(formatter)
 # add ch to logger
 logger.addHandler(ch)
 
-from muar_sfc.algorithms.algorithm import Algorithm
 
 
 class Osfem(Algorithm):

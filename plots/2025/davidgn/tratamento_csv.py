@@ -84,9 +84,6 @@ def indices_maiores_que(lista, limite):
     return indices
 
 
-
-
-
 def substituir_outliers_por_bigode_6x(valores):
     # Garante que todos os valores sejam float
     for i, valor in enumerate(valores):

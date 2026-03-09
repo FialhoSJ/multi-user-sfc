@@ -19,6 +19,7 @@ route info :=
 import copy
 import logging
 from config import ROOT_PATH
+from muar_sfc.algorithms.algorithm import Algorithm
 import networkx as nx
 
 # create logger
@@ -36,7 +37,7 @@ ch.setFormatter(formatter)
 # add ch to logger
 logger.addHandler(ch)
 
-from muar_sfc.algorithms.algorithm import Algorithm
+
 
 
 class Vegeta(Algorithm):

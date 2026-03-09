@@ -18,14 +18,17 @@ route info :=
 
 from muar_sfc.utils.k_shortest_paths import k_shortest_paths
 import logging
+from muar_sfc.algorithms.algorithm import Algorithm
+from config import ROOT_PATH
 
 # create logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
+
 # create console handler and set level to debug
 # ch = logging.StreamHandler()
-from config import ROOT_PATH
+
 
 ch = logging.FileHandler(ROOT_PATH + "./logs/KShortestAlgorithm.log")
 ch.setLevel(logging.DEBUG)
@@ -36,7 +39,6 @@ ch.setFormatter(formatter)
 # add ch to logger
 logger.addHandler(ch)
 
-from muar_sfc.algorithms.algorithm import Algorithm
 
 
 class KShortestPathsAlgorithm(Algorithm):

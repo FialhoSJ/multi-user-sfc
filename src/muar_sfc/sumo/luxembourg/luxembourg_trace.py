@@ -9,11 +9,11 @@ import math
 import numpy as np
 import sys
 
-import logging 
+import logging
 from sumo.luxembourg.config_routes import topology, positions, server_ids, server_tree, routers
 import traci.step
 
-logger = logging.getLogger(__name__) # <-- NOVO
+logger = logging.getLogger(__name__)  # <-- NOVO
 # Tracer utilizando SUMO.
 # Autor: Rodrigo Flexa
 # Data: 17/09/2023
@@ -188,9 +188,9 @@ class Sumo_Luxembourg(AbstractTracer):
         vehicles = list(self.vehicles_info.keys())
         for vehicle_id in vehicles:
             try:
-                if (
-                    self.vehicles_info[vehicle_id]["connected"]
-                ):  # Veh desconectados são aqueles que não atualizamos mais
+                if self.vehicles_info[vehicle_id][
+                    "connected"
+                ]:  # Veh desconectados são aqueles que não atualizamos mais
                     # Check if vehicle has reached the last edge of its current route
                     current_route = traci.vehicle.getRoute(vehicle_id)
                     current_route_index = traci.vehicle.getRouteIndex(vehicle_id)
@@ -198,8 +198,10 @@ class Sumo_Luxembourg(AbstractTracer):
                     # If the vehicle is at the last edge or close to it, reroute it
                     if current_route_index >= len(current_route) - 2:  # A bit before the last edge
                         self.reroute_vehicle(vehicle_id)
-            except Exception as e: # <-- CORRIGIDO: Captura tipada com rastreabilidade
-                logger.error(f"Erro no check_arrival para o veículo {vehicle_id}: {e}", exc_info=True)
+            except Exception as e:  # <-- CORRIGIDO: Captura tipada com rastreabilidade
+                logger.error(
+                    f"Erro no check_arrival para o veículo {vehicle_id}: {e}", exc_info=True
+                )
                 raise ValueError("Erro no check arrival") from e
 
     def update_coords(self):
@@ -218,10 +220,10 @@ class Sumo_Luxembourg(AbstractTracer):
                     self.check_arrival()
                     traci.simulationStep()
                     time.sleep(1)
-        except Exception as e: # <-- CORRIGIDO
+        except Exception as e:  # <-- CORRIGIDO
             logger.error(f"Erro fatal na thread de movimentação do SUMO: {e}", exc_info=True)
-            self.stop_simulation() # Tenta fechar a conexão graciosamente antes de matar o processo
-            sys.exit(1) # <-- CORRIGIDO: Código 1 sinaliza falha crítica para o SO/Orquestrador
+            self.stop_simulation()  # Tenta fechar a conexão graciosamente antes de matar o processo
+            sys.exit(1)  # <-- CORRIGIDO: Código 1 sinaliza falha crítica para o SO/Orquestrador
 
     def start_simulation(self):
         self.connect_to_sumo()

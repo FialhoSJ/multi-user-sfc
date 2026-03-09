@@ -1,4 +1,4 @@
-from pathlib import Path # <-- NOVO: Modernização de I/O
+from pathlib import Path  # <-- NOVO: Modernização de I/O
 from typing import Dict
 import numpy as np
 import re
@@ -13,9 +13,11 @@ def format_nodes_to_string(nodes):
     nodes_to_string = np.array2string(nodes, suppress_small=True, precision=3, separator=",")
     return re.sub("[ \n]", "", nodes_to_string)
 
+
 def format_edges_to_string(edges):
     edges_to_string = ";".join(map(str, edges))
     return re.sub("[ \n]", "", edges_to_string)
+
 
 def create_directory_if_not_exists(path: Path | str):
     # Pathlib cria pastas recursivamente e ignora se já existem de forma limpa
@@ -35,7 +37,7 @@ def create_output_dir(args, topology):
         number_of_fails = 0
 
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f") + str(random.randint(0, 10000))
-    
+
     # Instanciando o diretório base como um Objeto Path
     base_dir = Path("results")
 
@@ -47,7 +49,10 @@ def create_output_dir(args, topology):
         dir_path = base_dir / f"results_{path}"
         dir_path.mkdir(parents=True, exist_ok=True)  # Cria recursivamente sem dar erro se existir
 
-        alg_path = dir_path / f"alg_{args.alg}_s_{args.n_sessions}_p_{args.n_players}_a_{availability}_c_{number_of_fails}"
+        alg_path = (
+            dir_path
+            / f"alg_{args.alg}_s_{args.n_sessions}_p_{args.n_players}_a_{availability}_c_{number_of_fails}"
+        )
         alg_path.mkdir(parents=True, exist_ok=True)
         directories[path] = alg_path
 
@@ -67,8 +72,14 @@ def create_output_dir(args, topology):
     flows_dir = base_dir / "results_flows"
     resilient_dir = base_dir / "results_resilient"
 
-    directory_path = flows_dir / f"{alg_name}_s_{args.n_sessions}_p_{args.n_players}_a_{availability}_c_{number_of_fails}"
-    res_directory_path = resilient_dir / f"{args.alg}_s_{args.n_sessions}_p_{args.n_players}_a_{availability}_c_{number_of_fails}"
+    directory_path = (
+        flows_dir
+        / f"{alg_name}_s_{args.n_sessions}_p_{args.n_players}_a_{availability}_c_{number_of_fails}"
+    )
+    res_directory_path = (
+        resilient_dir
+        / f"{args.alg}_s_{args.n_sessions}_p_{args.n_players}_a_{availability}_c_{number_of_fails}"
+    )
 
     # Cria os diretórios finais
     directory_path.mkdir(parents=True, exist_ok=True)
@@ -287,7 +298,7 @@ class OutputWritter:
         for node_id, vnfs_list in node_groups.items():
             try:
                 reliability_primary = network.get_node_reliability(node_id)
-            except KeyError: # <-- CORRIGIDO: Captura Estrita EAFP
+            except KeyError:  # <-- CORRIGIDO: Captura Estrita EAFP
                 reliability_primary = 1.0
 
             all_vnfs_protected = True
@@ -361,7 +372,7 @@ class OutputWritter:
                     # Tenta extrair session (último digito)
                     if parts[-1].isdigit():
                         unique_sessions.add(parts[-1])
-                except (IndexError, AttributeError): # <-- CORRIGIDO: Tipagem da anomalia nativa
+                except (IndexError, AttributeError):  # <-- CORRIGIDO: Tipagem da anomalia nativa
                     continue
 
         running_players = len(unique_players)

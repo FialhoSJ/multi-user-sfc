@@ -184,7 +184,7 @@ class GreedyOptAlgorithm(Algorithm):
         for server in servers:
             aux = self.graph.nodes[server]
             _ = aux["cpu_capacity"]
-            
+
         server_resources = {
             server: {
                 "cpu_capacity": self.graph.nodes[server]["cpu_capacity"],
@@ -289,7 +289,7 @@ class GreedyOptAlgorithm(Algorithm):
 
             current_substrate_node = node
             current_vnf = prev_vnf
-            
+
         try:
             path = get_shortest_path(self.graph, src_substrate_node, node)
             path_latency = get_shortest_path_length(self.graph, src_substrate_node, node)

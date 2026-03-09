@@ -1,11 +1,12 @@
-import math
 import logging
+import math
+import re
+
 import networkx as nx
+import numpy as np
+from scipy.spatial import KDTree
 
 logger = logging.getLogger(__name__)
-import numpy as np
-import re
-from scipy.spatial import KDTree
 
 """
 node data structure:
@@ -132,7 +133,7 @@ class Net(nx.Graph):
 
         try:
             self.set_node_reuse(node_id, [])
-        except (KeyError, AttributeError): # <-- CORRIGIDO: Captura Estrita
+        except (KeyError, AttributeError):  # <-- CORRIGIDO: Captura Estrita
             logger.warning(f"Nó {node_id} não possui o atributo de reúso de banda.")
 
         self.set_node_cell_bandwidth_free(node_id, cell_bw_capacity)
@@ -659,7 +660,6 @@ class Net(nx.Graph):
         total_cpu_used = 0
         total_cache_used = 0
 
-
         # for node in self.nodes():
         #     node_cpu_used = self.get_node_cpu_used(node)
         #     node_cpu_capacity = self.get_node_cpu_capacity(node)
@@ -704,9 +704,9 @@ class Net(nx.Graph):
                     continue
                 try:
                     sfc = self.get_sfc_by_id(sfc_id)
-                except KeyError: # <-- CORRIGIDO: Exceção Tipada
+                except KeyError:  # <-- CORRIGIDO: Exceção Tipada
                     continue
-                
+
                 vnf = sfc_vnf[1]
                 if vnf.id == "dst":
                     continue
@@ -739,7 +739,6 @@ class Net(nx.Graph):
                         )
         total_bandwidth_used = 0
         total_bandwidth_capacity = 0
-
 
         for edge in self.edges():
             total_bandwidth_used += self.get_link_bandwidth_used(edge[0], edge[1])

@@ -13,7 +13,6 @@ from muar_sfc.algorithms.networkUtils import (
 # ADICIONADO:
 
 
-
 SHAREABLE_PREFIXES = ("IA_DET_FT_", "RE_region_", "MA_region_")
 LATENCY_REQ = 13
 MOBILE_DEVICE_USAGE_REWARD = 0

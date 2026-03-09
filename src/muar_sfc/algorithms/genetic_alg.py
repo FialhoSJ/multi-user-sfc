@@ -484,15 +484,17 @@ class Genetic(Algorithm):
 
         prev_path_end = None
         prev_sf = None  # Correção: movido para fora do loop (F821 Undefined name)
-        
+
         for sf, path in self.route_info.items():
             if sf == "dst":
                 continue
             if prev_path_end is not None:
                 if path[-1] != prev_path_end:
-                    logger.warning(f"Inconsistência entre {prev_sf} e {sf}: {prev_path_end} != {path[0]}")
+                    logger.warning(
+                        f"Inconsistência entre {prev_sf} e {sf}: {prev_path_end} != {path[0]}"
+                    )
                     return False  # ou raise Exception se quiser abortar
             prev_path_end = path[0]
             prev_sf = sf
-            
+
         return True

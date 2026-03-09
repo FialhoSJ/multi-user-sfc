@@ -1,5 +1,3 @@
-
-
 class SFCController:
     def __init__(self):
         self.sfc_list = []
