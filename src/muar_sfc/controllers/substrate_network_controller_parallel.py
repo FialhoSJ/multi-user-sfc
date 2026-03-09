@@ -1,26 +1,21 @@
 """_summary_"""
 
-import threading
-from typing import Tuple
-
-import sys
-import re
-import time
-import logging
-import copy
-import random
 import _thread
-from typing import Optional
+import copy
+import logging
+import random
+import re
+import sys
+import threading
+import time
+from pathlib import Path
+
 from muar_sfc.controllers.modules.backup_manager import BackupManager
+from muar_sfc.controllers.modules.crasher import Crasher
+from muar_sfc.controllers.modules.mobility_manager import MobilityManager
 from muar_sfc.controllers.modules.sfcs_manager import SFCManager
 from muar_sfc.controllers.sfc_generator import SFCGenerator
-
-from muar_sfc.controllers.modules.mobility_manager import MobilityManager
-from muar_sfc.controllers.modules.crasher import Crasher
-from muar_sfc.core.net import Net
 from muar_sfc.utils.manager_results import OutputWritter
-
-from pathlib import Path
 
 # Configuração do Logger
 logger = logging.getLogger(__name__)
@@ -45,10 +40,10 @@ class SubstrateNetworkControllerP:
         self.node_info = {}
 
         # Modules
-        self.mobility_manager: Optional[MobilityManager] = None
-        self.sfc_manager: Optional[SFCManager] = None
-        self.crasher_manager: Optional[Crasher] = None
-        self.backup_manager: Optional[BackupManager] = None
+        self.mobility_manager: MobilityManager | None = None
+        self.sfc_manager: SFCManager | None = None
+        self.crasher_manager: Crasher | None = None
+        self.backup_manager: BackupManager | None = None
         # Status da Rede
         self.remaining_time = None
         self.update_interval = 1
@@ -79,7 +74,7 @@ class SubstrateNetworkControllerP:
         self.flows = 0
         self.alg = None
         self.timer = None
-        self.output_writter: Optional[OutputWritter] = None
+        self.output_writter: OutputWritter | None = None
         self.max_queue_size = 0
 
     def simulation_timer(self) -> int:
@@ -358,7 +353,7 @@ class SubstrateNetworkControllerP:
         # except Exception as e:
         #    print(f"Erro na tentativa de mandar de volta pra fila: {e}")
 
-    def get_node_information(self, node_id: int) -> Tuple:
+    def get_node_information(self, node_id: int) -> tuple:
         """f
         Return the topology's node attributes.
 

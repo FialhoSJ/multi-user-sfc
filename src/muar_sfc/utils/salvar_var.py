@@ -1,8 +1,8 @@
 import os
 import pickle
-import time  # ### ADIÇÃO ###: Importa o módulo 'time' para adicionar pausas
-import tempfile
 import shutil
+import tempfile
+import time  # ### ADIÇÃO ###: Importa o módulo 'time' para adicionar pausas
 
 
 def salvar_variavel(variavel, nome_lista, pasta="variaveis_salvas", valor_unico=False):
@@ -44,7 +44,7 @@ def salvar_variavel(variavel, nome_lista, pasta="variaveis_salvas", valor_unico=
             # Se o salvamento foi bem-sucedido, imprime a mensagem e sai do loop
             # print(f"Variável salva em '{caminho_arquivo}'. Total de itens na lista: {len(lista)}.")
             break  # Sai do loop de tentativas
-        except (IOError, PermissionError):
+        except (OSError, PermissionError):
             # Se ocorrer um erro de permissão ou I/O, espera e tenta novamente
             # print(f"Tentativa {tentativa + 1}/{max_tentativas}: Falha ao salvar '{caminho_arquivo}' devido a: {e}. Tentando novamente em {atraso_tentativa}s...")
             time.sleep(atraso_tentativa)
@@ -120,7 +120,7 @@ def salvar_lista(
                 pickle.dump(lista_salva, f)
             # print(f"Lista atualizada em '{caminho_arquivo}'. Total de itens: {len(lista_salva)}.")
             break
-        except (IOError, PermissionError):
+        except (OSError, PermissionError):
             # print(f"Tentativa {tentativa + 1}/{max_tentativas}: Falha ao salvar '{caminho_arquivo}' (Erro: {e})...")
             time.sleep(atraso_tentativa)
     else:
@@ -188,7 +188,7 @@ def salvar_duas_variaveis_seguramente(
                 with open(temp_path, "wb") as f:
                     pickle.dump(lista, f)
                 return temp_path
-            except (IOError, PermissionError):
+            except (OSError, PermissionError):
                 time.sleep(0.2)
         os.remove(temp_path)
         return None

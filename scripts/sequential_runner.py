@@ -1,7 +1,7 @@
-import os
 import argparse
-from datetime import datetime as dt
+import os
 import sys  # <--- 1. IMPORTE O MÓDULO SYS
+from datetime import datetime as dt
 
 
 def run_process(process):

@@ -18,8 +18,8 @@ route info :=
 
 import logging
 
-from config import ROOT_PATH
 from muar_sfc.algorithms.algorithm import Algorithm
+from muar_sfc.config import ROOT_DIR
 from muar_sfc.utils.k_shortest_paths import k_shortest_paths
 
 # create logger
@@ -28,7 +28,7 @@ logger.setLevel(logging.DEBUG)
 
 # create console handler and set level to debug
 # ch = logging.StreamHandler()
-ch = logging.FileHandler(ROOT_PATH + "./logs/DynamicProgrammingAlgorithm.log")
+ch = logging.FileHandler(ROOT_DIR / "logs" / "BrunoAlg.log")
 ch.setLevel(logging.DEBUG)
 # create formatter
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")

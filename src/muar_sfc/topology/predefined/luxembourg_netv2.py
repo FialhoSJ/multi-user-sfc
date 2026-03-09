@@ -1,5 +1,6 @@
-import random
 import math
+import random
+
 from muar_sfc.core.net_v2 import Net2
 from muar_sfc.topology.base.topology_base import TopologyBase
 
@@ -236,8 +237,8 @@ class LuxembourgV2(TopologyBase):
 
 
 if __name__ == "__main__":
-    import networkx as nx
     import matplotlib.pyplot as plt
+    import networkx as nx
 
     lux = LuxembourgV2(eco_effi_ratio=0.8)  # Exemplo de uso da proporção
     net = lux.generate_substrate_network()

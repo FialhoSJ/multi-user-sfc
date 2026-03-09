@@ -1,7 +1,6 @@
 import math
 import random
 from dataclasses import dataclass
-from typing import Optional
 
 # Constantes físicas globais
 BOLTZMANN_CONST = 1.380649e-23
@@ -31,7 +30,7 @@ class NetworkPhysics:
     @staticmethod
     def calculate_5g_latency(
         packet_size_mb: float,
-        distance_m: Optional[float] = None,
+        distance_m: float | None = None,
         config: Physics5GConfig = Physics5GConfig(),
     ) -> float:
         """Calcula a latência de transmissão 5G baseada em Shannon-Hartley e Path Loss.

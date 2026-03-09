@@ -1,13 +1,13 @@
-import os
 import argparse
-from multiprocessing import Pool
-from datetime import datetime as dt
+import os
 import time
+from datetime import datetime as dt
+from multiprocessing import Pool
 
 
 def run_process(process):
     """Executa um comando em um subprocesso."""
-    os.system("python {}".format(process))
+    os.system(f"python {process}")
     print(process)
 
 

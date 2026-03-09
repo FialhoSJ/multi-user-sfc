@@ -1,4 +1,5 @@
 import numpy as np
+
 from muar_sfc.core.net import Net
 from muar_sfc.topology.base.topology_base import TopologyBase
 

@@ -1,13 +1,14 @@
+
 import networkx as nx
-from typing import List
-from muar_sfc.core.vnf import VNF
+
 from muar_sfc.algorithms.networkUtils import (
-    calculate_latency_betwen_nodes,
     calculate_computational_latency,
+    calculate_latency_betwen_nodes,
 )
+from muar_sfc.core.vnf import VNF
 
 
-def calculate_comunication_latency(graph: nx.Graph, path: List, vnf: VNF):
+def calculate_comunication_latency(graph: nx.Graph, path: list, vnf: VNF):
     """
     Calcula a latência total de um caminho dado e de uma VNF.
 
@@ -43,7 +44,7 @@ def create_route_info_from_allocation_results(dst, graph: nx.Graph, allocation_r
     return route_info
 
 
-def calculate_total_latency(graph: nx.Graph, path: List, vnf: VNF):
+def calculate_total_latency(graph: nx.Graph, path: list, vnf: VNF):
     """
     Calcula a latência total de um caminho dado e de uma VNF.
 

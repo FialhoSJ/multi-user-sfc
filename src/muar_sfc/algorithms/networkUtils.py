@@ -1,8 +1,9 @@
-import networkx as nx
 import math
 import random
+
+import networkx as nx
 import numpy as np
-from typing import List
+
 from muar_sfc.core.net_v2 import Net2
 
 
@@ -396,7 +397,7 @@ def calcular_energia_movel_total(
     # A função agora precisa ser um método da classe Net2
     # ou receber uma instância dela para chamar calculate_5g_latency
     net_instance: Net2,
-    lista_sfs: List[dict],  # Usando dict para clareza
+    lista_sfs: list[dict],  # Usando dict para clareza
 ) -> float:
     """
     Calcula a energia total do dispositivo móvel (Eq. 7 do TCC 1),

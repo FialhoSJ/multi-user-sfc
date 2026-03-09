@@ -1,12 +1,11 @@
 import copy
 import logging
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Protocol, Tuple
+from typing import Any, Protocol
 
 import networkx as nx
 
-from config import ROOT_PATH
 from muar_sfc.algorithms.networkUtils import get_link_bandwidth_free, get_link_latency
+from muar_sfc.config import ROOT_DIR
 
 # =====================================================================
 # Configuração de Observabilidade Estruturada
@@ -15,7 +14,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 # Modernização Orientada a Objetos Multiplataforma (pathlib)
-log_path = Path(ROOT_PATH) / "logs" / "DynamicProgrammingAlgorithm.log"
+log_path = ROOT_DIR / "logs" / "DynamicProgrammingAlgorithm.log"
 log_path.parent.mkdir(parents=True, exist_ok=True)
 
 ch = logging.FileHandler(log_path)
@@ -31,10 +30,10 @@ SHAREABLE_PREFIXES = ("IA_DET_FT_", "RE_region_", "MA_region_")
 # =====================================================================
 NodeID = Any
 Latency = float
-PathType = List[NodeID]
+PathType = list[NodeID]
 
 # Tabela de roteamento: Origem -> (Dict[Destino, Latência], Dict[Destino, Caminho])
-RoutingTable = Dict[NodeID, Tuple[Dict[NodeID, Latency], Dict[NodeID, PathType]]]
+RoutingTable = dict[NodeID, tuple[dict[NodeID, Latency], dict[NodeID, PathType]]]
 
 
 class SubstrateNetworkInterface(Protocol):
@@ -66,23 +65,23 @@ class MSF:
                                          poda de rotas inviáveis (Evita Magic Numbers).
         """
         self.name: str = "msf"
-        self.sfc: Optional[Any] = None
-        self.node_info: Dict[NodeID, Dict[str, Any]] = {}
-        self.route_info: Dict[str, PathType] = {}
-        self.latency: Optional[float] = None
+        self.sfc: Any | None = None
+        self.node_info: dict[NodeID, dict[str, Any]] = {}
+        self.route_info: dict[str, PathType] = {}
+        self.latency: float | None = None
 
         # Estado do Grafo
-        self.graph: Optional[SubstrateNetworkInterface] = None
-        self.src_substrate_node: Optional[NodeID] = None
-        self.dst_substrate_node: Optional[NodeID] = None
+        self.graph: SubstrateNetworkInterface | None = None
+        self.src_substrate_node: NodeID | None = None
+        self.dst_substrate_node: NodeID | None = None
 
         # Cache de rotas
         self.single_source_minimum_latency_path: RoutingTable = {}
 
         # Parâmetros Injetáveis
         self.max_allowed_latency: float = max_allowed_latency
-        self.forbidden_matches: Dict[str, NodeID] = {}
-        self.shareable_sfs: Optional[Any] = None
+        self.forbidden_matches: dict[str, NodeID] = {}
+        self.shareable_sfs: Any | None = None
 
     def clear_all(self) -> None:
         """Limpa o estado da instância para um novo ciclo de execução."""
@@ -96,7 +95,7 @@ class MSF:
         self.latency = None
         self.shareable_sfs = None
 
-    def install_substrate_network(self, graph, shareable_sfs: Optional[List] = None):
+    def install_substrate_network(self, graph, shareable_sfs: list | None = None):
         """
         Instala a cópia local do grafo.
         O MSF é autossuficiente: ele mesmo pré-calcula o cache de latência

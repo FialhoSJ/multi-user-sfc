@@ -1,6 +1,5 @@
-import random
 import logging
-from typing import List, Tuple, Optional
+import random
 
 # =============================================================================
 # CONFIGURAÇÃO DE LOG
@@ -14,8 +13,8 @@ def calcular_janelas_falha(
     num_falhas: int,
     duracao_minima_falha: float,
     confiabilidade: float,
-    start_times: Optional[List[float]] = None,
-) -> List[Tuple[float, float]]:
+    start_times: list[float] | None = None,
+) -> list[tuple[float, float]]:
     """
     Gera janelas temporais de falha em uma simulação, respeitando:
     - o número de falhas,
@@ -99,7 +98,7 @@ def calcular_janelas_falha(
     pesos = [random.random() for _ in range(num_falhas)]
     soma_pesos = sum(pesos) if sum(pesos) > 0 else 1.0
 
-    duracoes: List[float] = []
+    duracoes: list[float] = []
     for peso in pesos:
         proporcao = peso / soma_pesos
         duracao = duracao_minima_falha + proporcao * excedente
@@ -108,7 +107,7 @@ def calcular_janelas_falha(
     # =========================================================================
     # 4. DEFINIÇÃO DOS TEMPOS DE INÍCIO
     # =========================================================================
-    cronograma: List[Tuple[float, float]] = []
+    cronograma: list[tuple[float, float]] = []
 
     for i in range(num_falhas):
         duracao_evento = duracoes[i]

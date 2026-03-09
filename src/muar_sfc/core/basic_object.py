@@ -1,3 +1,3 @@
-class BasicObject(object):
+class BasicObject:
     def test_function(self):
         print("test function: Basic Object")

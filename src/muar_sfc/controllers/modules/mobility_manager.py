@@ -1,5 +1,4 @@
 import threading
-from typing import Optional, List, Tuple
 
 # Imports condicionais ou mocks poderiam ser usados aqui,
 # mas manteremos a estrutura original para simplicidade.
@@ -17,7 +16,7 @@ class MobilityManager:
         self.activated = args.mobility == "y"
 
         # O Tracer é opcional. Se não houver mobilidade, ele é None.
-        self.tracer: Optional[Sumo_Luxembourg] = (
+        self.tracer: Sumo_Luxembourg | None = (
             TracerInstantiator().instantiate_tracer(args.topology) if self.activated else None
         )
 
@@ -86,7 +85,7 @@ class MobilityManager:
         if vehicle_id in self.players_tracker:
             self.players_tracker[vehicle_id]["redeploying"] = True
 
-    def check_all_vehicles_position_changes(self) -> Tuple[List, List]:
+    def check_all_vehicles_position_changes(self) -> tuple[list, list]:
         """
         Verifica mudanças de posição.
         Retorna listas vazias se a mobilidade estiver desligada, mantendo a interface estável.

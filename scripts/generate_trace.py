@@ -4,10 +4,10 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.spatial import Voronoi, cKDTree, voronoi_plot_2d
 
 # Atualizando importação para a nova arquitetura src-layout
 from muar_sfc.topology.paloalto import generate_substrate_network
+from scipy.spatial import Voronoi, cKDTree, voronoi_plot_2d
 
 # Modernização Orientada a Objetos Multiplataforma (pathlib)
 PATH_TRACE = Path("traces") / "sumoTraceVehicle.xml"

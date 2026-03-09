@@ -1,21 +1,22 @@
 import math
-from typing import Any, Union, List, Dict, Optional
+from typing import Any
 
 import gymnasium
-from gymnasium import spaces
 import numpy as np
+from gymnasium import spaces
 from networkx import Graph
 
-# Módulos Locais
-from muar_sfc.core.sfc import SFC, VNF
 from muar_sfc.algorithms.networkUtils import (
     calculate_computational_latency,
     calculate_latency_betwen_nodes,
     get_available_shortest_path_fast,
 )
+
+# Módulos Locais
+from muar_sfc.core.sfc import SFC, VNF
 from muar_sfc.utils.network_utils import (
-    calcular_percentual_cache_total,
     calcular_percentual_banda_total,
+    calcular_percentual_cache_total,
     get_graph_processing_utilization_simplified,
 )
 
@@ -45,12 +46,12 @@ class SFC_AllocationEnv(gymnasium.Env):
 
     def __init__(
         self,
-        valid_nodes: List[Union[int, str]],
-        list_graph: List[Graph],
-        list_sfc: List[SFC],
-        pesos_fatores: Dict[str, float] = None,
-        reward_config: Dict[str, float] = None,
-        reliability_config: Dict[str, Any] = None,  # <--- NOVO PARÂMETRO
+        valid_nodes: list[int | str],
+        list_graph: list[Graph],
+        list_sfc: list[SFC],
+        pesos_fatores: dict[str, float] = None,
+        reward_config: dict[str, float] = None,
+        reliability_config: dict[str, Any] = None,  # <--- NOVO PARÂMETRO
         is_training: bool = True,
     ):
         """
@@ -114,10 +115,10 @@ class SFC_AllocationEnv(gymnasium.Env):
             self.initial_resource_snapshot = self._initialize_snapshots(self.list_graph)
 
         # --- Estado do Episódio ---
-        self.graph: Optional[Graph] = None
-        self.current_sfc: Optional[SFC] = None
-        self.current_vnf: Optional[VNF] = None
-        self.current_location: Union[int, str] = None
+        self.graph: Graph | None = None
+        self.current_sfc: SFC | None = None
+        self.current_vnf: VNF | None = None
+        self.current_location: int | str = None
         self.latency_request = None
         self.features = None
         self.forbidden_nodes = []
@@ -317,7 +318,7 @@ class SFC_AllocationEnv(gymnasium.Env):
     # 3. Observações e Features
     # =================================================================================
 
-    def _get_obs(self) -> Dict[str, np.ndarray]:
+    def _get_obs(self) -> dict[str, np.ndarray]:
         """
         Monta a observação do ambiente de forma estruturada e eficiente usando NumPy.
         """
@@ -452,7 +453,7 @@ class SFC_AllocationEnv(gymnasium.Env):
     # 4. Gerenciamento de Recursos
     # =================================================================================
 
-    def allocate_resources_on_node(self, node_id: Union[int, str], vnf: VNF) -> bool:
+    def allocate_resources_on_node(self, node_id: int | str, vnf: VNF) -> bool:
         node = self.graph.nodes[node_id]
         cpu_req = vnf.get_cpu_request()
         cache_req = vnf.get_cache_request()
@@ -473,7 +474,7 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         return True
 
-    def allocate_bandwidth_along_path(self, path: List, bandwidth_required: float) -> bool:
+    def allocate_bandwidth_along_path(self, path: list, bandwidth_required: float) -> bool:
         for u, v in zip(path[:-1], path[1:]):
             edge = self.graph.edges[u, v]
             available_bw = edge.get("bandwidth_capacity", 0) - edge.get("bandwidth_used", 0)
@@ -488,7 +489,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         return True
 
     def is_reusable_at_node(
-        self, sfc: SFC, graph: Graph, node_id: Union[int, str], vnf: VNF
+        self, sfc: SFC, graph: Graph, node_id: int | str, vnf: VNF
     ) -> bool:
         if not vnf:
             return False
@@ -570,7 +571,7 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         return total_cost
 
-    def calculate_bw_lat_cost(self, vnf: VNF, server_id, path: List, bw_required: float):
+    def calculate_bw_lat_cost(self, vnf: VNF, server_id, path: list, bw_required: float):
         latency_cost = calculate_computational_latency(self.graph, server_id, vnf)
 
         if not path or len(path) < 2:
@@ -620,7 +621,7 @@ class SFC_AllocationEnv(gymnasium.Env):
     # 6. Helpers
     # =================================================================================
 
-    def set_forbidden_nodes(self, nodes: List[Union[str, int]]):
+    def set_forbidden_nodes(self, nodes: list[str | int]):
         self.forbidden_nodes = nodes
 
     def set_current_sfc(self, sfc: SFC):
@@ -653,7 +654,7 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         self.service_requirements = service_requirements
 
-    def define_reverse_vnf_list(self, sfc: SFC) -> List[VNF]:
+    def define_reverse_vnf_list(self, sfc: SFC) -> list[VNF]:
         vnf_list = []
         if "backup" not in sfc.id:
             dst_vnf = sfc.get_dst_vnf()
@@ -672,7 +673,7 @@ class SFC_AllocationEnv(gymnasium.Env):
             current_vnf = sfc.get_previous_vnf(current_vnf)
         return vnf_list
 
-    def _initialize_snapshots(self, list_graph: List[Graph] = None):
+    def _initialize_snapshots(self, list_graph: list[Graph] = None):
         initial_resource_snapshot = {}
         for idx, graph in enumerate(list_graph):
             nodes = {
@@ -701,7 +702,7 @@ class SFC_AllocationEnv(gymnasium.Env):
             if self.graph.has_edge(u, v):
                 self.graph.edges[u, v]["bandwidth_used"] = initial_state["bandwidth_used"]
 
-    def _set_list_graph_sfcs(self, list_graph: List[Graph], list_sfc: List[SFC]):
+    def _set_list_graph_sfcs(self, list_graph: list[Graph], list_sfc: list[SFC]):
         if len(list_graph) != len(list_sfc):
             raise Exception(
                 "O tamanho da lista de grafos deve ser igual ao de SFCs para correspondência"
@@ -751,7 +752,7 @@ class SFC_AllocationEnv(gymnasium.Env):
 # =================================================================================
 
 
-def calculate_total_latency(graph: Graph, path: List, vnf: VNF):
+def calculate_total_latency(graph: Graph, path: list, vnf: VNF):
     total_latency = 0
 
     edge_latency = 0

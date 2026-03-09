@@ -1,5 +1,6 @@
-import networkx as nx
 from itertools import islice
+
+import networkx as nx
 
 
 def k_shortest_paths(G, source, target, k, weight=None):

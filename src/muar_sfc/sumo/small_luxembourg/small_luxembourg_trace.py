@@ -1,12 +1,13 @@
-import threading
-import traci
-from pathlib import Path
-import time
-import pytz
 import datetime
-import random
-import math
 import logging  # <-- NOVO
+import math
+import random
+import threading
+import time
+from pathlib import Path
+
+import pytz
+import traci
 
 logger = logging.getLogger(__name__)  # <-- NOVO
 

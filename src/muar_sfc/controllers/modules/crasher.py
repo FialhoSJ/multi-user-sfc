@@ -1,5 +1,5 @@
 import random
-from typing import List, Dict
+
 from muar_sfc.core.net_v2 import Net2
 
 
@@ -24,7 +24,7 @@ class Crasher:
         self.simulation_step = 1.0
         self.fail_target = args.fail_target
 
-    def calculate_node_probabilities(self, network: Net2) -> Dict:
+    def calculate_node_probabilities(self, network: Net2) -> dict:
         """
         Calcula a probabilidade de falha consultando a confiabilidade dinâmica.
         P(Falha) = 1 - Confiabilidade
@@ -62,7 +62,7 @@ class Crasher:
 
         return aggregated_probs
 
-    def activate_crasher(self, network, sfc_manager=None, alg_name=None) -> List:
+    def activate_crasher(self, network, sfc_manager=None, alg_name=None) -> list:
         """Executa a roleta filtrando candidatos pelos intervalos numéricos de confiabilidade."""
         if not self.activated:
             return []

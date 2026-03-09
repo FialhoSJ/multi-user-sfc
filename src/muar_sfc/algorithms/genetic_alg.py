@@ -25,7 +25,6 @@ from pathlib import Path
 import networkx as nx
 from deap import algorithms, base, creator, tools
 
-from config import ROOT_PATH
 from muar_sfc.algorithms.algorithm import Algorithm
 from muar_sfc.algorithms.networkUtils import (
     calculate_computational_latency,
@@ -33,6 +32,7 @@ from muar_sfc.algorithms.networkUtils import (
     get_available_shortest_path,
     pre_get_single_source_minimum_latency_path,
 )
+from muar_sfc.config import ROOT_DIR
 from muar_sfc.core.sfc import SFC
 
 SHAREABLE_PREFIXES = ("IA_DET_FT_", "RE_region_", "MA_region_")
@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 # Modernização Orientada a Objetos Multiplataforma (pathlib)
-log_path = Path(ROOT_PATH) / "logs" / "MSF.log"
+log_path = Path(ROOT_DIR) / "logs" / "MSF.log"
 log_path.parent.mkdir(parents=True, exist_ok=True)
 
 ch = logging.FileHandler(log_path)

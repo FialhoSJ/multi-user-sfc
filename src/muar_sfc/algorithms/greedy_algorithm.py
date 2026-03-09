@@ -21,14 +21,14 @@ from pathlib import Path
 
 import networkx as nx
 
-from config import ROOT_PATH
+from muar_sfc.config import ROOT_DIR
 
 # Configuração de Observabilidade Estruturada
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 # Modernização Orientada a Objetos Multiplataforma (pathlib)
-log_path = Path(ROOT_PATH) / "logs" / "GreedyAlgorithm.log"
+log_path = Path(ROOT_DIR) / "logs" / "GreedyAlgorithm.log"
 log_path.parent.mkdir(parents=True, exist_ok=True)
 
 ch = logging.FileHandler(log_path)

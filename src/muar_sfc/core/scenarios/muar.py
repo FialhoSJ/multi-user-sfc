@@ -1,9 +1,10 @@
 # config/muar_config.py
 
 import random
-import numpy as np
-from muar_sfc.controllers.sfc_generator import SFCGenerator
 
+import numpy as np
+
+from muar_sfc.controllers.sfc_generator import SFCGenerator
 
 min_latency_acc = 1000
 

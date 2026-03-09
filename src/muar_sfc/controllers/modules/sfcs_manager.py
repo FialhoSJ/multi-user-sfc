@@ -1,11 +1,12 @@
-import time
 import copy
-from typing import Dict, List, Optional, Tuple, Any
+import time
+from typing import Any
+
+from muar_sfc.controllers.modules.backup_manager import BackupManager
 
 # Assumindo interfaces/classes existentes no projeto
 from muar_sfc.core.net_v2 import Net2
 from muar_sfc.core.sfc import SFC
-from muar_sfc.controllers.modules.backup_manager import BackupManager
 
 
 class SFCManager:
@@ -23,7 +24,7 @@ class SFCManager:
 
     def __init__(self, args, backup_manager: BackupManager, alg):
         # Configuration & Managers
-        self.backup_manager: Optional[BackupManager] = backup_manager
+        self.backup_manager: BackupManager | None = backup_manager
         self.alg = alg
         self.alg_name = getattr(alg, "name", str(alg))
         self.args = args
@@ -31,17 +32,17 @@ class SFCManager:
 
         # State Trackers
         # Mapeia: Destino (Group ID) -> Info da Sessão
-        self.sfcs_tracker: Dict[str, Dict[str, Any]] = {}
+        self.sfcs_tracker: dict[str, dict[str, Any]] = {}
 
         # Mapeia: SFC ID -> Informações de Rota (Cópia profunda da implantação)
-        self.sfcs_routing_info: Dict[str, Dict] = {}
+        self.sfcs_routing_info: dict[str, dict] = {}
 
         # Mapeia: SFC ID -> Dados de duração/chegada
-        self.sfc_id_duration: Dict[str, Dict] = {}
+        self.sfc_id_duration: dict[str, dict] = {}
 
         # Listas auxiliares de estado
-        self.crashed_servers: List[str] = []
-        self.risk_servers: List[str] = []
+        self.crashed_servers: list[str] = []
+        self.risk_servers: list[str] = []
 
         # Counters
         self.counter = 0
@@ -51,8 +52,8 @@ class SFCManager:
     # ==========================================
 
     def submit_solution(
-        self, sfc_list: List[SFC], solution: Dict, substrate_network: Net2, is_backup: bool = False
-    ) -> Dict[str, Any]:
+        self, sfc_list: list[SFC], solution: dict, substrate_network: Net2, is_backup: bool = False
+    ) -> dict[str, Any]:
         """
         Aplica a solução de roteamento na rede física e registra a sessão no tracker.
 
@@ -119,7 +120,7 @@ class SFCManager:
     # Lifecycle Management (Expiration/Cleanup)
     # ==========================================
 
-    def get_expired_sessions(self, current_time: float) -> List[str]:
+    def get_expired_sessions(self, current_time: float) -> list[str]:
         """
         Identifica sessões (grupos de SFCs) cujo tempo de vida expirou.
 
@@ -137,7 +138,7 @@ class SFCManager:
 
         return expired_sessions
 
-    def cleanup_session_state(self, sfc_list_id: str) -> List[str]:
+    def cleanup_session_state(self, sfc_list_id: str) -> list[str]:
         """
         Remove o rastreamento lógico de uma sessão e retorna os IDs das SFCs
         individuais para que o Controller possa remover os recursos físicos.
@@ -171,7 +172,7 @@ class SFCManager:
     # Backup Delegation
     # ==========================================
 
-    def create_backups(self, network: Net2, agent_ref: Any = None) -> Tuple[List[Any], str]:
+    def create_backups(self, network: Net2, agent_ref: Any = None) -> tuple[list[Any], str]:
         """Delega a criação de backups para o BackupManager.
 
         Args:
@@ -186,7 +187,7 @@ class SFCManager:
         return [], "none"
 
     def reconstruct_and_redeploy(
-        self, sfc_obj: SFC, crashed_node_id: str, old_route_info: Dict, substrate_network: Net2
+        self, sfc_obj: SFC, crashed_node_id: str, old_route_info: dict, substrate_network: Net2
     ) -> bool:
         """
         Executa a recuperação de falha (Stitching) ativando um backup existente.
@@ -327,7 +328,7 @@ class SFCManager:
     # Helpers
     # ==========================================
 
-    def get_sfc_list(self, sfc_id: str, sb_net: Net2) -> List[SFC]:
+    def get_sfc_list(self, sfc_id: str, sb_net: Net2) -> list[SFC]:
         """Recupera a lista de SFCs de uma sessão a partir de um ID de SFC."""
         sfc = sb_net.get_sfc_by_id(sfc_id)
         if not sfc:
@@ -337,7 +338,7 @@ class SFCManager:
             return self.sfcs_tracker[group_id]["sfc_list"]
         return []
 
-    def get_running_players_sessions(self) -> Tuple[int, int, int]:
+    def get_running_players_sessions(self) -> tuple[int, int, int]:
         """Estatísticas sobre sessões ativas (usado para logs)."""
         running_sfcs = self.sfcs_tracker
         players = set()

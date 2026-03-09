@@ -1,8 +1,9 @@
-from muar_sfc.core.sfc import SFC
-from vnfs.vnf_type_src import VNFSRC
-from vnfs.vnf_type_dst import VNFDST
-from muar_sfc.controllers.vnf_generator import VNFGenerator
 import time
+
+from muar_sfc.controllers.vnf_generator import VNFGenerator
+from muar_sfc.core.sfc import SFC
+from muar_sfc.vnfs.vnf_type_dst import VNFDST
+from muar_sfc.vnfs.vnf_type_src import VNFSRC
 
 """
 sfc_dict

@@ -1,19 +1,20 @@
+
 import gymnasium
-from gymnasium import spaces
 import numpy as np
+from gymnasium import spaces
 from networkx import Graph
-from typing import Union, List, Dict
-from muar_sfc.core.sfc import SFC, VNF
+
+from muar_sfc.algorithms.environments.env_utils.utils import (
+    calculate_comunication_latency,
+    calculate_total_latency,
+    create_route_info_from_allocation_results,
+)
 from muar_sfc.algorithms.networkUtils import (
     calculate_latency_betwen_nodes,
     get_available_shortest_path_fast,
 )
+from muar_sfc.core.sfc import SFC, VNF
 from muar_sfc.utils.network_utils import get_sfc_latency_from_route
-from muar_sfc.algorithms.environments.env_utils.utils import (
-    calculate_comunication_latency,
-    create_route_info_from_allocation_results,
-)
-from muar_sfc.algorithms.environments.env_utils.utils import calculate_total_latency
 
 SHAREABLE_PREFIXES = ("IA_DET_FT_", "RE_region_", "MA_region_")
 
@@ -33,10 +34,10 @@ class SFC_AllocationEnv_DARSPPO(gymnasium.Env):
 
     def __init__(
         self,
-        valid_nodes: List[Union[int, str]],
-        list_graph: List[Graph],
-        list_sfc: List[SFC],
-        pesos_fatores: Dict[str, float] = None,
+        valid_nodes: list[int | str],
+        list_graph: list[Graph],
+        list_sfc: list[SFC],
+        pesos_fatores: dict[str, float] = None,
         is_training=True,
     ):
         """
@@ -63,7 +64,7 @@ class SFC_AllocationEnv_DARSPPO(gymnasium.Env):
         self.graph: Graph = None
         self.current_sfc: SFC = None
         self.current_vnf: VNF = None
-        self.current_location: Union[int, str] = None
+        self.current_location: int | str = None
         self.features = None
         self.initial_delay = 0.0
 
@@ -291,7 +292,7 @@ class SFC_AllocationEnv_DARSPPO(gymnasium.Env):
 
         return features
 
-    def _get_obs(self) -> Dict[str, np.ndarray]:
+    def _get_obs(self) -> dict[str, np.ndarray]:
         """
         Monta a observação do ambiente de forma estruturada e eficiente usando NumPy.
         """
@@ -352,7 +353,7 @@ class SFC_AllocationEnv_DARSPPO(gymnasium.Env):
             pass
         return np.array(mask, dtype=np.int8)
 
-    def allocate_resources_on_node(self, node_id: Union[int, str], vnf: VNF) -> bool:
+    def allocate_resources_on_node(self, node_id: int | str, vnf: VNF) -> bool:
         """
         Aloca CPU e Cache em um nó, considerando o reuso de serviços.
         Retorna True se a alocação for bem-sucedida, False caso contrário.
@@ -378,7 +379,7 @@ class SFC_AllocationEnv_DARSPPO(gymnasium.Env):
 
         return True
 
-    def allocate_bandwidth_along_path(self, path: List, bandwidth_required: float) -> bool:
+    def allocate_bandwidth_along_path(self, path: list, bandwidth_required: float) -> bool:
         """
         Aloca largura de banda ao longo de um caminho de forma atômica.
         Verifica todos os links primeiro e, se todos tiverem capacidade, aloca a banda.
@@ -397,7 +398,7 @@ class SFC_AllocationEnv_DARSPPO(gymnasium.Env):
 
         return True
 
-    def _set_list_graph_sfcs(self, list_graph: List[Graph], list_sfc: List[SFC]):
+    def _set_list_graph_sfcs(self, list_graph: list[Graph], list_sfc: list[SFC]):
         if len(list_graph) != len(list_sfc):
             raise Exception(
                 "O tamanho da lista de grafos deve ser igual ao de SFCs para correspondência"
@@ -429,7 +430,7 @@ class SFC_AllocationEnv_DARSPPO(gymnasium.Env):
 
         return obs, reward, done, False, {}
 
-    def _initialize_snapshots(self, list_graph: List[Graph] = None):
+    def _initialize_snapshots(self, list_graph: list[Graph] = None):
         """
         Cria um snapshot do estado inicial dos recursos de todos os grafos
         para garantir um reset consistente dos episódios.
@@ -480,7 +481,7 @@ class SFC_AllocationEnv_DARSPPO(gymnasium.Env):
 
         self.service_requirements = service_requirements
 
-    def define_reverse_vnf_list(self, sfc: SFC) -> List[VNF]:
+    def define_reverse_vnf_list(self, sfc: SFC) -> list[VNF]:
         """Retorna a lista de VNFs da SFC em ordem reversa (do destino para a origem)."""
         vnf_list = []
         dst_vnf = sfc.get_dst_vnf()
@@ -493,7 +494,7 @@ class SFC_AllocationEnv_DARSPPO(gymnasium.Env):
         return vnf_list
 
     def is_reusable_at_node(
-        self, sfc: SFC, graph: Graph, node_id: Union[int, str], vnf: VNF
+        self, sfc: SFC, graph: Graph, node_id: int | str, vnf: VNF
     ) -> bool:
         """Verifica se uma VNF compartilhável já está alocada em um nó."""
         if not vnf:
@@ -520,7 +521,7 @@ class SFC_AllocationEnv_DARSPPO(gymnasium.Env):
 
         return result
 
-    def calculate_bw_lat_cost(self, vnf: VNF, server_id, path: List, bw_required: float):
+    def calculate_bw_lat_cost(self, vnf: VNF, server_id, path: list, bw_required: float):
         # Latência computacional
 
         if not path or len(path) < 2:

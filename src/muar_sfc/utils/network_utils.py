@@ -1,12 +1,13 @@
-from muar_sfc.core.net_v2 import Net2
+
 import networkx as nx
-from muar_sfc.core.sfc import SFC
-from muar_sfc.core.vnf import VNF
-from typing import List
+
 from muar_sfc.algorithms.networkUtils import (
     calculate_computational_latency,
     calculate_latency_betwen_nodes,
 )
+from muar_sfc.core.net_v2 import Net2
+from muar_sfc.core.sfc import SFC
+from muar_sfc.core.vnf import VNF
 
 
 class EnergyCalculator:
@@ -373,7 +374,7 @@ def calculate_average_sfc_latency(substrate_network: Net2):
     return total_latency_all_sfcs / len(substrate_network.sfc_dict)
 
 
-def calculate_total_latency(graph: nx.Graph, path: List, vnf: VNF):
+def calculate_total_latency(graph: nx.Graph, path: list, vnf: VNF):
     """
     Calcula a latência total de um caminho dado e de uma VNF.
 

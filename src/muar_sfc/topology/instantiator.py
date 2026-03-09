@@ -1,12 +1,12 @@
+from muar_sfc.topology.experimental.nsfnet import NSFNet
 from muar_sfc.topology.predefined.luxembourg import Luxembourg
 from muar_sfc.topology.predefined.luxembourg_netv2 import LuxembourgV2
 from muar_sfc.topology.predefined.paloalto import PaloAlto
-from muar_sfc.topology.experimental.nsfnet import NSFNet
-from muar_sfc.topology.predefined.santamonica import SantaMonica
 from muar_sfc.topology.predefined.sample_topology import SampleTopology
+from muar_sfc.topology.predefined.santamonica import SantaMonica
 
 
-class TopologyInstantiator(object):
+class TopologyInstantiator:
     def __init__(self):
         self.topology_classes = {
             "nsfnet": NSFNet,

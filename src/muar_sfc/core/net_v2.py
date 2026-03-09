@@ -1,9 +1,8 @@
 import math
-import re
 import random
-from dataclasses import dataclass
+import re
 from collections import defaultdict
-from typing import Dict, List, Optional
+from dataclasses import dataclass
 
 import networkx as nx
 import numpy as np
@@ -680,7 +679,7 @@ class Net2:
 
     def get_shortest_path_with_bw(
         self, source: str, target: str, required_bw: float
-    ) -> Optional[List[str]]:
+    ) -> list[str] | None:
         """
         Retorna o menor caminho considerando apenas links com banda suficiente.
         Utiliza Subgraph View para evitar acoplamento com a estrutura interna das arestas.
@@ -922,7 +921,7 @@ class Net2:
     # =========================================================================
 
     def calculate_average_system_reliability(
-        self, backups_dict: Dict[str, List[Dict]] = None
+        self, backups_dict: dict[str, list[dict]] = None
     ) -> float:
         """
         Calcula a confiabilidade média de TODAS as SFCs primárias na rede.

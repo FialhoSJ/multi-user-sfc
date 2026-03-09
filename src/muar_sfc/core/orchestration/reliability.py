@@ -1,4 +1,5 @@
-from typing import Dict, Any, List
+from typing import Any
+
 from muar_sfc.core.infrastructure.topology import NetworkTopology
 
 
@@ -30,7 +31,7 @@ class ReliabilityManager:
 
         return max(0.0, base_r - (utilization * alpha))
 
-    def calculate_system_reliability(self, sfc_list: List[Any], backups: Dict) -> float:
+    def calculate_system_reliability(self, sfc_list: list[Any], backups: dict) -> float:
         """Calcula a média de confiabilidade de todas as SFCs primárias."""
         # Implementação da lógica Série-Paralelo (RBD) transposta do net_v2.py
         # ... (Omitido para brevidade, mas segue a lógica original de RBD)

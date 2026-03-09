@@ -17,9 +17,11 @@ route info :=
 """
 
 import logging
-from config import ROOT_PATH
+
 import networkx as nx
+
 from muar_sfc.algorithms.algorithm import Algorithm
+from muar_sfc.config import ROOT_DIR
 
 # create logger
 logger = logging.getLogger(__name__)
@@ -27,7 +29,7 @@ logger.setLevel(logging.DEBUG)
 
 # create console handler and set level to debug
 # ch = logging.StreamHandler()
-ch = logging.FileHandler(ROOT_PATH + "./logs/MSF.log")
+ch = logging.FileHandler(ROOT_DIR / "logs" / "RodrigoAlg.log")
 ch.setLevel(logging.DEBUG)
 # create formatter
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")

@@ -1,7 +1,7 @@
-import os
 import argparse
-from multiprocessing import Pool
+import os
 from datetime import datetime as dt
+from multiprocessing import Pool
 
 # command line arguments
 
@@ -23,7 +23,7 @@ repetition = int(args.repetition)
 
 
 def run_process(process):
-    os.system("python {}".format(process))
+    os.system(f"python {process}")
     print(process)
 
 

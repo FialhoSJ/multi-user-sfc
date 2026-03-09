@@ -1,9 +1,9 @@
-import os
 import argparse
-from multiprocessing import Pool
-from datetime import datetime as dt
-import time
+import os
 import sys
+import time
+from datetime import datetime as dt
+from multiprocessing import Pool
 
 
 def run_process(process):

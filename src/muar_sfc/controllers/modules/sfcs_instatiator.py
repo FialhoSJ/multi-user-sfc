@@ -1,31 +1,31 @@
 import copy
 import logging
-import time
 import math
 import random
+import time
 import traceback
-from typing import List
 
-# Algoritmos e Utils
-from muar_sfc.utils.k_shortest_paths import k_shortest_paths
+from muar_sfc.algorithms.darsppo import DARSPPO
+from muar_sfc.algorithms.environments.env_da_rsppo import SFC_AllocationEnv_DARSPPO
+from muar_sfc.algorithms.environments.env_replic import SFC_AllocationEnv as SFC_AllocationEnv_SCRC
+
+# Environments
+from muar_sfc.algorithms.environments.environment import SFC_AllocationEnv
+from muar_sfc.algorithms.environments.hephaestus_env import SFC_AllocationEnv_hephaestus
+from muar_sfc.algorithms.hephaestus import hephaestus
+from muar_sfc.algorithms.kuririn import Kuririn
 from muar_sfc.algorithms.networkUtils import (
     calculate_computational_latency,
     calculate_latency_betwen_nodes,
 )
+from muar_sfc.algorithms.replic import REPLIC
 
 # Core e Classes
 from muar_sfc.core.net_v2 import Net2
 from muar_sfc.core.sfc import SFC
-from muar_sfc.algorithms.kuririn import Kuririn
-from muar_sfc.algorithms.replic import REPLIC
-from muar_sfc.algorithms.darsppo import DARSPPO
-from muar_sfc.algorithms.hephaestus import hephaestus
 
-# Environments
-from muar_sfc.algorithms.environments.environment import SFC_AllocationEnv
-from muar_sfc.algorithms.environments.env_replic import SFC_AllocationEnv as SFC_AllocationEnv_SCRC
-from muar_sfc.algorithms.environments.env_da_rsppo import SFC_AllocationEnv_DARSPPO
-from muar_sfc.algorithms.environments.hephaestus_env import SFC_AllocationEnv_hephaestus
+# Algoritmos e Utils
+from muar_sfc.utils.k_shortest_paths import k_shortest_paths
 
 SHAREABLE_PREFIXES = ("IA_DET_FT_", "RE_region_", "MA_region_")
 
@@ -125,7 +125,7 @@ class SFCInstatiator:
         return solution, is_success
 
     def sequential_search(
-        self, algorithm, sfc_list: List[SFC], graph: object, solution_format, graph_backup=None
+        self, algorithm, sfc_list: list[SFC], graph: object, solution_format, graph_backup=None
     ) -> None:
         search_success = True
 

@@ -18,12 +18,12 @@ route info :=
 
 import copy
 import logging
-from muar_sfc.algorithms.greedy_algorithm import GreedyAlgorithm
+
 from config import ROOT_PATH
-from muar_sfc.utils.k_shortest_paths import k_shortest_paths
+
 from muar_sfc.algorithms.algorithm import Algorithm
-
-
+from muar_sfc.algorithms.greedy_algorithm import GreedyAlgorithm
+from muar_sfc.utils.k_shortest_paths import k_shortest_paths
 
 # create logger
 logger = logging.getLogger(__name__)

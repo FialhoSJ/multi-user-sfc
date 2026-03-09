@@ -3,7 +3,7 @@ import logging
 import random
 import time
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import networkx as nx
 
@@ -27,13 +27,13 @@ class BackupManager:
 
     def __init__(self, args):
         # Mapeia: ID da SFC Original -> Lista de metadados dos backups
-        self.sfcs_backups_instatiated: Dict[str, List[Dict[str, Any]]] = {}
+        self.sfcs_backups_instatiated: dict[str, list[dict[str, Any]]] = {}
 
         # Mapeia: ID do Backup -> ID da SFC Original
-        self.backups_sfc_instantiated: Dict[str, str] = {}
+        self.backups_sfc_instantiated: dict[str, str] = {}
 
         # Lista de backups que estão ativos (assumiram o lugar do primário)
-        self.backups_activated: List[str] = []
+        self.backups_activated: list[str] = []
 
         valid_backup_algs = ["REPLICMASKABLEPPO", "ga", "vegeta"]
         is_target_alg = args.alg in valid_backup_algs
@@ -51,7 +51,7 @@ class BackupManager:
     # Lifecycle & State Management
     # ==========================================
 
-    def identify_obsolete_backups(self) -> List[str]:
+    def identify_obsolete_backups(self) -> list[str]:
         """Identifica backups para remoção probabilística (coleta de lixo)."""
         backups_to_remove = []
 
@@ -88,7 +88,7 @@ class BackupManager:
             self.backups_activated.remove(backup_id)
 
     def register_backup_deployment(
-        self, original_sfc_id: str, backup_sfc_id: str, vnf_id: str, route_info: Dict
+        self, original_sfc_id: str, backup_sfc_id: str, vnf_id: str, route_info: dict
     ) -> None:
         """Registra um novo backup implantado com sucesso."""
         if original_sfc_id not in self.sfcs_backups_instatiated:
@@ -103,7 +103,7 @@ class BackupManager:
     # Creation Strategies
     # ==========================================
 
-    def create_backups(self, network: Net2, agent_ref: Any = None) -> Tuple[List[Any], str]:
+    def create_backups(self, network: Net2, agent_ref: Any = None) -> tuple[list[Any], str]:
         """Orquestra a criação de backups respeitando o tempo de vida da sessão."""
         if not self.backup_activated:
             return [], "none"
@@ -153,7 +153,7 @@ class BackupManager:
         self._commit_backup_state(backups_mount)
         return backups_mount, strategy_name
 
-    def _commit_backup_state(self, backups_groups: List[List[Any]]) -> None:
+    def _commit_backup_state(self, backups_groups: list[list[Any]]) -> None:
         """Registra internamente os backups recém-criados."""
         if not backups_groups:
             return
@@ -174,8 +174,8 @@ class BackupManager:
                     )
 
     def _calc_virtual_reliability(
-        self, network: Net2, sfc_id: str, pending_backups_sfcs: List[Any]
-    ) -> Tuple[float, List[Dict]]:
+        self, network: Net2, sfc_id: str, pending_backups_sfcs: list[Any]
+    ) -> tuple[float, list[dict]]:
         """Calcula a confiabilidade efetiva agrupando VNFs por nó físico."""
         if sfc_id not in network.sfc_route_info:
             return 0.0, []
@@ -245,8 +245,8 @@ class BackupManager:
         return total_reliability, sorted_candidates
 
     def rl_based_strategy(
-        self, network: Net2, sfc_id_duration: Dict, agent: Any
-    ) -> List[List[Any]]:
+        self, network: Net2, sfc_id_duration: dict, agent: Any
+    ) -> list[list[Any]]:
         """Estratégia baseada em RL com Shadow State para planejamento em lote."""
         from muar_sfc.algorithms.environments.env_replic import SFC_AllocationEnv
 
@@ -348,7 +348,7 @@ class BackupManager:
 
         return backups_mount
 
-    def _apply_virtual_reservation(self, graph: Any, sfc: SFC, route_info: Dict) -> None:
+    def _apply_virtual_reservation(self, graph: Any, sfc: SFC, route_info: dict) -> None:
         """Aplica a redução de recursos no grafo de simulação (Shadow State)."""
         for vnf_name, path in route_info.items():
             if vnf_name in ["src", "dst"] or "virt" in vnf_name or not path:
@@ -392,7 +392,7 @@ class BackupManager:
                     latency=1,
                 )
 
-    def greedy_strategy(self, network: Net2, sfc_id_duration: Dict) -> List[List[Any]]:
+    def greedy_strategy(self, network: Net2, sfc_id_duration: dict) -> list[list[Any]]:
         """Estratégia gulosa aleatória para criação de backups."""
         backups_mount = []
         sfcs_id = list(sfc_id_duration.keys())
@@ -445,8 +445,8 @@ class BackupManager:
         return backups_mount
 
     def seletive_strategy(
-        self, network: Net2, sfc_id_duration: Dict, threshold: float = 0
-    ) -> List[List[Any]]:
+        self, network: Net2, sfc_id_duration: dict, threshold: float = 0
+    ) -> list[list[Any]]:
         """Estratégia seletiva baseada em confiabilidade e snapshots de recursos."""
         backups_mount = []
         nodes_fail_p = network.get_servers_reliability_dict()
@@ -614,8 +614,8 @@ class BackupManager:
 
         return backups_mount
 
-    def escolher_src_dst(self, dicionario: Dict, vnf_escolhida: str, latency_limit: int = 10):
-        chaves = [k for k in dicionario.keys() if k not in ["src", "dst"]]
+    def escolher_src_dst(self, dicionario: dict, vnf_escolhida: str, latency_limit: int = 10):
+        chaves = [k for k in dicionario if k not in ["src", "dst"]]
         if vnf_escolhida not in chaves:
             return None, None, None
         idx = chaves.index(vnf_escolhida)
@@ -635,7 +635,7 @@ class BackupManager:
 
     def create_contextual_mini_sfc(
         self, network: Net2, original_sfc: SFC, vnf_to_replicate_id: str, primary_node_id: str
-    ) -> Optional[SFC]:
+    ) -> SFC | None:
         target_info = next(
             (i for i in original_sfc.vnfs_dict if i["name"] == vnf_to_replicate_id), None
         )

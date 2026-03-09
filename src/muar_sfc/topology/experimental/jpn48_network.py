@@ -1,7 +1,7 @@
-import networkx as nx
 import matplotlib.pyplot as plt
-from muar_sfc.core.net import Net
+import networkx as nx
 
+from muar_sfc.core.net import Net
 
 bandwidth_capacity = 1000
 cpu_capacity = 100

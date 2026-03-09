@@ -1,17 +1,24 @@
-import threading
-from muar_sfc.sumo.base.tracer_base import AbstractTracer
-import traci
-import time
-import pytz
 import datetime
-import random
-import math
-import numpy as np
-import sys
-
 import logging
-from sumo.luxembourg.config_routes import topology, positions, server_ids, server_tree, routers
+import math
+import random
+import sys
+import threading
+import time
+
+import numpy as np
+import pytz
+import traci
 import traci.step
+
+from muar_sfc.sumo.base.tracer_base import AbstractTracer
+from muar_sfc.sumo.luxembourg.config_routes import (
+    positions,
+    routers,
+    server_ids,
+    server_tree,
+    topology,
+)
 
 logger = logging.getLogger(__name__)  # <-- NOVO
 # Tracer utilizando SUMO.

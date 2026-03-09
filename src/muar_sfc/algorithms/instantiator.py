@@ -1,22 +1,22 @@
-from muar_sfc.algorithms.greedy_boosted import GreedyOptAlgorithm
-from muar_sfc.algorithms.nfvsdn import Goku
-from muar_sfc.algorithms.osfem import Osfem
-from muar_sfc.algorithms.genetic_alg import Genetic
-from muar_sfc.algorithms.greedy_algorithm import GreedyAlgorithm
-from muar_sfc.algorithms.dynamic_programming_algorithm import DynamicProgrammingAlgorithm
-from muar_sfc.algorithms.k_shortest_paths_algorithm import KShortestPathsAlgorithm
 from muar_sfc.algorithms.betweenness_centrality_algorithm import BetweennessCentralityAlgorithm
-from muar_sfc.algorithms.musfico import Musfico
-from muar_sfc.algorithms.msf import MSF
-from muar_sfc.algorithms.new_alg import NewAlg
 from muar_sfc.algorithms.bruno_alg import BrunoAlg
 from muar_sfc.algorithms.bruno_alg_2 import BrunoAlgNew
+from muar_sfc.algorithms.darsppo import DARSPPO
+from muar_sfc.algorithms.dynamic_programming_algorithm import DynamicProgrammingAlgorithm
+from muar_sfc.algorithms.genetic_alg import Genetic
+from muar_sfc.algorithms.greedy_algorithm import GreedyAlgorithm
+from muar_sfc.algorithms.greedy_boosted import GreedyOptAlgorithm
+from muar_sfc.algorithms.hephaestus import hephaestus
+from muar_sfc.algorithms.k_shortest_paths_algorithm import KShortestPathsAlgorithm
+from muar_sfc.algorithms.kuririn import Kuririn
+from muar_sfc.algorithms.msf import MSF
+from muar_sfc.algorithms.musfico import Musfico
+from muar_sfc.algorithms.new_alg import NewAlg
+from muar_sfc.algorithms.nfvsdn import Goku
+from muar_sfc.algorithms.osfem import Osfem
+from muar_sfc.algorithms.replic import REPLIC
 from muar_sfc.algorithms.rodrigo_alg import Rodrigo
 from muar_sfc.algorithms.vegeta import Vegeta
-from muar_sfc.algorithms.kuririn import Kuririn
-from muar_sfc.algorithms.darsppo import DARSPPO
-from muar_sfc.algorithms.hephaestus import hephaestus
-from muar_sfc.algorithms.replic import REPLIC
 
 
 class AlgorithmInstantiator:

@@ -1,11 +1,12 @@
-from pathlib import Path  # <-- NOVO: Modernização de I/O
-from typing import Dict
-import numpy as np
-import re
-from datetime import datetime
 import random
+import re
 import time
 from collections import defaultdict
+from datetime import datetime
+from pathlib import Path  # <-- NOVO: Modernização de I/O
+
+import numpy as np
+
 from muar_sfc.core.net_v2 import Net2
 
 
@@ -261,7 +262,7 @@ class OutputWritter:
             file.write(line)
 
     def _calculate_sfc_reliability_with_backups(
-        self, network: Net2, sfc_id: str, backups_dict: Dict
+        self, network: Net2, sfc_id: str, backups_dict: dict
     ) -> float:
         """Calcula a confiabilidade real (SFC + Backups) usando lógica Paralela/Série."""
         if sfc_id not in network.sfc_route_info:
@@ -346,7 +347,7 @@ class OutputWritter:
         latency_diff=None,
         crashing=False,
         alg_name="ga",
-        backups_dict: Dict = {},
+        backups_dict: dict = {},
     ):
 
         # --- [CORREÇÃO] Recálculo dinâmico de players e sessions ---
@@ -547,9 +548,7 @@ class OutputWritter:
         processing_nodes = sorted(self.processing_nodes)
         cpu_nodes_util = []
         for node in processing_nodes:
-            if node in crashed_nodes:
-                cpu_nodes_util.append(None)
-            elif str(node).endswith(".1"):
+            if node in crashed_nodes or str(node).endswith(".1"):
                 cpu_nodes_util.append(None)
             else:
                 cpu_nodes_util.append(round(substrate_network.get_node_cpu_used(node), 2))
@@ -577,9 +576,7 @@ class OutputWritter:
         processing_nodes = sorted(self.processing_nodes)
         gpu_nodes_util = []
         for node in processing_nodes:
-            if node in crashed_nodes:
-                gpu_nodes_util.append(None)
-            elif not str(node).endswith(".1"):
+            if node in crashed_nodes or not str(node).endswith(".1"):
                 gpu_nodes_util.append(None)
             else:
                 gpu_nodes_util.append(round(substrate_network.get_node_cpu_used(node), 2))

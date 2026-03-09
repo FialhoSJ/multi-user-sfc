@@ -1,7 +1,8 @@
-import networkx as nx
 import matplotlib.pyplot as plt
-from muar_sfc.core.net import Net
+import networkx as nx
 import numpy as np
+
+from muar_sfc.core.net import Net
 
 LIGHT_SPEED = 3 * 10e8
 CLOUD_LATENCY = 1

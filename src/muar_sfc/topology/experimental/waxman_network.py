@@ -1,9 +1,10 @@
+import random
+
+import matplotlib.pyplot as plt
 import networkx as nx
 
 # import matplotlib.pyplot as plt
 from muar_sfc.core.net import Net
-import random
-import matplotlib.pyplot as plt
 
 
 def generate_waxman_network(number_of_node, probability):

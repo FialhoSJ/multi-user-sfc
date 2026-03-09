@@ -3,25 +3,26 @@ import logging
 import signal
 import sys
 
-# Imports dos Controladores e Módulos
-from muar_sfc.controllers.modules.sfcs_manager import SFCManager
-from muar_sfc.controllers.modules.sfcs_instatiator import SFCInstatiator
-from muar_sfc.controllers.modules.mobility_manager import MobilityManager
+from muar_sfc.algorithms.instantiator import AlgorithmInstantiator
 from muar_sfc.controllers.modules.backup_manager import BackupManager
 from muar_sfc.controllers.modules.crasher import Crasher
+from muar_sfc.controllers.modules.mobility_manager import MobilityManager
+from muar_sfc.controllers.modules.sfcs_instatiator import SFCInstatiator
+
+# Imports dos Controladores e Módulos
+from muar_sfc.controllers.modules.sfcs_manager import SFCManager
+from muar_sfc.controllers.sfc_queue import SFCQueue
 from muar_sfc.controllers.substrate_network_controller import SubstrateNetworkController
 from muar_sfc.controllers.substrate_network_controller_parallel import SubstrateNetworkControllerP
-from muar_sfc.controllers.sfc_queue import SFCQueue
 
 # Imports do Core e Algoritmos
 from muar_sfc.core.poisson_emitter import PoissonEmitter
 from muar_sfc.core.scenarios.muar import MuarScenario
-from muar_sfc.algorithms.instantiator import AlgorithmInstantiator
 from muar_sfc.topology.instantiator import TopologyInstantiator
 
 # Imports de Utilitários
 from muar_sfc.utils.failure_generator import calcular_janelas_falha
-from muar_sfc.utils.manager_results import create_output_dir, OutputWritter
+from muar_sfc.utils.manager_results import OutputWritter, create_output_dir
 
 # Configuração de Observabilidade Básica (Substituindo o uso de print)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")

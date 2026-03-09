@@ -1,26 +1,27 @@
 # --- Standard Library Imports ---
-import sys
-import re
-import time
-import logging
-import copy
-import random
-import threading
 import _thread
+import copy
+import logging
+import random
+import re
+import sys
+import threading
+import time
 from collections import defaultdict, deque
-from typing import Any, Tuple, List, Optional
+from typing import Any
 
 # --- Third Party Imports ---
 import numpy as np
 
-# --- Local Module Imports ---
-from muar_sfc.core.net_v2 import Net2
-from muar_sfc.controllers.sfc_generator import SFCGenerator
 from muar_sfc.controllers.modules.backup_manager import BackupManager
+from muar_sfc.controllers.modules.crasher import Crasher
+from muar_sfc.controllers.modules.mobility_manager import MobilityManager
 from muar_sfc.controllers.modules.sfcs_instatiator import SFCInstatiator
 from muar_sfc.controllers.modules.sfcs_manager import SFCManager
-from muar_sfc.controllers.modules.mobility_manager import MobilityManager
-from muar_sfc.controllers.modules.crasher import Crasher
+from muar_sfc.controllers.sfc_generator import SFCGenerator
+
+# --- Local Module Imports ---
+from muar_sfc.core.net_v2 import Net2
 from muar_sfc.utils.manager_results import OutputWritter
 from muar_sfc.utils.network_utils import EnergyCalculator
 
@@ -46,13 +47,13 @@ class SubstrateNetworkController:
         self.node_info = {}
 
         # --- Modules ---
-        self.mobility_manager: Optional[MobilityManager] = 0
-        self.sfc_manager: Optional[SFCManager] = 0
-        self.sfc_instantiator: Optional[SFCInstatiator] = 0
-        self.fail_manager: Optional[Crasher] = 0
-        self.backup_manager: Optional[BackupManager] = 0
+        self.mobility_manager: MobilityManager | None = 0
+        self.sfc_manager: SFCManager | None = 0
+        self.sfc_instantiator: SFCInstatiator | None = 0
+        self.fail_manager: Crasher | None = 0
+        self.backup_manager: BackupManager | None = 0
         self.energy_calculator = EnergyCalculator()
-        self.output_writter: Optional[OutputWritter] = None
+        self.output_writter: OutputWritter | None = None
 
         # --- Simulation Status ---
         self.remaining_time = None
@@ -210,7 +211,7 @@ class SubstrateNetworkController:
 
         self.last_backup_time = current_time
 
-    def _deploy_backups_to_network(self, backup_groups: List[List[Any]]) -> None:
+    def _deploy_backups_to_network(self, backup_groups: list[list[Any]]) -> None:
         """
         Método auxiliar para registrar backups na rede física.
 
@@ -510,7 +511,7 @@ class SubstrateNetworkController:
         """Delega o cálculo complexo ponta-a-ponta para a infraestrutura física."""
         return self.substrate_network.calculate_sfc_total_latency(sfc_id)
 
-    def server_fail_operation(self) -> Tuple[List[str], list]:
+    def server_fail_operation(self) -> tuple[list[str], list]:
         servers_failed = self._trigger_crash()
         if not servers_failed:
             return [], []
@@ -542,7 +543,7 @@ class SubstrateNetworkController:
 
         return servers_failed, fallen_sfcs_list
 
-    def _trigger_crash(self) -> List[str]:
+    def _trigger_crash(self) -> list[str]:
         servers_failed = self.fail_manager.activate_crasher(
             self.substrate_network, self.sfc_manager, self.alg
         )
@@ -697,7 +698,7 @@ class SubstrateNetworkController:
         sfc_failed_nodes_map: dict,
         pre_crash_latencies: dict,
         sfc_owners_map: dict,
-    ) -> Tuple[list, dict]:
+    ) -> tuple[list, dict]:
 
         fallen_sfcs_list = []
         post_crash_latencies = {}
@@ -882,7 +883,7 @@ class SubstrateNetworkController:
             avg_lat_diff,
         )
 
-    def server_recovery_operation(self, nodes_to_recover: List[str]):
+    def server_recovery_operation(self, nodes_to_recover: list[str]):
         if not nodes_to_recover:
             return
 

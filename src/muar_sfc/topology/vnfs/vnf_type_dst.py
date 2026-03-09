@@ -1,5 +1,4 @@
-from muar_sfc.core.vnf import VNF
-from muar_sfc.core.vnf import VNFType
+from muar_sfc.core.vnf import VNF, VNFType
 
 
 class VNFDST(VNF):

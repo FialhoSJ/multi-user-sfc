@@ -1,10 +1,11 @@
-from abc import ABC, abstractmethod
-import threading
-import traceback
-import pytz
 import datetime
-import traci
+import threading
 import time
+import traceback
+from abc import ABC, abstractmethod
+
+import pytz
+import traci
 
 
 class AbstractTracer(ABC):

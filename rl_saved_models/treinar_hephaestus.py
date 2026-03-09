@@ -1,17 +1,19 @@
 import os
-import numpy as np
 
-# Imports de terceiros
-from stable_baselines3 import PPO
-from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.logger import configure
-from stable_baselines3.common.callbacks import EvalCallback
+import numpy as np
 from sb3_contrib import MaskablePPO
 from sb3_contrib.common.maskable.callbacks import MaskableEvalCallback
 
+# Imports de terceiros
+from stable_baselines3 import PPO
+from stable_baselines3.common.callbacks import EvalCallback
+from stable_baselines3.common.logger import configure
+from stable_baselines3.common.monitor import Monitor
+
+from muar_sfc.algorithms.environments.hephaestus_env import SFC_AllocationEnv_hephaestus
+
 # Imports locais (O Python acha automático agora graças ao src-layout!)
 from muar_sfc.utils.salvar_var import carregar_lista
-from muar_sfc.algorithms.environments.hephaestus_env import SFC_AllocationEnv_hephaestus
 
 # --- FLAG DE CONTROLE ADICIONADA ---
 USE_MASKING = True

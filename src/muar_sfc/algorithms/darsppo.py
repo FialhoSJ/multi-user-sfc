@@ -1,17 +1,18 @@
-from muar_sfc.core.sfc import SFC
 import logging
-import networkx as nx
-from stable_baselines3 import DQN
-from stable_baselines3 import PPO
-from sb3_contrib import MaskablePPO
-from muar_sfc.algorithms.environments.environment import SFC_AllocationEnv
 import os
-from config import ROOT_PATH
+
+import networkx as nx
+from sb3_contrib import MaskablePPO
+from stable_baselines3 import DQN, PPO
+
+from muar_sfc.algorithms.environments.environment import SFC_AllocationEnv
+from muar_sfc.config import ROOT_DIR
+from muar_sfc.core.sfc import SFC
 
 # Logging setup
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-file_handler = logging.FileHandler(os.path.join(ROOT_PATH, "logs/DARSPPO.log"))
+file_handler = logging.FileHandler(os.path.join(ROOT_DIR, "logs/DARSPPO.log"))
 file_handler.setLevel(logging.DEBUG)
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 file_handler.setFormatter(formatter)

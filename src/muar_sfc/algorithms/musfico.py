@@ -18,20 +18,21 @@ route info :=
 
 import copy
 import logging
+
 import networkx as nx
-from config import ROOT_PATH
 
 # Imports adicionados para lidar com a rede como um Grafo e calcular a latência de comunicação realista
 from muar_sfc.algorithms.networkUtils import (
-    get_link_bandwidth_free,
     calculate_latency_betwen_nodes,
+    get_link_bandwidth_free,
 )
+from muar_sfc.config import ROOT_DIR
 
 # create logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-ch = logging.FileHandler(ROOT_PATH + "./logs/musfico.log")
+ch = logging.FileHandler(ROOT_DIR / "logs" / "musfico.log")
 ch.setLevel(logging.DEBUG)
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 ch.setFormatter(formatter)

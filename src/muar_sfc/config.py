@@ -1,4 +1,5 @@
 from pathlib import Path
+
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -8,7 +9,7 @@ ROOT_DIR: Path = Path(__file__).resolve().parent.parent.parent
 
 class SimulationSettings(BaseSettings):
     """Configurações unificadas e validadas do Simulador SFC."""
-    
+
     # Permite ler variáveis de um arquivo .env na raiz (Segurança e Observabilidade)
     model_config = SettingsConfigDict(env_prefix="sfc_", env_file=".env", extra="ignore")
 
@@ -63,7 +64,7 @@ class SimulationSettings(BaseSettings):
         self.total = self.ia + self.det + self.ft + self.ma + self.uni + self.re + self.ec_tc
         self.mono = int(self.det + self.ft + self.ma + self.uni + self.re + self.ec_tc)
         self.ft = self.ft_bw * self.cpb
-        
+
         return self
 
 

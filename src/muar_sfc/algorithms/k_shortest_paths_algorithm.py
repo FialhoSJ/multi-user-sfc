@@ -16,10 +16,11 @@ route info :=
 
 """
 
-from muar_sfc.utils.k_shortest_paths import k_shortest_paths
 import logging
+
 from muar_sfc.algorithms.algorithm import Algorithm
-from config import ROOT_PATH
+from muar_sfc.config import ROOT_DIR
+from muar_sfc.utils.k_shortest_paths import k_shortest_paths
 
 # create logger
 logger = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ logger.setLevel(logging.DEBUG)
 # ch = logging.StreamHandler()
 
 
-ch = logging.FileHandler(ROOT_PATH + "./logs/KShortestAlgorithm.log")
+ch = logging.FileHandler(ROOT_DIR / "logs" / "KShortestAlgorithm.log")
 ch.setLevel(logging.DEBUG)
 # create formatter
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")

@@ -1,21 +1,21 @@
 import math
-from typing import Union, List, Dict, Optional
 
 import gymnasium
-from gymnasium import spaces
 import numpy as np
+from gymnasium import spaces
 from networkx import Graph
 
-# Módulos Locais
-from muar_sfc.core.sfc import SFC, VNF
 from muar_sfc.algorithms.networkUtils import (
     calculate_computational_latency,
     calculate_latency_betwen_nodes,
     get_available_shortest_path_fast,
 )
+
+# Módulos Locais
+from muar_sfc.core.sfc import SFC, VNF
 from muar_sfc.utils.network_utils import (
-    calcular_percentual_cache_total,
     calcular_percentual_banda_total,
+    calcular_percentual_cache_total,
     get_graph_processing_utilization_simplified,
 )
 
@@ -39,11 +39,11 @@ class SFC_AllocationEnv(gymnasium.Env):
 
     def __init__(
         self,
-        valid_nodes: List[Union[int, str]],
-        list_graph: List[Graph],
-        list_sfc: List[SFC],
-        pesos_fatores: Dict[str, float] = None,
-        reward_config: Dict[str, float] = None,
+        valid_nodes: list[int | str],
+        list_graph: list[Graph],
+        list_sfc: list[SFC],
+        pesos_fatores: dict[str, float] = None,
+        reward_config: dict[str, float] = None,
         is_training: bool = True,
     ):
         """
@@ -78,10 +78,10 @@ class SFC_AllocationEnv(gymnasium.Env):
             self.initial_resource_snapshot = self._initialize_snapshots(self.list_graph)
 
         # --- Estado do Episódio ---
-        self.graph: Optional[Graph] = None
-        self.current_sfc: Optional[SFC] = None
-        self.current_vnf: Optional[VNF] = None
-        self.current_location: Union[int, str] = None
+        self.graph: Graph | None = None
+        self.current_sfc: SFC | None = None
+        self.current_vnf: VNF | None = None
+        self.current_location: int | str = None
         self.latency_request = None
         self.features = None
         self.forbidden_nodes = []
@@ -257,7 +257,7 @@ class SFC_AllocationEnv(gymnasium.Env):
     # 3. Observações e Features
     # =================================================================================
 
-    def _get_obs(self) -> Dict[str, np.ndarray]:
+    def _get_obs(self) -> dict[str, np.ndarray]:
         """
         Monta a observação do ambiente de forma estruturada e eficiente usando NumPy.
         """
@@ -410,7 +410,7 @@ class SFC_AllocationEnv(gymnasium.Env):
     # 4. Gerenciamento de Recursos (Allocations & Checks)
     # =================================================================================
 
-    def allocate_resources_on_node(self, node_id: Union[int, str], vnf: VNF) -> bool:
+    def allocate_resources_on_node(self, node_id: int | str, vnf: VNF) -> bool:
         """
         Aloca CPU e Cache em um nó, considerando o reuso de serviços.
         """
@@ -437,7 +437,7 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         return True
 
-    def allocate_bandwidth_along_path(self, path: List, bandwidth_required: float) -> bool:
+    def allocate_bandwidth_along_path(self, path: list, bandwidth_required: float) -> bool:
         """
         Aloca largura de banda ao longo de um caminho de forma atômica.
         """
@@ -457,7 +457,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         return True
 
     def is_reusable_at_node(
-        self, sfc: SFC, graph: Graph, node_id: Union[int, str], vnf: VNF
+        self, sfc: SFC, graph: Graph, node_id: int | str, vnf: VNF
     ) -> bool:
         """
         Verifica se uma VNF compartilhável já está alocada em um nó.
@@ -488,7 +488,7 @@ class SFC_AllocationEnv(gymnasium.Env):
     # =================================================================================
 
     def _compute_allocation_cost(
-        self, vnf: VNF, server_id: Union[int, str], path: List[Union[int, str]], bw_required: float
+        self, vnf: VNF, server_id: int | str, path: list[int | str], bw_required: float
     ) -> float:
         """
         Calcula o custo total da alocação (base para a recompensa).
@@ -537,7 +537,7 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         return total_cost
 
-    def calculate_bw_lat_cost(self, vnf: VNF, server_id, path: List, bw_required: float):
+    def calculate_bw_lat_cost(self, vnf: VNF, server_id, path: list, bw_required: float):
         """
         Calcula custo de banda e latência para um caminho específico.
         """
@@ -588,7 +588,7 @@ class SFC_AllocationEnv(gymnasium.Env):
     # 6. Helpers de Configuração (SFC e Snapshots)
     # =================================================================================
 
-    def set_forbidden_nodes(self, nodes: List[Union[str, int]]):
+    def set_forbidden_nodes(self, nodes: list[str | int]):
         self.forbidden_nodes = nodes
 
     def set_current_sfc(self, sfc: SFC):
@@ -623,7 +623,7 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         self.service_requirements = service_requirements
 
-    def define_reverse_vnf_list(self, sfc: SFC) -> List[VNF]:
+    def define_reverse_vnf_list(self, sfc: SFC) -> list[VNF]:
         """
         Retorna a lista de VNFs da SFC em ordem reversa.
         """
@@ -637,7 +637,7 @@ class SFC_AllocationEnv(gymnasium.Env):
             current_vnf = sfc.get_previous_vnf(current_vnf)
         return vnf_list
 
-    def _initialize_snapshots(self, list_graph: List[Graph] = None):
+    def _initialize_snapshots(self, list_graph: list[Graph] = None):
         """
         Cria snapshots iniciais dos recursos para reset eficiente.
         """
@@ -672,7 +672,7 @@ class SFC_AllocationEnv(gymnasium.Env):
             if self.graph.has_edge(u, v):
                 self.graph.edges[u, v]["bandwidth_used"] = initial_state["bandwidth_used"]
 
-    def _set_list_graph_sfcs(self, list_graph: List[Graph], list_sfc: List[SFC]):
+    def _set_list_graph_sfcs(self, list_graph: list[Graph], list_sfc: list[SFC]):
         if len(list_graph) != len(list_sfc):
             raise Exception(
                 "O tamanho da lista de grafos deve ser igual ao de SFCs para correspondência"
@@ -688,7 +688,7 @@ class SFC_AllocationEnv(gymnasium.Env):
 # =================================================================================
 
 
-def calculate_total_latency(graph: Graph, path: List, vnf: VNF):
+def calculate_total_latency(graph: Graph, path: list, vnf: VNF):
     """
     Calcula a latência total (rede + computacional) de um caminho dado e de uma VNF.
     """

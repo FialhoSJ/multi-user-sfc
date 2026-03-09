@@ -1,5 +1,5 @@
 from muar_sfc.core.vnf import VNFType
-from vnfs.vnf_type_1 import VNFType1
+from muar_sfc.vnfs.vnf_type_1 import VNFType1
 
 """
 {type: "TYPE1", "name": "vnf1", "CPU": 100},

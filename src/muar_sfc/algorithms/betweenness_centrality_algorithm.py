@@ -16,12 +16,11 @@ route info :=
 """
 
 import logging
-from pathlib import Path
 
 import networkx as nx
 
-from config import ROOT_PATH
 from muar_sfc.algorithms.algorithm import Algorithm
+from muar_sfc.config import ROOT_DIR
 from muar_sfc.utils.betweenness_centrality import single_betweenness_centrality
 
 # Configuração de Observabilidade (Logs Estruturados)
@@ -29,7 +28,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 # Modernização Orientada a Objetos Multiplataforma (pathlib) para gestão relacional
-log_path = Path(ROOT_PATH) / "logs" / "BetweennessCentralityAlgorithm.log"
+log_path = ROOT_DIR / "logs" / "BetweennessCentralityAlgorithm.log"
 log_path.parent.mkdir(parents=True, exist_ok=True)
 
 ch = logging.FileHandler(log_path)

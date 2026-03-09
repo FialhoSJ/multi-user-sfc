@@ -44,6 +44,18 @@ extend-exclude = ["*.ipynb"]
 line-length = 99
 target-version = "py312"
 
+[tool.ruff.lint]
+# Ativando as regras sêniores de engenharia
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort (ordenação de imports)
+    "B",   # flake8-bugbear (bugs comuns e problemas de design)
+    "UP",  # pyupgrade (força sintaxe moderna do Python 3.12)
+    "SIM", # flake8-simplify (simplifica lógicas redundantes)
+]
+
 [tool.pytest.ini_options]
 minversion = "7.0"
 testpaths = ["tests"]

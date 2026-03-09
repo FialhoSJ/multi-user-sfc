@@ -1,5 +1,6 @@
-from muar_sfc.core.net import Net
 import networkx as nx
+
+from muar_sfc.core.net import Net
 
 MAX_BANDWIDTH = 50
 LIGHT_SPEED = 3 * 10e8

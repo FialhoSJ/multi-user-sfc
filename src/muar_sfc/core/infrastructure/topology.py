@@ -1,5 +1,6 @@
 import random
-from typing import Dict, List, Any, Tuple, Union
+from typing import Any
+
 import networkx as nx
 
 
@@ -20,12 +21,12 @@ class NetworkTopology:
 
     def add_server_node(
         self,
-        node_id: Union[str, int],
+        node_id: str | int,
         node_type: str,
         cpu_capacity: float = 0.0,
         cache_capacity: float = 0.0,
         ips: float = 0.0,
-        position: Tuple[float, float] = (0, 0),
+        position: tuple[float, float] = (0, 0),
     ) -> None:
         """Adiciona um nó de servidor ou roteador à infraestrutura fixa.
 
@@ -75,11 +76,11 @@ class NetworkTopology:
 
     def add_mobile_node(
         self,
-        node_id: Union[str, int],
+        node_id: str | int,
         cpu_capacity: float,
         cache_capacity: float,
         ips: float = 0.0,
-        position: Tuple[float, float] = (0, 0),
+        position: tuple[float, float] = (0, 0),
     ) -> None:
         """Adiciona um dispositivo móvel com variação estocástica de hardware.
 
@@ -191,7 +192,7 @@ class NetworkTopology:
     # CONSULTAS (GETTERS)
     # =========================================================================
 
-    def get_node_data(self, node_id: Any) -> Dict[str, Any]:
+    def get_node_data(self, node_id: Any) -> dict[str, Any]:
         """Retorna os atributos de um nó, buscando em ambos os grafos."""
         if self._infra_graph.has_node(node_id):
             return self._infra_graph.nodes[node_id]
@@ -200,12 +201,12 @@ class NetworkTopology:
         else:
             raise KeyError(f"Nó {node_id} não encontrado na topologia.")
 
-    def get_link_data(self, u: Any, v: Any) -> Dict[str, Any]:
+    def get_link_data(self, u: Any, v: Any) -> dict[str, Any]:
         if self._infra_graph.has_edge(u, v):
             return self._infra_graph.edges[u, v]
         raise KeyError(f"Link {u}-{v} não encontrado.")
 
-    def get_all_nodes(self) -> List[Any]:
+    def get_all_nodes(self) -> list[Any]:
         """Retorna todos os IDs de nós (Infra + Mobile)."""
         return list(self._infra_graph.nodes()) + list(self._mobile_graph.nodes())
 

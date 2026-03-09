@@ -1,5 +1,7 @@
+from typing import Any
+
 import networkx as nx
-from typing import List, Optional, Any
+
 from muar_sfc.core.infrastructure.topology import NetworkTopology
 
 
@@ -9,7 +11,7 @@ class RoutingService:
     def __init__(self, topology: NetworkTopology):
         self.topology = topology
 
-    def get_shortest_path(self, source: Any, target: Any, weight: str = "latency") -> List[Any]:
+    def get_shortest_path(self, source: Any, target: Any, weight: str = "latency") -> list[Any]:
         """Encontra o menor caminho baseado em um peso (ex: latência)."""
         try:
             return nx.dijkstra_path(self.topology.graph, source, target, weight=weight)
@@ -18,7 +20,7 @@ class RoutingService:
 
     def get_bw_aware_path(
         self, source: Any, target: Any, required_bw: float
-    ) -> Optional[List[Any]]:
+    ) -> list[Any] | None:
         """Busca o menor caminho considerando apenas links com banda disponível.
 
         Utiliza uma visualização filtrada (Subgraph View) para manter a eficiência[cite: 198].
