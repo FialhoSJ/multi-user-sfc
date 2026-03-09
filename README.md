@@ -181,8 +181,3 @@ uv run pyright
 * David Galhego - david.galhego@icen.ufpa.br
 * Matheus Morais de Brito
 * Erick
-
-```
-
-
-```
