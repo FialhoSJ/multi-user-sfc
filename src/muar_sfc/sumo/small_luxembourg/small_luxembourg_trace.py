@@ -124,10 +124,7 @@ class Sumo_Small_Luxembourg:
             traci.vehicle.getIDList()
 
             # Verifica se o veículo com o ID desejado está na lista
-            if id in players:
-                return True  # O veículo existe na simulação
-            else:
-                return False  # O veículo não existe na simulação
+            return id in players
         except Exception as e:
             logger.error(f"Error in vehicle is created: {e}", exc_info=True)  # <-- CORRIGIDO
             self.stop_simulation()
@@ -202,7 +199,9 @@ class Sumo_Small_Luxembourg:
 
                     #     # Escreve as métricas no arquivo CSV
                     #     with self.mutex:
-                    #         self.csv_writer.writerow([self.get_datetime(), velocity, acceleration])
+                    #         self.csv_writer.writerow(
+                    #             [self.get_datetime(), velocity, acceleration]
+                    #         )
 
                     time.sleep(1)
                 except Exception as e:

@@ -42,7 +42,9 @@ if __name__ == "__main__":
     nx.draw(G)
     plt.show()
     # substrate_random_network = generate_waxman_network(10, 0.1)
-    # bc = nx.algorithms.centrality.betweenness_centrality(substrate_random_network, weight='latency')
+    # bc = nx.algorithms.centrality.betweenness_centrality(
+    #     substrate_random_network, weight="latency"
+    # )
     # nx.draw(substrate_random_network)  # networkx draw()
     # plt.draw()  # pyplot draw()
     # print bc

@@ -26,7 +26,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--shareband", type=str, help="(str) whether to share sfs or not", default="y"
     )
-    # parser.add_argument('--servers_to_crash', type=str, nargs='+', help='(list) list of reliability values',default=[3]) #0.95, 0.975, 0.99
+    # parser.add_argument('--servers_to_crash', type=str, nargs='+',
+    # help='(list) list of reliability values',default=[3]) #0.95, 0.975, 0.99
     parser.add_argument("--verbose", type=str, help="verbose log", default="n")
     parser.add_argument(
         "--time", type=int, help="(int) the total time for the simulation in seconds", default=120

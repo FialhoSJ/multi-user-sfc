@@ -21,5 +21,5 @@ class TopologyInstantiator:
         try:
             topology_class = self.topology_classes[type]
             return topology_class(eco_effi_ratio)
-        except KeyError:
-            raise ValueError(f"Topology '{type}' not found")
+        except KeyError as e:
+            raise ValueError(f"Topology '{type}' not found") from e

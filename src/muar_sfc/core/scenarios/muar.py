@@ -257,8 +257,22 @@ class MuarScenario:
 
     #     for i in range(1, n_players + 1):
     #         mono_sf_list = [
-    #             {"type": 2, "name": f"IA_{self.session_counter}", "CPU": 10, "cache": 0, "in_bw": 10, "out_bw": 10},
-    #             {"type": 2, "name": f"MONO_p{i}_{self.session_counter}", "CPU": 20, "cache": 10, "in_bw": 10, "out_bw": 10},
+    #             {
+    #                 "type": 2,
+    #                 "name": f"IA_{self.session_counter}",
+    #                 "CPU": 10,
+    #                 "cache": 0,
+    #                 "in_bw": 10,
+    #                 "out_bw": 10,
+    #             },
+    #             {
+    #                 "type": 2,
+    #                 "name": f"MONO_p{i}_{self.session_counter}",
+    #                 "CPU": 20,
+    #                 "cache": 10,
+    #                 "in_bw": 10,
+    #                 "out_bw": 10,
+    #             },
     #         ]
     #         players_mono_sf_list.append(mono_sf_list)
 
@@ -277,7 +291,8 @@ class MuarScenario:
     #     ]
 
     #     players_sfc_list = [
-    #         [SFCGenerator(players_mono_dict_list[i - 1]).generate()] for i in range(1, n_players + 1)
+    #         [SFCGenerator(players_mono_dict_list[i - 1]).generate()]
+    #         for i in range(1, n_players + 1)
     #     ]
 
     #     for sfc in players_sfc_list:

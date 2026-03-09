@@ -2,6 +2,7 @@ import math
 import random
 import re
 from collections import defaultdict
+from contextlib import suppress
 from dataclasses import dataclass
 
 import networkx as nx
@@ -104,9 +105,8 @@ class Net2:
     # =========================================================================
 
     def detach_vnf_from_route_record(self, sfc_id: str, vnf_name: str) -> None:
-        if sfc_id in self.sfc_route_info:
-            if vnf_name in self.sfc_route_info[sfc_id]:
-                del self.sfc_route_info[sfc_id][vnf_name]
+        if sfc_id in self.sfc_route_info and vnf_name in self.sfc_route_info[sfc_id]:
+            del self.sfc_route_info[sfc_id][vnf_name]
 
     def set_sharing_params(self, share_arg: str) -> None:
         """
@@ -232,7 +232,7 @@ class Net2:
             bw_req = vnf.get_outcome_interface_bandwidth()
 
             if len(path) > 1:
-                for u, v in zip(path[:-1], path[1:]):
+                for u, v in zip(path[:-1], path[1:], strict=True):
                     if isinstance(v, str):
                         self.allocate_wireless_bandwidth(u, v, bw_req, ms_name)
                     elif isinstance(u, str):
@@ -268,8 +268,11 @@ class Net2:
 
                 node_allocated = path[0]
 
-                # Verificação de existência (Look Before You Leap - necessário aqui para grafos dinâmicos)
-                node_exists = (node_allocated in self.graph) or (node_allocated in self.md_graph)
+                # Verificação de existência (Look Before You Leap -
+                # necessário aqui para grafos dinâmicos)
+                node_exists = (node_allocated in self.graph) or (
+                    node_allocated in self.md_graph
+                )
 
                 if node_exists:
                     try:
@@ -279,7 +282,8 @@ class Net2:
                         # Logamos o erro mas NÃO paramos o processo de undeploy
                         if self.verbose:
                             print(
-                                f"[Net2] Aviso: Falha parcial ao desalocar VNF {ms_name} de {sfc_id}: {e}"
+                                f"[Net2] Aviso: Falha parcial ao desalocar VNF {ms_name} de"
+                                f" {sfc_id}: {e}"
                             )
 
                 # Liberação de banda (encapsulada para não quebrar o loop)
@@ -298,7 +302,7 @@ class Net2:
     def _safe_release_bandwidth(self, path, ms_name):
         """Helper para liberar banda isolando falhas."""
         try:
-            for u, v in zip(path[:-1], path[1:]):
+            for u, v in zip(path[:-1], path[1:], strict=True):
                 u_exists = u in self.graph or u in self.md_graph
                 v_exists = v in self.graph or v in self.md_graph
 
@@ -343,15 +347,14 @@ class Net2:
 
         if vnf_id_to_remove in route_info:
             path = route_info[vnf_id_to_remove]
+
             if path:
                 node_allocated = path[0]
-                try:
+                with suppress(ValueError):
                     self.deallocate_microservice(node_allocated, sfc_id, vnf_target)
-                except ValueError:
-                    pass
 
                 if len(path) > 1:
-                    for u, v in zip(path[:-1], path[1:]):
+                    for u, v in zip(path[:-1], path[1:], strict=True):
                         try:
                             if isinstance(v, str):
                                 self.release_wireless_bandwidth(u, v, vnf_id_to_remove)
@@ -361,13 +364,14 @@ class Net2:
                                 self.release_bandwidth(u, v, vnf_id_to_remove)
                         except ValueError:
                             pass
+
             del route_info[vnf_id_to_remove]
 
-        if vnf_prev and vnf_prev.id != "src":
-            if vnf_prev.id in route_info:
+            if vnf_prev and vnf_prev.id != "src" and vnf_prev.id in route_info:
                 path_prev = route_info[vnf_prev.id]
+
                 if len(path_prev) > 1:
-                    for u, v in zip(path_prev[:-1], path_prev[1:]):
+                    for u, v in zip(path_prev[:-1], path_prev[1:], strict=True):
                         try:
                             if isinstance(v, str):
                                 self.release_wireless_bandwidth(u, v, vnf_prev.id)
@@ -464,7 +468,7 @@ class Net2:
 
         compatible_instance_found = False
         if self.is_shareable(service_id) or self.is_shareable(clean_current_id):
-            for existing_id, existing_session in node["services"].keys():
+            for existing_id, existing_session in node["services"]:
                 existing_clean = existing_id.replace("_b", "")
                 if existing_clean == clean_current_id and existing_session == session:
                     compatible_instance_found = True
@@ -939,12 +943,11 @@ class Net2:
         total_reliability_sum = 0.0
         active_primary_sfcs_count = 0
 
-        # Se não foi passado dicionário de backups, assume vazio (calcula apenas confiabilidade física)
+        # Se não foi passado dicionário de backups, assume vazio
+        # (calcula apenas confiabilidade física)
 
-        if backups_dict == 0 or {}:
+        if not backups_dict:
             backups_dict = {}
-        else:
-            backups_dict = backups_dict or {}
 
         for sfc_id, sfc in self.sfc_dict.items():
             # 1. FILTRO: Ignora SFCs que são puramente backups
@@ -1023,9 +1026,11 @@ class Net2:
                         # P(Falha Backup) = 1 - R_backup
                         prob_backups_fail_combined *= 1.0 - r_backup
                     else:
-                        # Se uma única VNF do nó não tem backup, o grupo não sobrevive à queda do nó
+                        # Se uma única VNF do nó não tem backup, o grupo não
+                        # sobrevive à queda do nó
                         all_vnfs_protected = False
-                        # Não precisamos verificar o resto das VNFs deste nó para fins de lógica Série
+                        # Não precisamos verificar o resto das VNFs deste nó para
+                        # fins de lógica Série
                         # mas continuamos para consistência se necessário.
 
                 # APLICAÇÃO DA FÓRMULA RBD
@@ -1042,7 +1047,8 @@ class Net2:
                     # Se o nó primário cair, o serviço para (pois falta backup para algo)
                     stage_reliability = r_primary
 
-                # A confiabilidade total da SFC é o produto da confiabilidade de cada estágio (nó físico)
+                # A confiabilidade total da SFC é o produto da confiabilidade de
+                # cada estágio (nó físico)
                 sfc_reliability *= stage_reliability
 
             # Acumula para a média
@@ -1113,7 +1119,7 @@ class Net2:
             del edge["original_lat"]
 
     def activate_backup_path_bandwidth(self, path, bw_required, vnf_id_backup):
-        for u, v in zip(path[:-1], path[1:]):
+        for u, v in zip(path[:-1], path[1:], strict=True):
             if not self.graph.has_edge(u, v):
                 continue
             edge = self.graph.edges[u, v]
@@ -1378,11 +1384,12 @@ class Net2:
         # 2. Denominador: Capacidade Atual dos Servidores (Iterando apenas self.graph)
         total_capacity = 0.0
 
-        for node_id, node_data in self.graph.nodes(data=True):
+        for _node_id, node_data in self.graph.nodes(data=True):
             # Filtro de segurança: Garante que é um servidor (ignora roteadores se tiverem cap 0)
             if node_data.get("type") == "server":
                 # Se o nó estiver caído (is_active=False), a cpu_capacity será 0.
-                # Isso é CORRETO para Admission Control: capacidade cai -> utilização sobe -> bloqueia backups.
+                # Isso é CORRETO para Admission Control: capacidade cai ->
+                # utilização sobe -> bloqueia backups.
                 total_capacity += node_data.get("cpu_capacity", 0.0)
 
         # Fail-safe: Se a capacidade for 0 (colapso total), retorna saturação máxima (1.0 ou mais)
@@ -1502,7 +1509,7 @@ class Net2:
     def get_processing_network_used_precise(self):
         total_used = 0.0
         total_capacity = 0.0
-        for node_id, node in self.graph.nodes(data=True):
+        for _node_id, node in self.graph.nodes(data=True):
             if node.get("type") == "server" and node.get("is_active", True):
                 total_used += node.get("cpu_used", 0.0)
                 total_capacity += node.get("cpu_capacity", 0.0)
@@ -1512,7 +1519,7 @@ class Net2:
 
     def get_network_cache_utilization_percentage(self):
         total_network_capacity = 0.0
-        for node_id, node_data in self.graph.nodes(data=True):
+        for _node_id, node_data in self.graph.nodes(data=True):
             if "cache_capacity" in node_data:
                 total_network_capacity += node_data["cache_capacity"]
         if total_network_capacity == 0:
@@ -1539,7 +1546,7 @@ class Net2:
 
     def get_mobile_cache_utilization_percentage(self):
         total_mobile_capacity = 0.0
-        for node_id, node_data in self.md_graph.nodes(data=True):
+        for _node_id, node_data in self.md_graph.nodes(data=True):
             if "cache_capacity" in node_data:
                 total_mobile_capacity += node_data["cache_capacity"]
         if total_mobile_capacity == 0:
@@ -1582,22 +1589,22 @@ class Net2:
 
     def get_cache_jain_fairness(self):
         cache_utilizations = []
-        for node_id, node_data in self.graph.nodes(data=True):
+        for _node_id, node_data in self.graph.nodes(data=True):
             if node_data.get("cache_capacity", 0) > 0:
                 cache_utilizations.append(node_data["cache_used"] / node_data["cache_capacity"])
-        for node_id, node_data in self.md_graph.nodes(data=True):
+        for _node_id, node_data in self.md_graph.nodes(data=True):
             if node_data.get("cache_capacity", 0) > 0:
                 cache_utilizations.append(node_data["cache_used"] / node_data["cache_capacity"])
         return self.calculate_jain_fairness(cache_utilizations)
 
     def get_bandwidth_jain_fairness(self):
         bw_utilizations = []
-        for u, v, edge_data in self.graph.edges(data=True):
+        for _u, _v, edge_data in self.graph.edges(data=True):
             if edge_data.get("bandwidth_capacity", 0) > 0:
                 bw_utilizations.append(
                     edge_data["bandwidth_used"] / edge_data["bandwidth_capacity"]
                 )
-        for node_id, node_data in self.graph.nodes(data=True):
+        for _node_id, node_data in self.graph.nodes(data=True):
             if node_data.get("type") == "router" and node_data.get("w_channel_capacity", 0) > 0:
                 bw_utilizations.append(
                     node_data["w_channel_used"] / node_data["w_channel_capacity"]
@@ -1703,7 +1710,8 @@ class Net2:
         """
         count = 0
         for sfc_id, sfc_obj in self.sfc_dict.items():
-            # Verifica se é backup pelo ID (padrão de string) E pelo atributo do objeto (se existir)
+            # Verifica se é backup pelo ID (padrão de string) E pelo atributo do
+            # objeto (se existir)
             is_backup_id = "backup" in sfc_id
             is_backup_attr = getattr(sfc_obj, "is_backup", False)
 

@@ -23,7 +23,7 @@ class SFC:
 
     def __str__(self):
         attrs = vars(self)
-        return ", ".join("%s: %s" % item for item in list(attrs.items()))
+        return ", ".join(f"{k}: {v}" for k, v in attrs.items())
 
     def __hash__(self):
         return hash(str(self))

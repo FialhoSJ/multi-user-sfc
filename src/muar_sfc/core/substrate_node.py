@@ -67,7 +67,9 @@ class SubstrateNode(Node):
         :return: the amount of cpu resources to be allocated
         """
         if cpu_amount_to_allocated > self.cpu_free:
-            raise ("CPU resources cannot be allocated. No enough resources to be allcoated")
+            raise ValueError(
+                "CPU resources cannot be allocated. No enough resources to be allcoated"
+            )
         else:
             self.cpu_free = self.cpu_free - cpu_amount_to_allocated
             self.cpu_used = self.cpu_used + cpu_amount_to_allocated

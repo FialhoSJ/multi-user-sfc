@@ -21,7 +21,10 @@ def salvar_variavel(variavel, nome_lista, pasta="variaveis_salvas", valor_unico=
             try:
                 lista = pickle.load(f)
             except (pickle.UnpicklingError, EOFError):
-                # print(f"Aviso: Arquivo '{caminho_arquivo}' encontrado vazio ou corrompido. Será sobrescrito.")
+                # print(
+                #     f"Aviso: Arquivo '{caminho_arquivo}' encontrado vazio ou "
+                #     f"corrompido. Será sobrescrito."
+                # )
                 lista = []
 
     if valor_unico:
@@ -37,16 +40,23 @@ def salvar_variavel(variavel, nome_lista, pasta="variaveis_salvas", valor_unico=
     max_tentativas = 5  # Tenta salvar até 5 vezes
     atraso_tentativa = 0.2  # Espera 200ms entre as tentativas
 
-    for tentativa in range(max_tentativas):
+    for _tentativa in range(max_tentativas):
         try:
             with open(caminho_arquivo, "wb") as f:
                 pickle.dump(lista, f)
             # Se o salvamento foi bem-sucedido, imprime a mensagem e sai do loop
-            # print(f"Variável salva em '{caminho_arquivo}'. Total de itens na lista: {len(lista)}.")
+            # print(
+            #     f"Variável salva em '{caminho_arquivo}'. Total de itens na "
+            #     f"lista: {len(lista)}."
+            # )
             break  # Sai do loop de tentativas
-        except (OSError, PermissionError):
+        except (OSError, PermissionError) as e:
             # Se ocorrer um erro de permissão ou I/O, espera e tenta novamente
-            # print(f"Tentativa {tentativa + 1}/{max_tentativas}: Falha ao salvar '{caminho_arquivo}' devido a: {e}. Tentando novamente em {atraso_tentativa}s...")
+            # print(
+            #     f"Tentativa {_tentativa + 1}/{max_tentativas}: Falha ao salvar "
+            #     f"'{caminho_arquivo}' devido a: {e}. Tentando novamente em "
+            #     f"{atraso_tentativa}s..."
+            # )
             time.sleep(atraso_tentativa)
 
 
@@ -88,7 +98,10 @@ def salvar_lista(
             try:
                 lista_salva = pickle.load(f)
             except (pickle.UnpicklingError, EOFError):
-                # print(f"Aviso: Arquivo '{caminho_arquivo}' encontrado vazio ou corrompido. Será sobrescrito.")
+                # print(
+                #     f"Aviso: Arquivo '{caminho_arquivo}' encontrado vazio ou "
+                #     f"corrompido. Será sobrescrito."
+                # )
                 lista_salva = []
 
     # Garante que 'lista_salva' é realmente uma lista
@@ -114,14 +127,20 @@ def salvar_lista(
     max_tentativas = 5
     atraso_tentativa = 0.2
 
-    for tentativa in range(max_tentativas):
+    for _tentativa in range(max_tentativas):
         try:
             with open(caminho_arquivo, "wb") as f:
                 pickle.dump(lista_salva, f)
-            # print(f"Lista atualizada em '{caminho_arquivo}'. Total de itens: {len(lista_salva)}.")
+            # print(
+            #     f"Lista atualizada em '{caminho_arquivo}'. Total de itens: "
+            #     f"{len(lista_salva)}."
+            # )
             break
-        except (OSError, PermissionError):
-            # print(f"Tentativa {tentativa + 1}/{max_tentativas}: Falha ao salvar '{caminho_arquivo}' (Erro: {e})...")
+        except (OSError, PermissionError) as e:
+            # print(
+            #     f"Tentativa {_tentativa + 1}/{max_tentativas}: Falha ao salvar "
+            #     f"'{caminho_arquivo}' (Erro: {e})..."
+            # )
             time.sleep(atraso_tentativa)
     else:
         print(f"Falha ao salvar o arquivo '{caminho_arquivo}' após {max_tentativas} tentativas.")
@@ -140,7 +159,8 @@ def carregar_lista(nome_lista, pasta="variaveis_salvas"):
                 return pickle.load(f)
             except (pickle.UnpicklingError, EOFError):
                 print(
-                    f"Aviso: Arquivo '{caminho_arquivo}' encontrado vazio ou corrompido. Retornando lista vazia."
+                    f"Aviso: Arquivo '{caminho_arquivo}' encontrado vazio ou "
+                    f"corrompido. Retornando lista vazia."
                 )
                 return []
     else:
@@ -154,7 +174,8 @@ def salvar_duas_variaveis_seguramente(
     variavel1, nome_lista1, variavel2, nome_lista2, pasta="variaveis_salvas", valor_unico=False
 ):
     """
-    Salva duas variáveis em arquivos separados, mas somente se ambas puderem ser salvas com sucesso.
+    Salva duas variáveis em arquivos separados, mas somente se ambas puderem ser
+    salvas com sucesso.
     Usa arquivos temporários e substitui os arquivos reais apenas após sucesso em ambos.
     """
     if not os.path.exists(pasta):
@@ -183,7 +204,7 @@ def salvar_duas_variaveis_seguramente(
     def salvar_temporario(lista, nome_lista):
         temp_fd, temp_path = tempfile.mkstemp(dir=pasta, suffix=".pkl")
         os.close(temp_fd)
-        for tentativa in range(5):
+        for _tentativa in range(5):
             try:
                 with open(temp_path, "wb") as f:
                     pickle.dump(lista, f)

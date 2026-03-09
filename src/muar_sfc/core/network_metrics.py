@@ -64,7 +64,8 @@ class NetworkMetrics:
             if is_shared:
                 self.shared_vnfs_count += 1
         else:
-            # Nova Instância Física (Used) é tratada no nó, mas podemos rastrear o total global aqui se desejar.
+            # Nova Instância Física (Used) é tratada no nó, mas podemos
+            # rastrear o total global aqui se desejar.
             # No código original, 'used' é soma dos nós. Mantemos coerência.
             pass
 

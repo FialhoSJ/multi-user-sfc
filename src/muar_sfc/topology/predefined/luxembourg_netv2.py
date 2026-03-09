@@ -125,7 +125,7 @@ class LuxembourgV2(TopologyBase):
         for i in range(cont):
             self.edge_computing_servers.append(self.edge_computing_servers[i] + 0.1)
 
-        for chave, valor in self.labels_nodes.items():
+        for _chave, valor in self.labels_nodes.items():
             aux = valor[:]
             for node in aux:
                 valor.append(node + 0.1)

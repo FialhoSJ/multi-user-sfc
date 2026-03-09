@@ -68,7 +68,8 @@ class Net(nx.Graph):
         self.nodes_positions = 0
         self.kd_positions = 0
 
-        self.processing_delay_info = []  # stores processing delay information for each node in the topology
+        # stores processing delay information for each node in the topology
+        self.processing_delay_info = []
         self.shareable_sf_sfc = {}  # stores sfc information for a shareable sf for
         # later undeploy.
         self.sf_route_info = {}
@@ -188,7 +189,9 @@ class Net(nx.Graph):
     def set_node_cell_bandwidth_free(self, node_id, cell_bw_free):
         return self._set_node_attribute(node_id, cell_bw_free=cell_bw_free)
 
-    def set_node_reuse(self, node_id, reuse=[]):
+    def set_node_reuse(self, node_id, reuse=None):
+        if reuse is None:
+            reuse = []
         self._set_node_attribute(node_id, reuse=reuse)
 
     def set_node_reliability(self, node_id, reliability):
@@ -496,7 +499,7 @@ class Net(nx.Graph):
             # recovery cpu resources
             # no need to actually modify used and free cpu resource.
             # the substrate network will be updated once the vnf removed from node
-            for vnf_id, path in list(route_info.items()):
+            for vnf_id, _path in list(route_info.items()):
                 if vnf_id == "dst":
                     self.nodes[sfc.dst.substrate_node]["sfc_vnf_list"].remove((sfc_id, sfc.dst))
                     continue
@@ -510,9 +513,8 @@ class Net(nx.Graph):
                     if save_node is not None:
                         break  # Para de procurar em outros nós quando encontra
                 if save_node is not None:
-                    self.nodes[save_node]["sfc_vnf_list"].remove(
-                        (sfc_id, sfc.get_vnf_by_id(vnf_id))
-                    )
+                    vnf_to_remove = sfc.get_vnf_by_id(vnf_id)
+                    self.nodes[save_node]["sfc_vnf_list"].remove((sfc_id, vnf_to_remove))
                 else:
                     print(f"VNF {vnf_id} não encontrado.")
 
@@ -582,7 +584,7 @@ class Net(nx.Graph):
             self.get_node_sfc_vnf_list(node)
             for sfc_vnf in self.get_node_sfc_vnf_list(node):
                 sfc_id = sfc_vnf[0]
-                is_backup = True if (sfc_id.split("_")[2]) == "backup" else False
+                is_backup = (sfc_id.split("_")[2]) == "backup"
                 vnf_id = sfc_vnf[1].id
 
                 if self.shareable_node:
@@ -595,7 +597,8 @@ class Net(nx.Graph):
                         if re.search(pattern, vnf_id) is None and vnf_id not in ("src", "dst"):
                             self.shared_sfs[node].append(sfc_vnf[1])
                     else:
-                        # Lógica para contabilizar recursos poupados e detalhes das VNFs compartilhadas
+                        # Lógica para contabilizar recursos poupados e detalhes das
+                        # VNFs compartilhadas
                         cpu_request = sfc_vnf[1].get_cpu_request()
                         cache_request = sfc_vnf[1].get_cache_request()
                         cpu_saved += cpu_request
@@ -700,7 +703,7 @@ class Net(nx.Graph):
                 # dict indicated a situation where a sfc is no longer present,
                 # but there's still information about it because one of its
                 # sfs is being shared by someone else.
-                if sfc_id not in self.sfc_dict.keys():
+                if sfc_id not in self.sfc_dict:
                     continue
                 try:
                     sfc = self.get_sfc_by_id(sfc_id)
@@ -761,8 +764,10 @@ class Net(nx.Graph):
         #     cpu_free = self.get_node_cpu_free(node)
         #     cpu_capacity = self.get_node_cpu_capacity(node)
         #     sfc_vnf_list = self.get_node_sfc_vnf_list(node)
-        # print "node id:", node_id, ":", "CPU: used:", cpu_used, "free:", cpu_free, "capacity:", cpu_capacity, "vnf", sfc_vnf_list
-        # print "total cpu used: ", self.total_cpu_used, "total cpu capacity: ", self.total_cpu_capacity
+        # print "node id:", node_id, ":", "CPU: used:", cpu_used, "free:", cpu_free, 
+        # "capacity:", cpu_capacity, "vnf", sfc_vnf_list
+        # print "total cpu used: ", self.total_cpu_used, "total cpu capacity: ", 
+        # self.total_cpu_capacity
         if failure_cpu is None:
             print(
                 "CPU       utilization: ",
@@ -775,7 +780,8 @@ class Net(nx.Graph):
                 end=" ",
             )
             # print(f"     Failure for CPU: {failure_cpu}%")
-        # print(("CPU over utilization: ", str(self.get_cpu_overloaded_utilization_rate()*100) +'%'))
+        # print(("CPU over utilization: ",
+        # str(self.get_cpu_overloaded_utilization_rate()*100) +'%'))
         if failure_cache is None:
             print(
                 "Cache     utilization: ",
@@ -801,8 +807,10 @@ class Net(nx.Graph):
             self.get_link_bandwidth_free(edge[0], edge[1])
             self.get_link_bandwidth_used(edge[0], edge[1])
             self.get_link_latency(edge[0], edge[1])
-            # print "edge:", edge, ":", "BW: used:", ud, "free:", fr, "capacity:", cp, "latency:", lt
-        # print "total bandwidth used: ", self.total_bandwidth_used, "total bandwidth capacity: ", self.total_bandwidth_capacity
+            # print "edge:", edge, ":", "BW: used:", ud, "free:", fr, "capacity:", cp, 
+            # "latency:", lt
+        # print "total bandwidth used: ", self.total_bandwidth_used, 
+        # "total bandwidth capacity: ", self.total_bandwidth_capacity
         if failure_band is None:
             print(
                 "Bandwidth utilization: ",

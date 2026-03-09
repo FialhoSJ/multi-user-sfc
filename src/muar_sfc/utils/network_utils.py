@@ -19,7 +19,8 @@ class EnergyCalculator:
     def __init__(self):
         """
         Inicializa o calculador com os dados de potência (em Watts) da Tabela 7 do artigo.
-        A estrutura armazena os níveis de potência como 'low', 'medium' e 'high' para cada tipo de nó.
+        A estrutura armazena os níveis de potência como 'low', 'medium' e 'high' para
+        cada tipo de nó.
         """
         self._server_specs = {
             "a": {
@@ -200,7 +201,7 @@ def calcular_percentual_cpu_total(G: nx.Graph) -> float:
     total_cpu_capacity = 0.0
 
     # Iteramos sobre os nós com seus dados (atributos)
-    for node_id, node_data in G.nodes(data=True):
+    for _node_id, node_data in G.nodes(data=True):
         # Usamos .get(atributo, 0) para o caso de um nó não ter o atributo.
         # Isso torna a função mais robusta e evita erros.
         total_cpu_used += node_data.get("cpu_used", 0)
@@ -226,7 +227,7 @@ def get_graph_processing_utilization_simplified(graph: nx.Graph) -> float:
     total_processing_capacity = 0.0
 
     # Itera sobre todos os nós no grafo fornecido
-    for node_id, node_data in graph.nodes(data=True):
+    for _node_id, node_data in graph.nodes(data=True):
         # Verifica se o nó tem capacidade de processamento
         if "cpu_capacity" in node_data:
             total_processing_capacity += node_data.get("cpu_capacity", 0.0)
@@ -260,7 +261,7 @@ def calcular_percentual_cache_total(G: nx.Graph) -> float:
     total_cache_capacity = 0.0
 
     # Iteramos sobre os nós com seus dados (atributos)
-    for node_id, node_data in G.nodes(data=True):
+    for _node_id, node_data in G.nodes(data=True):
         # Usamos .get(atributo, 0) para o caso de um nó não ter o atributo.
         # Isso torna a função mais robusta e evita erros.
         total_cache_used += node_data.get("cache_used", 0)
@@ -290,7 +291,7 @@ def calcular_percentual_banda_total(graph: nx.Graph) -> float:
     total_banda_capacidade = 0.0
 
     # Itera sobre todas as arestas (links) do grafo
-    for u, v, data in graph.edges(data=True):
+    for _u, _v, data in graph.edges(data=True):
         total_banda_usada += data.get("bandwidth_used", 0)
         total_banda_capacidade += data.get("bandwidth_capacity", 0)
 
@@ -341,7 +342,7 @@ def get_sfc_latency_from_route(graph: nx.Graph, sfc: SFC, route_info, md_graph: 
 
         # 2. Calcula e soma a latência de comunicação para cada enlace
         if len(path) > 1:
-            for u, v in zip(path[:-1], path[1:]):
+            for u, v in zip(path[:-1], path[1:], strict=True):
                 # Esta chamada apenas calcula, sem alocar banda.
                 comm_latency = calculate_latency_betwen_nodes(graph, u, v, vnf, md_graph)
                 total_latency += comm_latency

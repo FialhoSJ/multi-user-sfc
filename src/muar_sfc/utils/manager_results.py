@@ -50,14 +50,15 @@ def create_output_dir(args, topology):
         dir_path = base_dir / f"results_{path}"
         dir_path.mkdir(parents=True, exist_ok=True)  # Cria recursivamente sem dar erro se existir
 
-        alg_path = (
-            dir_path
-            / f"alg_{args.alg}_s_{args.n_sessions}_p_{args.n_players}_a_{availability}_c_{number_of_fails}"
+        alg_path = dir_path / (
+            f"alg_{args.alg}_s_{args.n_sessions}_p_{args.n_players}_"
+            f"a_{availability}_c_{number_of_fails}"
         )
         alg_path.mkdir(parents=True, exist_ok=True)
         directories[path] = alg_path
 
-    # Convertendo de volta para string apenas para manter a compatibilidade com o restante do código
+    # Convertendo de volta para string apenas para manter a compatibilidade com o
+    # restante do código
     file_paths = {path: str(directories[path] / f"{timestamp}.csv") for path in paths}
 
     nodes_string = format_nodes_to_string(np.array(sorted(ec_servers)))
@@ -347,8 +348,10 @@ class OutputWritter:
         latency_diff=None,
         crashing=False,
         alg_name="ga",
-        backups_dict: dict = {},
+        backups_dict: dict = None,
     ):
+        if backups_dict is None:
+            backups_dict = {}
 
         # --- [CORREÇÃO] Recálculo dinâmico de players e sessions ---
         # Em vez de confiar no argumento running_players_sessions, calculamos via Net2
@@ -360,7 +363,7 @@ class OutputWritter:
         unique_sessions = set()
 
         if substrate_network.sfc_dict:
-            for active_sfc_id in substrate_network.sfc_dict.keys():
+            for active_sfc_id in substrate_network.sfc_dict:
                 # Formato esperado: sfc_xxxx_p{PLAYER}_{SESSION} ou similar
                 # Ex: sfc_unique_p1_10
                 try:
@@ -453,7 +456,7 @@ class OutputWritter:
         active_sfc_count = 0
 
         if substrate_network.sfc_dict:
-            for s_id, sfc in substrate_network.sfc_dict.items():
+            for s_id, _sfc in substrate_network.sfc_dict.items():
                 # Ignora backups e SFCs sem rota
                 if "backup" in s_id or s_id not in substrate_network.sfc_route_info:
                     continue
@@ -544,7 +547,11 @@ class OutputWritter:
         except (IndexError, ValueError):
             pass
 
-    def output_cpu_utilization(self, substrate_network, deploy_time, crashed_nodes=[]) -> None:
+    def output_cpu_utilization(
+        self, substrate_network, deploy_time, crashed_nodes=None
+    ) -> None:
+        if crashed_nodes is None:
+            crashed_nodes = []
         processing_nodes = sorted(self.processing_nodes)
         cpu_nodes_util = []
         for node in processing_nodes:
@@ -558,7 +565,11 @@ class OutputWritter:
         with open(self.cpu_utilization_file, "a") as file:
             file.write(f"{deploy_time},{string_cpu_nodes_util}\n")
 
-    def output_cache_utilization(self, substrate_network, deploy_time, crashed_nodes=[]) -> None:
+    def output_cache_utilization(
+        self, substrate_network, deploy_time, crashed_nodes=None
+    ) -> None:
+        if crashed_nodes is None:
+            crashed_nodes = []
         processing_nodes = sorted(self.processing_nodes)
         cache_nodes_util = [
             None
@@ -572,7 +583,11 @@ class OutputWritter:
         with open(self.cache_utilization_file, "a") as file:
             file.write(f"{deploy_time},{string_cache_nodes_util}\n")
 
-    def output_gpu_utilization(self, substrate_network, deploy_time, crashed_nodes=[]) -> None:
+    def output_gpu_utilization(
+        self, substrate_network, deploy_time, crashed_nodes=None
+    ) -> None:
+        if crashed_nodes is None:
+            crashed_nodes = []
         processing_nodes = sorted(self.processing_nodes)
         gpu_nodes_util = []
         for node in processing_nodes:
@@ -597,7 +612,7 @@ class OutputWritter:
             suppress_small=True,
             precision=3,
             separator=";",
-            formatter={"float_kind": lambda x: "%.2f" % x},
+            formatter={"float_kind": lambda x: f"{x:.2f}"},
         )
         string_bw_edges_util = re.sub(" ", "", string_bw_edges_util)
         string_bw_edges_util = re.sub("\n", "", string_bw_edges_util)

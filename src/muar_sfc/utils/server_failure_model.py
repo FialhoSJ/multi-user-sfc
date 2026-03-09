@@ -26,7 +26,8 @@ class ServerFailureModel:
         """
         if beta <= 1.0:
             print(
-                f"Warning: beta = {beta} <= 1. This models a constant or decreasing failure rate, not wear-out."
+                f"Warning: beta = {beta} <= 1. This models a constant or "
+                f"decreasing failure rate, not wear-out."
             )
 
         self.eta = eta
@@ -127,7 +128,7 @@ if __name__ == "__main__":
     step_duration = 1  # Simulate in 1-hour steps
     total_steps = 10000
 
-    for t in range(total_steps):
+    for _t in range(total_steps):
         global_time += step_duration
         uptime_time += step_duration
 
@@ -138,7 +139,8 @@ if __name__ == "__main__":
             global_time, uptime_time, step_duration, cpu_stress_factor=cpu_stress
         ):
             print(
-                f"Server FAILED at global_time={global_time}h, uptime={uptime_time}h (CPU Stress: {cpu_stress:.2f})"
+                f"Server FAILED at global_time={global_time}h, "
+                f"uptime={uptime_time}h (CPU Stress: {cpu_stress:.2f})"
             )
             # On failure, uptime is reset
             uptime_time = 0

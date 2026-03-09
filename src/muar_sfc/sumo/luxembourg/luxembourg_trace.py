@@ -179,7 +179,8 @@ class Sumo_Luxembourg(AbstractTracer):
     #         traci.vehicle.changeTarget(vehicle_id, edge_end)
 
     def reroute_vehicle(self, vehicle_id):
-        # Filtra os servidores disponíveis, removendo os servidores que estão na lista de crashed_servers
+        # Filtra os servidores disponíveis, removendo os servidores que estão na
+        # lista de crashed_servers
         server_end = random.choice(routers)  # Escolhe um servidor disponível
         current_server = self.vehicles_info[vehicle_id]["server_end"]
         current_server, server_end = self.check_route(current_server, server_end)
@@ -229,8 +230,11 @@ class Sumo_Luxembourg(AbstractTracer):
                     time.sleep(1)
         except Exception as e:  # <-- CORRIGIDO
             logger.error(f"Erro fatal na thread de movimentação do SUMO: {e}", exc_info=True)
-            self.stop_simulation()  # Tenta fechar a conexão graciosamente antes de matar o processo
-            sys.exit(1)  # <-- CORRIGIDO: Código 1 sinaliza falha crítica para o SO/Orquestrador
+            # Tenta fechar a conexão graciosamente antes de matar o processo
+            self.stop_simulation()
+            sys.exit(
+                1
+            )  # <-- CORRIGIDO: Código 1 sinaliza falha crítica para o SO/Orquestrador
 
     def start_simulation(self):
         self.connect_to_sumo()

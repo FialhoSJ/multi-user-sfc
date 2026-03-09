@@ -31,7 +31,7 @@ if __name__ == "__main__":
     pool = Pool(processes=pool_size)
     begin = dt.now()
     cmd = ()
-    for i in range(0, repetition):
+    for _i in range(0, repetition):
         if args.sfc == "on":
             cmd += (
                 "./muar.py"
