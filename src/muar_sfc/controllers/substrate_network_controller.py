@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 from collections import defaultdict, deque
+from pathlib import Path
 from typing import Any
 
 # --- Third Party Imports ---
@@ -20,83 +21,87 @@ from muar_sfc.controllers.modules.mobility_manager import MobilityManager
 from muar_sfc.controllers.modules.sfcs_instatiator import SFCInstatiator
 from muar_sfc.controllers.modules.sfcs_manager import SFCManager
 from muar_sfc.controllers.sfc_generator import SFCGenerator
+from muar_sfc.controllers.sfc_queue import SFCQueue  # Importe vital para a tipagem!
 
 # --- Local Module Imports ---
 from muar_sfc.core.net_v2 import Net2
 from muar_sfc.utils.manager_results import OutputWritter
 from muar_sfc.utils.network_utils import EnergyCalculator
 
-# --- Logging Setup ---
+# --- Logging Setup Modernizado com Pathlib ---
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-# Garante que a pasta logs exista ou trata erro em produção
-try:
-    ch = logging.FileHandler("./logs/substrate_network_controller.log")
-    ch.setLevel(logging.DEBUG)
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-    ch.setFormatter(formatter)
-    logger.addHandler(ch)
-except FileNotFoundError:
-    pass  # Ignora se rodando em ambiente sem pasta logs criada
+
+# Cria o diretório de logs de forma limpa e multiplataforma (sem try/except frágil)
+log_dir = Path("./logs")
+log_dir.mkdir(parents=True, exist_ok=True)
+
+ch = logging.FileHandler(log_dir / "substrate_network_controller.log")
+ch.setLevel(logging.DEBUG)
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+ch.setFormatter(formatter)
+logger.addHandler(ch)
 
 
 class SubstrateNetworkController:
     def __init__(self):
         # --- Network Initialization ---
-        # Instancia a nova Net2 com sistema de métricas refatorado
         self.substrate_network = Net2()
-        self.node_info = {}
+        self.node_info: dict[Any, Any] = {}
 
         # --- Modules ---
-        self.mobility_manager: MobilityManager | None = 0
-        self.sfc_manager: SFCManager | None = 0
-        self.sfc_instantiator: SFCInstatiator | None = 0
-        self.fail_manager: Crasher | None = 0
-        self.backup_manager: BackupManager | None = 0
+        # Correção Crítica: Se o tipo permite None, o valor padrão DEVE ser None (não 0)
+        self.mobility_manager: MobilityManager | None = None
+        self.sfc_manager: SFCManager | None = None
+        self.sfc_instantiator: SFCInstatiator | None = None
+        self.fail_manager: Crasher | None = None
+        self.backup_manager: BackupManager | None = None
         self.energy_calculator = EnergyCalculator()
         self.output_writter: OutputWritter | None = None
 
         # --- Simulation Status ---
-        self.remaining_time = None
-        self.update_interval = 1
-        self.is_stopped = True
-        self.start_time = 0
-        self.iteration_counter = 0
-        self.players = 6
+        self.remaining_time: float | None = None
+        self.update_interval: int = 1
+        self.is_stopped: bool = True
+        self.start_time: float = 0.0
+        self.iteration_counter: int = 0
+        self.players: int = 6
 
         # --- Timers & Intervals ---
-        self.timer = None
-        self.mobility_interval = 5
-        self.backup_interval_creation = 5
-        self.last_mobility_time = 0
-        self.last_backup_time = 0
-        self.last_crasher_time = 0
-        self.crasher_interval = 0
+        self.timer: Any | None = None
+        self.mobility_interval: int = 5
+        self.backup_interval_creation: int = 5
+        self.last_mobility_time: float = 0.0
+        self.last_backup_time: float = 0.0
+        self.last_crasher_time: float = 0.0
+        self.crasher_interval: int = 0
 
         # --- SFC & Queue Management ---
-        self.sfc_queue = None
-        self.timer_qeue_sfcs = []
-        self.max_queue_size = 0
-        self.flows = 0
-        self.alg = None
+        # Correção Crítica: Agora o linter sabe que isso receberá um SFCQueue no main.py!
+        self.sfc_queue: SFCQueue | None = None
+        self.timer_qeue_sfcs: list[Any] = []
+        self.max_queue_size: int = 0
+        self.flows: int = 0
+        self.alg: Any | None = None
 
         # --- Failure & Recovery State ---
-        self.sfcs_crash_affected = {}
-        self.crashs_trials = 0
-        self.crash_limit = 0
-        self.failure_schedule = []
-        self.active_failures = []
+        self.sfcs_crash_affected: dict[Any, Any] = {}
+        self.crashs_trials: int = 0
+        self.crash_limit: int = 0
+        self.failure_schedule: list[Any] = []
+        self.active_failures: list[Any] = []
 
         # --- Statistics & Logging ---
-        self.success = []
-        self.counter = 0
-        self.verbose = False
-        self.log_file = "backup_log.txt"
+        self.success: list[Any] = []
+        self.counter: int = 0
+        self.verbose: bool = False
+        self.log_file: str = "backup_log.txt"
 
         # --- Configuration/Extras ---
-        self.latency_interval = [7, 7]
-        self.allow_high_latency = False
-        self.altered_sfcs = {}
+        self.latency_interval: list[int] = [7, 7]
+        self.allow_high_latency: bool = False
+        self.altered_sfcs: dict[Any, Any] = {}
+        self.sfc: str = ""
         self.lock = threading.Lock()
 
     ###########################################################################
@@ -111,10 +116,31 @@ class SubstrateNetworkController:
 
         self.is_stopped = False
 
-        if self.mobility_manager.activated:
+        # Correção Rápida Lógica: Evita chamar o atributo se o mobility_manager for None
+        if self.mobility_manager and self.mobility_manager.activated:
             self.mobility_manager.start_simulation()
 
+        # Dica para o futuro: _thread é um módulo legado (arcaico). 
+        # O ideal é usar o próprio módulo threading:
+        # threading.Thread(target=self.sequential_operation, daemon=True).start()
         _thread.start_new_thread(self.sequential_operation, ())
+
+    # ###########################################################################
+    # #                           LIFECYCLE METHODS                             #
+    # ###########################################################################
+
+    # def start(self) -> None:
+    #     """Starts the simulation."""
+    #     if not self.is_stopped:
+    #         self.is_stopped = True
+    #         time.sleep(2 * self.update_interval)
+
+    #     self.is_stopped = False
+
+    #     if self.mobility_manager.activated:
+    #         self.mobility_manager.start_simulation()
+
+    #     _thread.start_new_thread(self.sequential_operation, ())
 
     def stop(self) -> None:
         """Stops the simulation."""

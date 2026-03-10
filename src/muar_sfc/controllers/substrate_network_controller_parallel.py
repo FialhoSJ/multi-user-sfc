@@ -1,6 +1,5 @@
 """_summary_"""
 
-import _thread
 import copy
 import logging
 import random
@@ -9,12 +8,14 @@ import sys
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 from muar_sfc.controllers.modules.backup_manager import BackupManager
 from muar_sfc.controllers.modules.crasher import Crasher
 from muar_sfc.controllers.modules.mobility_manager import MobilityManager
 from muar_sfc.controllers.modules.sfcs_manager import SFCManager
 from muar_sfc.controllers.sfc_generator import SFCGenerator
+from muar_sfc.controllers.sfc_queue import SFCQueue  # Import vital para resolver o bug de atribuição
 from muar_sfc.core.net import Net
 from muar_sfc.utils.manager_results import OutputWritter
 
@@ -38,48 +39,56 @@ class SubstrateNetworkControllerP:
     def __init__(self):
         # Rede
         self.substrate_network = Net()
-        self.node_info = {}
+        self.node_info: dict[Any, Any] = {}
 
         # Modules
         self.mobility_manager: MobilityManager | None = None
         self.sfc_manager: SFCManager | None = None
-        self.crasher_manager: Crasher | None = None
+        self.fail_manager: Crasher | None = None
         self.backup_manager: BackupManager | None = None
+        
         # Status da Rede
-        self.remaining_time = None
-        self.update_interval = 1
-        self.is_stopped = True
+        self.remaining_time: float | None = None
+        self.update_interval: int = 1
+        self.is_stopped: bool = True
 
         # SFC (Service Function Chains)
-        self.players_sfc_list = []
-        self.sfc_queue = None
-        self.timer_qeue_sfcs = []
-        self.sfcs_crash_affected = {}
-        self.crashs_trials = 0
+        self.players_sfc_list: list[Any] = []
+        self.sfc_queue: SFCQueue | None = None
+        self.timer_qeue_sfcs: list[Any] = []
+        self.sfcs_crash_affected: dict[Any, Any] = {}
+        self.crashs_trials: int = 0
+        self.failure_schedule: list[Any] = []
 
         # Implementações extras
-        self.verbose = False
-        self.log_file = "backup_log.txt"
-        self.latency_interval = [7, 7]
-        self.allow_high_latency = False
-        self.altered_sfcs = {}
-        # self.backups_data = {}
+        self.verbose: bool = False
+        self.log_file: str = "backup_log.txt"
+        self.latency_interval: list[int] = [7, 7]
+        self.allow_high_latency: bool = False
+        self.altered_sfcs: dict[Any, Any] = {}
+        self.sfc: str = ""
 
         # Estatísticas
-        self.success = []
-        self.counter = 0
-        # self.deploy_failure = 0
+        self.success: list[Any] = []
+        self.counter: int = 0
 
         # Outros
         self.lock = threading.Lock()
-        self.flows = 0
-        self.alg = None
-        self.timer = None
+        self.flows: int = 0
+        self.alg: Any | None = None
+        self.timer: Any | None = None
         self.output_writter: OutputWritter | None = None
-        self.max_queue_size = 0
+        self.max_queue_size: int = 0
+        
+        # Correção de Bug Lógico: Variável chamada no start(), mas não existia no __init__
+        self.crasher_activate: bool = False
 
     def simulation_timer(self) -> int:
         """Stops the simulation when the time is over."""
+        # Proteção contra falha se o timer for acionado sem a variável ter sido injetada
+        if self.remaining_time is None:
+            self.remaining_time = 0.0
+
         while self.remaining_time > 0:
             time.sleep(1)
             self.remaining_time -= 1
@@ -100,30 +109,28 @@ class SubstrateNetworkControllerP:
         sequential = True
 
         if sequential:
-            if self.mobility_manager.activated:
+            # Blindagem lógica contra Null Pointers
+            if self.mobility_manager and self.mobility_manager.activated:
                 self.mobility_manager.start_simulation()
 
-            _thread.start_new_thread(self.sequential_operation, ())
-            # self.sequential_operation(self)
+            # Migração para thread segura de alto nível
+            threading.Thread(target=self.sequential_operation, daemon=True).start()
         else:
             self.update()
             self.check_sfc_duration()
 
-            # If mobility is activated
-            if self.mobility_manager.activated:
+            if self.mobility_manager and self.mobility_manager.activated:
                 self.mobility_manager.start_simulation()
                 self.start_tracer(interval=5)
 
-            if self.alg.name in ["vegeta"]:
+            if self.alg and getattr(self.alg, "name", "") in ["vegeta"]:
                 self.start_backup_manager(interval=20, threshold=0.5)
 
             if self.crasher_activate:
                 self.start_crasher(interval=200)
 
-            # if self.allow_high_latency:
-            #     self.start_check_altered_sfc_thread(interval = 5)
-            # Run simulation
-            _thread.start_new_thread(self.run, ())
+            # Migração para thread segura de alto nível
+            threading.Thread(target=self.run, daemon=True).start()
 
     def run(self) -> None:
         """Starts the simulation."""
@@ -219,8 +226,8 @@ class SubstrateNetworkControllerP:
             time.sleep(interval)
             if not self.is_stopped:
                 with self.lock:
-                    nodes_to_crash = self.crasher_manager.activate_crasher(self.substrate_network)
-                    sfcs_affected = self.crasher_manager.implement_crash(
+                    nodes_to_crash = self.fail_manager.activate_crasher(self.substrate_network)
+                    sfcs_affected = self.fail_manager.implement_crash(
                         nodes_to_crash, self.substrate_network
                     )
                     self.recover_sfcs(sfcs_affected)
@@ -407,10 +414,10 @@ class SubstrateNetworkControllerP:
     def output_results(self, results_dict, sfc_id, res_output=False) -> None:
         def output_network_resources(deploy_time):
             self.output_writter.output_cpu_utilization(
-                self.substrate_network, deploy_time, self.crasher_manager.nodes_crashed
+                self.substrate_network, deploy_time, self.fail_manager.nodes_crashed
             )
             self.output_writter.output_cache_utilization(
-                self.substrate_network, deploy_time, self.crasher_manager.nodes_crashed
+                self.substrate_network, deploy_time, self.fail_manager.nodes_crashed
             )
             self.output_writter.output_bandwidth_utilization(
                 self.substrate_network, deploy_time
@@ -447,7 +454,7 @@ class SubstrateNetworkControllerP:
                 backup_sfc,
                 bw_transcode,
                 latency_diff,
-                len(self.crasher_manager.nodes_crashed) != 0,
+                len(self.fail_manager.nodes_crashed) != 0,
             )
 
         def resilient_output(sfc_id, info):
@@ -690,10 +697,10 @@ class SubstrateNetworkControllerP:
     def sequential_crasher(self, interval=25):
         # if not backup activated
         self.sequential_check_duration()
-        nodes_to_crash = self.crasher_manager.activate_crasher(
+        nodes_to_crash = self.fail_manager.activate_crasher(
             self.substrate_network, self.sfc_manager, self.alg.name
         )
-        self.sfc_manager.crashed_servers = self.crasher_manager.nodes_crashed
+        self.sfc_manager.crashed_servers = self.fail_manager.nodes_crashed
         print(f"Servidores Crashados: {nodes_to_crash}")
 
         vnfs_backup_instantiate = 0
@@ -854,10 +861,10 @@ class SubstrateNetworkControllerP:
         return None  # Retorna None se a chave não for encontrada
 
     def sequential_recovery(self, interval=200):
-        node = self.crasher_manager.nodes_crashed[0]
+        node = self.fail_manager.nodes_crashed[0]
         self.substrate_network.reset_node_cpu_capacity(node, 100)
         self.substrate_network.reset_node_cache_capacity(node, 100)
-        self.sfc_manager.crashed_servers = self.crasher_manager.recover_from_crash(
+        self.sfc_manager.crashed_servers = self.fail_manager.recover_from_crash(
             self.substrate_network
         )
 
@@ -914,13 +921,13 @@ class SubstrateNetworkControllerP:
     def sequential_operation(self):
         mobility_interval = 5
         crasher_interval = (
-            self.crasher_manager.fail_interval
+            self.fail_manager.fail_interval
         )  # 260  # Intervalo para ativar o Crasher repetidamente
         self.crashs_trials = 0
-        crash_limit = self.crasher_manager.number_of_fails
+        crash_limit = self.fail_manager.number_of_fails
 
         fail_recovery_time = (
-            1000 - (self.crasher_manager.availability) * 1000
+            1000 - (self.fail_manager.availability) * 1000
         ) * 2  # fator de segurança
 
         if self.alg.name == "msf" or self.alg.name == "greedyb":
@@ -955,9 +962,9 @@ class SubstrateNetworkControllerP:
 
             self.sequential_submit_sfcs()
 
-            if self.crasher_manager.activated:
+            if self.fail_manager.activated:
                 # Recupera o sistema após o tempo de recuperação
-                if self.crasher_manager.nodes_crashed != []:
+                if self.fail_manager.nodes_crashed != []:
                     recovery_elapsed = current_time - last_crasher_time
                     if recovery_elapsed >= fail_recovery_time:
                         self.sequential_recovery()  # Substitua pelo método de recuperação

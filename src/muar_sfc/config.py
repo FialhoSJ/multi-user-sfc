@@ -3,22 +3,72 @@ from pathlib import Path
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from typing import List
-
-# 1. Definição do ROOT_PATH usando Pathlib (Seguro e Multiplataforma)
+# 1. Definição do ROOT_DIR usando Pathlib (Seguro e Multiplataforma)
 # Isso pega a pasta 'src/muar_sfc' e sobe os níveis necessários até a raiz do repositório
 ROOT_DIR: Path = Path(__file__).resolve().parent.parent.parent
 
 class SimulationSettings(BaseSettings):
-    """Configurações unificadas e validadas do Simulador SFC."""
+    """
+    Configurações unificadas e validadas do Simulador SFC.
+    O Pydantic fará a conversão automática de tipos e validação.
+    """
+    # Configuração do Pydantic (permite ler de arquivo .env e prefixos)
+    model_config = SettingsConfigDict(
+        env_prefix="MUAR_", 
+        env_file=".env", 
+        env_file_encoding="utf-8", 
+        extra="ignore"
+    )
 
-    # Permite ler variáveis de um arquivo .env na raiz (Segurança e Observabilidade)
-    model_config = SettingsConfigDict(env_prefix="sfc_", env_file=".env", extra="ignore")
+    # --- O Atributo Faltante que causou o Erro (antigo args.time) ---
+    time: float = 1000.0  # Substitua pelo valor correto que o seu simulador espera
 
-    # --- Parâmetros de Entrada Obrigatórios ---
-    n_sessions: int
+    # --- Parâmetros Gerais e de Log ---
+    application: str = "muar"
+    alg: str = "vegeta"
+    sfc_lifetime: int = 120
+    verbose: str = "y"  # Nota: no futuro, podemos refatorar para bool!
 
-    # --- Parâmetros com Valores Padrão ---
+    # --- Parâmetros de Topologia e Rede ---
+    topology: str = "luxembourgv2"
+    eco_effi_ratio: float = 0.7
+    mobility: str = "n"
+
+    # --- Parâmetros de Entrada Obrigatórios e Tráfego ---
+    n_sessions: int = 50
+    n_players: int = 6
+
+    # --- Parâmetros SFC ---
+    allow_md_host: str = "y"
+    sfc: str = "on"
+    share: str = "y"
+    shareband: str = "n"
+    allow_delay: str = "n"
+
+    # --- Parâmetros de Confiabilidade e Falhas ---
+    backup: str = "n"
+    ava: float = 0.99  # Pydantic converte automaticamente!
+    number_of_fails: int = 3
+    min_fail_duration: float = 20.0
+    # Utilizando coleções base nativas intrínsecas (list em minúscula) ao invés do typing antigo
+    crash_at: list[float] = [180.0, 520.0, 640.0]
+
+    # --- Configuração MICRO (Confiabilidade Base por Nível) ---
+    rel_high: float = 0.999
+    rel_normal: float = 0.98
+    rel_low: float = 0.95
+
+    # --- Fator de Estresse ---
+    stress_high: float = 0.02
+    stress_normal: float = 0.08
+    stress_low: float = 0.15
+
+    fail_target: str = "all"
+    link_ava: float = 0.95
+    number_of_link_fails: int = 0
+    min_link_fail_duration: float = 20.0
+
+    # --- Parâmetros Matemáticos da Simulação ---
     ia: float = 0.0
     number_of_nodes: int = 36
     src_node: int = 0
@@ -51,7 +101,7 @@ class SimulationSettings(BaseSettings):
 
     @model_validator(mode="after")
     def calculate_derived_parameters(self) -> "SimulationSettings":
-        """Calcula os parâmetros derivados. Isso substitui o antigo __post_init__ defeituoso."""
+        """Calcula os parâmetros derivados após a injeção dos dados."""
         self.ma_bw = int(self.ca_size * self.chr)
         self.ma = self.ma_bw * self.cpb
         self.uni_bw = int(self.ca_size * (1 - self.chr))
@@ -68,58 +118,3 @@ class SimulationSettings(BaseSettings):
         self.ft = self.ft_bw * self.cpb
 
         return self
-
-
-
-
-class SimulationSettings(BaseSettings):
-    """
-    Configurações centralizadas do simulador Muar-SFC.
-    O Pydantic fará a conversão automática de tipos e validação.
-    """
-    # --- Parâmetros Gerais e de Log ---
-    application: str = "muar"
-    alg: str = "vegeta"
-    sfc_lifetime: int = 120
-    verbose: str = "y"  # Nota: no futuro, podemos refatorar para bool!
-
-    # --- Parâmetros de Topologia e Rede ---
-    topology: str = "luxembourgv2"
-    eco_effi_ratio: float = 0.7
-    mobility: str = "n"
-
-    # --- Parâmetros de Tráfego (Sessões/Jogadores) ---
-    n_sessions: int = 50
-    n_players: int = 6
-
-    # --- Parâmetros SFC ---
-    allow_md_host: str = "y"
-    sfc: str = "on"
-    share: str = "y"
-    shareband: str = "n"
-    allow_delay: str = "n"
-
-    # --- Parâmetros de Confiabilidade e Falhas ---
-    backup: str = "n"
-    ava: float = 0.99  # Pydantic converte automaticamente!
-    number_of_fails: int = 3
-    min_fail_duration: float = 20.0
-    crash_at: List[float] = [180.0, 520.0, 640.0]
-
-    # --- Configuração MICRO (Confiabilidade Base por Nível) ---
-    rel_high: float = 0.999
-    rel_normal: float = 0.98
-    rel_low: float = 0.95
-
-    # --- Fator de Estresse ---
-    stress_high: float = 0.02
-    stress_normal: float = 0.08
-    stress_low: float = 0.15
-
-    fail_target: str = "all"
-    link_ava: float = 0.95
-    number_of_link_fails: int = 0
-    min_link_fail_duration: float = 20.0
-
-    # Configuração do Pydantic (permite ler de arquivo .env e prefixos)
-    model_config = SettingsConfigDict(env_prefix="MUAR_", env_file=".env", env_file_encoding="utf-8")

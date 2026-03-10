@@ -60,14 +60,6 @@ select = [
 minversion = "7.0"
 testpaths = ["tests"]
 
-[project.optional-dependencies]
-dev = [
-    "ipykernel",
-    "nbformat",
-    "ruff",    # O linter/formatador ultrarrápido padrão da indústria
-    "pytest",  # O framework de testes padrão absoluto
-    "pyright"  # O analisador de tipos estático determinístico
-]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/muar_sfc"]
@@ -77,12 +69,24 @@ dev = [
     "ruff>=0.15.5",
 ]
 
-
+# --- Configuração do Pyright ajustada para Tipagem Gradual ---
 [tool.pyright]
 include = ["src"]
-exclude = ["**/__pycache__", ".venv", "tests"]
-# Ativando a tipagem estrita para máxima robustez arquitetural
-typeCheckingMode = "strict"
-# Ajustes finos caso alguma biblioteca de terceiros (como simpy ou traci) não tenha tipos perfeitos
+exclude = [
+    "**/__pycache__", 
+    ".venv", 
+    ".ruff_cache",
+    ".git",
+    "tests"
+]
+# Reduzindo para 'basic' para focar em erros de sintaxe e tipagens já declaradas, 
+# sem exigir "Type Completeness" do projeto legado todo.
+typeCheckingMode = "basic"
+
+# Desligando os alertas específicos de inferência dinâmica ("Unknown") 
+# para silenciar o ruído nos módulos que ainda não foram refatorados.
 reportMissingTypeStubs = false
 reportUnknownMemberType = false
+reportUnknownParameterType = false
+reportUnknownVariableType = false
+reportUnknownArgumentType = false

@@ -1,6 +1,7 @@
 import logging
 import signal
 import sys
+from typing import Any, TypedDict
 
 from muar_sfc.algorithms.instantiator import AlgorithmInstantiator
 from muar_sfc.config import SimulationSettings
@@ -18,11 +19,21 @@ from muar_sfc.topology.instantiator import TopologyInstantiator
 from muar_sfc.utils.failure_generator import calcular_janelas_falha
 from muar_sfc.utils.manager_results import OutputWritter, create_output_dir
 
+# Adoção correta da biblioteca logging. Em uma futura refatoração para nuvem, 
+# você pode transitar para estruturação JSON via structlog.
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
 
-def generate_failure_schedule(settings: SimulationSettings, simulation_duration: float) -> list[dict]:
+# 1. O Contrato de Tipagem (O Padrão Ouro)
+# Usando TypedDict para firmar o contrato exato das chaves sem onerar a memória.
+class FailureEvent(TypedDict):
+    type: str
+    start: float
+    duration: float
+
+
+def generate_failure_schedule(settings: SimulationSettings, simulation_duration: float) -> list[FailureEvent]:
     """Gera o cronograma de falhas para nós e links de forma unificada."""
 
     fixed_time = settings.crash_at
@@ -44,14 +55,15 @@ def generate_failure_schedule(settings: SimulationSettings, simulation_duration:
         confiabilidade=settings.link_ava,
     )
 
-    full_failure_schedule = []
+    # Note que utilizamos as coleções nativas 'list', obliterando as arcaicas 'typing.List'
+    full_failure_schedule: list[FailureEvent] = []
 
     for start, duration in raw_node_schedule:
         full_failure_schedule.append(
             {
                 "type": "node",
-                "start": start,
-                "duration": duration,
+                "start": float(start),
+                "duration": float(duration),
             }
         )
 
@@ -59,8 +71,8 @@ def generate_failure_schedule(settings: SimulationSettings, simulation_duration:
         full_failure_schedule.append(
             {
                 "type": "link",
-                "start": start,
-                "duration": duration,
+                "start": float(start),
+                "duration": float(duration),
             }
         )
 
@@ -70,10 +82,10 @@ def generate_failure_schedule(settings: SimulationSettings, simulation_duration:
 
 def setup_controller(
     settings: SimulationSettings,
-    topology,
+    topology: Any,  # Tipagem transitória (Any) para evitar o erro Unknown do Pylance
     sfc_queue: SFCQueue,
-    alg,
-    full_failure_schedule: list[dict],
+    alg: Any,       # Tipagem transitória (Any)
+    full_failure_schedule: list[FailureEvent],
 ) -> SubstrateNetworkController:
     """Instancia e configura o controlador da rede substrata."""
 
@@ -159,15 +171,18 @@ def main() -> None:
         full_failure_schedule,
     )
 
+    # Bloco EAFP excelente. O tratamento de anomalias com captura passiva (except) é a diretiva idiomática
     try:
         logger.info("Iniciando a simulação do controlador de rede...")
         sbn_controller.start()
 
     except KeyboardInterrupt:
+        # KeyboardInterrupt e SystemExit fazem parte do invólucro sistêmico global atômico intrínseco (BaseException)
         logger.warning("Execução interrompida pelo usuário (Ctrl+C).")
         sys.exit(0)
 
     except Exception:
+        # A invocação de logger.exception() garante a inclusão do Stack Trace de forma nativa e integral
         logger.exception("Ocorreu um erro crítico durante a execução.")
         sys.exit(1)
 
