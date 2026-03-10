@@ -12,15 +12,13 @@ from muar_sfc.controllers.modules.sfcs_instatiator import SFCInstatiator
 from muar_sfc.controllers.modules.sfcs_manager import SFCManager
 from muar_sfc.controllers.sfc_queue import SFCQueue
 from muar_sfc.controllers.substrate_network_controller import SubstrateNetworkController
-from muar_sfc.controllers.substrate_network_controller_parallel import SubstrateNetworkControllerP
 from muar_sfc.core.poisson_emitter import PoissonEmitter
 from muar_sfc.core.scenarios.muar import MuarScenario
 from muar_sfc.topology.instantiator import TopologyInstantiator
 from muar_sfc.utils.failure_generator import calcular_janelas_falha
 from muar_sfc.utils.manager_results import OutputWritter, create_output_dir
 
-# Adoção correta da biblioteca logging. Em uma futura refatoração para nuvem, 
-# você pode transitar para estruturação JSON via structlog.
+# Adoção correta da biblioteca logging.
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -55,7 +53,7 @@ def generate_failure_schedule(settings: SimulationSettings, simulation_duration:
         confiabilidade=settings.link_ava,
     )
 
-    # Note que utilizamos as coleções nativas 'list', obliterando as arcaicas 'typing.List'
+    # Coleções nativas 'list', obliterando as arcaicas 'typing.List'
     full_failure_schedule: list[FailureEvent] = []
 
     for start, duration in raw_node_schedule:
@@ -82,51 +80,45 @@ def generate_failure_schedule(settings: SimulationSettings, simulation_duration:
 
 def setup_controller(
     settings: SimulationSettings,
-    topology: Any,  # Tipagem transitória (Any) para evitar o erro Unknown do Pylance
+    topology: Any,
     sfc_queue: SFCQueue,
-    alg: Any,       # Tipagem transitória (Any)
+    alg: Any,
     full_failure_schedule: list[FailureEvent],
 ) -> SubstrateNetworkController:
-    """Instancia e configura o controlador da rede substrata."""
+    """Instancia e configura o controlador da rede substrata usando Injeção de Dependência."""
 
     network = topology.generate_substrate_network()
+    network.set_reliability_params(settings)
+    network.set_sharing_params(settings.share)
     network.verbose = "y"
 
-    parallel_run = False
-    sbn_controller = (
-        SubstrateNetworkControllerP() if parallel_run else SubstrateNetworkController()
-    )
+    # Instanciamos as dependências primeiro
+    backup_manager = BackupManager(args=settings)
+    sfc_manager = SFCManager(settings, backup_manager=backup_manager, alg=alg)
+    sfc_manager.alg_name = settings.alg
+    
+    sfc_instantiator = SFCInstatiator(alg, args=settings)
+    fail_manager = Crasher(topology=topology, args=settings)
+    mobility_manager = MobilityManager(settings)
+    output_writter = OutputWritter(topology, *create_output_dir(settings, topology))
 
-    sbn_controller.substrate_network = network
-    sbn_controller.sfc_queue = sfc_queue
-    sbn_controller.sfc = settings.sfc
-    sbn_controller.alg = settings.alg
-    sbn_controller.fail_manager = Crasher(topology=topology, args=settings)
-    sbn_controller.failure_schedule = full_failure_schedule
-
-    sbn_controller.substrate_network.set_reliability_params(settings)
-    sbn_controller.substrate_network.set_sharing_params(settings.share)
-
-    sbn_controller.mobility_manager = MobilityManager(settings)
-
-    sbn_controller.sfc_manager = SFCManager(
-        settings,
-        backup_manager=BackupManager(args=settings),
+    # Injeção Limpa: O Controller nasce com tudo o que precisa.
+    sbn_controller = SubstrateNetworkController(
+        substrate_network=network,
+        sfc_queue=sfc_queue,
+        sfc_manager=sfc_manager,
+        sfc_instantiator=sfc_instantiator,
+        fail_manager=fail_manager,
+        backup_manager=backup_manager,
+        mobility_manager=mobility_manager,
+        output_writter=output_writter,
+        failure_schedule=full_failure_schedule,
         alg=alg,
+        players=settings.n_players,
+        flows=settings.n_sessions,
+        sfc_name=settings.sfc,
+        verbose=(settings.verbose == "y")
     )
-
-    sbn_controller.sfc_instantiator = SFCInstatiator(alg, args=settings)
-
-    sbn_controller.sfc_manager.alg_name = settings.alg
-    sbn_controller.verbose = settings.verbose == "y"
-
-    sbn_controller.output_writter = OutputWritter(
-        topology,
-        *create_output_dir(settings, topology),
-    )
-
-    sbn_controller.flows = settings.n_sessions
-    sbn_controller.players = settings.n_players
 
     return sbn_controller
 
@@ -171,18 +163,16 @@ def main() -> None:
         full_failure_schedule,
     )
 
-    # Bloco EAFP excelente. O tratamento de anomalias com captura passiva (except) é a diretiva idiomática
+    # Bloco EAFP excelente.
     try:
         logger.info("Iniciando a simulação do controlador de rede...")
         sbn_controller.start()
 
     except KeyboardInterrupt:
-        # KeyboardInterrupt e SystemExit fazem parte do invólucro sistêmico global atômico intrínseco (BaseException)
         logger.warning("Execução interrompida pelo usuário (Ctrl+C).")
         sys.exit(0)
 
     except Exception:
-        # A invocação de logger.exception() garante a inclusão do Stack Trace de forma nativa e integral
         logger.exception("Ocorreu um erro crítico durante a execução.")
         sys.exit(1)
 

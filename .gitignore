@@ -1,45 +1,41 @@
-__pycache__
-*core/__pycache__/*
-vnfs/__pycache*
-utils/__pycache__/*
-topology/__pycache__/*
-controllers/__pycache__/*
-algorithms/__pycache__/*
-.vscode/launch copy.json
-.vscode/launch.json
+# ==========================================
+# .gitignore - Multi-User SFC Simulator
+# ==========================================
+
+# --- Ambientes Virtuais e Caches do Python ---
+.venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+
+# --- IDEs e Ferramentas Locais ---
+.vscode/
 .vs/
-PythonSettings.json
+.idea/
+.ipynb_checkpoints/
+*.suo
 slnx.sqlite
-sfc-system/v17/.suo
-logs/*
-test.py
-plots/figures/plot_3d_ar.pdf
-core/__init__.py
-*.pyc
-sbc_simu.rar
-RESULTADOS_8_12.rar
-backup_log.txt
-results.rar
+PythonSettings.json
+
+# --- Artefatos Dinâmicos, Mídia e Arquivos Compactados ---
 *.rar
+*.zip
+*.tar.gz
 *.pdf
 *.mp4
-plots/2024/*.pdf
-results (1).tar.gz
-resultsu.tar.gz
+
+# --- Saídas do Simulador e Dados Locais ---
+logs/
+plots/
+results/
+rl_saved_models/
+variaveis_salvas/
+backup_log.txt
+
+# --- Arquivos Temporários de Teste / Scratchpads ---
+test.py
 teste.csv
-results.tar.gz
-arquivos.zip
-
-# --- Artefatos Dinâmicos e Saídas do Simulador ---
-/logs/
-/plots/
-/results/
-/rl_saved_models/
-/variaveis_salvas/
-
-# --- Ambientes e Caches do Python (Caso não estejam) ---
-/.venv/
-/.ruff_cache/
-/__pycache__/
-/.ipynb_checkpoints/
-/.vscode/
