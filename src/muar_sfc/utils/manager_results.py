@@ -325,6 +325,80 @@ class OutputWritter:
 
         return total_reliability
 
+    # --------------------------------------------------------------------------
+    # MÉTODOS ABSTRAÍDOS DO CONTROLLER PARA O OUTPUT WRITTER (SRP)
+    # --------------------------------------------------------------------------
+
+    def write_full_results(
+        self,
+        substrate_network: Net2,
+        energy_calculator,
+        sfc_manager,
+        fail_manager,
+        success_list: list,
+        sfc_id: str,
+        results_dict: dict,
+        is_success: bool,
+        current_time: float,
+        remaining_time: float,
+        alg: str,
+        wait_time: float = 0.0,
+    ) -> None:
+        """
+        Método de fachada (Facade) para orquestrar todas as escritas de log de uma vez.
+        Desacopla o Controller da responsabilidade de gerenciar as métricas granulares.
+        """
+        success_list.append(is_success)
+        crashed_nodes = getattr(fail_manager, "nodes_crashed", [])
+
+        # 1. Escreve Recursos Físicos
+        self.output_cpu_utilization(substrate_network, current_time, crashed_nodes)
+        self.output_gpu_utilization(substrate_network, current_time, crashed_nodes)
+        self.output_cache_utilization(substrate_network, current_time, crashed_nodes)
+        self.output_bandwidth_utilization(substrate_network, current_time)
+        self.output_nodes_sf_utilization(substrate_network, current_time)
+
+        # 2. Prepara Cálculos de Energia
+        bw_transcode = 0
+        server_energy = energy_calculator.calculate_total_server_power(substrate_network)
+        mobile_energy = energy_calculator.calculate_total_mobile_device_power(substrate_network)
+        total_energy = server_energy + mobile_energy
+
+        # 3. Prepara Dados de Backup/Confiabilidade
+        bm = sfc_manager.backup_manager
+        backups_dict_ref = bm.sfcs_backups_instatiated if (bm and not isinstance(bm, int)) else {}
+
+        if bm and not isinstance(bm, int):
+            substrate_network.calculate_average_system_reliability(backups_dict_ref)
+        else:
+            substrate_network.calculate_average_system_reliability(0)
+
+        # 4. Escreve os Fluxos (Flows)
+        self.output_flows(
+            substrate_network=substrate_network,
+            wait_time=wait_time,
+            running_players_sessions=sfc_manager.get_running_players_sessions(),
+            counter=self.counter_users, # Modificado para usar o contador interno
+            remaining_time=remaining_time,
+            current_time=current_time,
+            sfc_id=sfc_id,
+            latency=results_dict.get("latency", 0.0),
+            comp_latency=results_dict.get("comp_latency", 0.0),
+            comm_latency=results_dict.get("comm_latency", 0.0),
+            run_duration=results_dict.get("run_duration", 0.0),
+            is_success=is_success,
+            fail_reason=None,
+            bw_transcode=bw_transcode,
+            acceptance_rate=substrate_network.get_acceptance_rate(success_list),
+            server_energy_consumption=server_energy,
+            mobile_energy_consumption=mobile_energy,
+            total_energy_consumption=total_energy,
+            latency_diff=None,
+            crashing=len(crashed_nodes) > 0,
+            alg_name=alg,
+            backups_dict=backups_dict_ref,
+        )
+
     def output_flows(
         self,
         substrate_network: Net2,
@@ -350,67 +424,41 @@ class OutputWritter:
         alg_name="ga",
         backups_dict: dict = None,
     ):
+        """Escreve as métricas detalhadas de fluxo em CSV."""
         if backups_dict is None:
             backups_dict = {}
 
-        # --- [CORREÇÃO] Recálculo dinâmico de players e sessions ---
-        # Em vez de confiar no argumento running_players_sessions, calculamos via Net2
-        # para garantir a integridade dos dados (Single Source of Truth).
-
         running_sfcs = substrate_network.get_number_active_primary_sfcs()
-
         unique_players = set()
         unique_sessions = set()
 
         if substrate_network.sfc_dict:
             for active_sfc_id in substrate_network.sfc_dict:
-                # Formato esperado: sfc_xxxx_p{PLAYER}_{SESSION} ou similar
-                # Ex: sfc_unique_p1_10
                 try:
                     parts = active_sfc_id.split("_")
-                    # Tenta extrair player (pX)
                     for part in parts:
                         if part.startswith("p") and part[1:].isdigit():
                             unique_players.add(part)
-
-                    # Tenta extrair session (último digito)
                     if parts[-1].isdigit():
                         unique_sessions.add(parts[-1])
-                except (IndexError, AttributeError):  # <-- CORRIGIDO: Tipagem da anomalia nativa
+                except (IndexError, AttributeError):
                     continue
 
         running_players = len(unique_players)
         running_sessions = len(unique_sessions)
 
-        # -----------------------------------------------------------
-
         cpu_utilization = round(substrate_network.get_total_system_utilization_cpu_rate(), 4)
-        network_cpu_utilization = round(
-            substrate_network.get_network_cpu_utilization_percentage(), 4
-        )
-        mobile_cpu_utilization = round(
-            substrate_network.get_mobile_cpu_utilization_percentage(), 4
-        )
+        network_cpu_utilization = round(substrate_network.get_network_cpu_utilization_percentage(), 4)
+        mobile_cpu_utilization = round(substrate_network.get_mobile_cpu_utilization_percentage(), 4)
 
         gpu_utilization = round(substrate_network.get_total_system_utilization_gpu_rate(), 4)
-        network_gpu_utilization = round(
-            substrate_network.get_network_gpu_utilization_percentage(), 4
-        )
-        mobile_gpu_utilization = round(
-            substrate_network.get_mobile_gpu_utilization_percentage(), 4
-        )
+        network_gpu_utilization = round(substrate_network.get_network_gpu_utilization_percentage(), 4)
+        mobile_gpu_utilization = round(substrate_network.get_mobile_gpu_utilization_percentage(), 4)
 
         cache_utilization = round(substrate_network.get_total_system_utilization_cache_rate(), 4)
         bw_utilization = round(substrate_network.get_bandwidth_utilization_rate(), 4)
-        network_cache_utilization = round(
-            substrate_network.get_network_cache_utilization_percentage(), 4
-        )
-        mobile_cache_utilization = round(
-            substrate_network.get_mobile_cache_utilization_percentage(), 4
-        )
-
-        round(substrate_network.get_total_cpu_request(), 4)
-        round(substrate_network.get_total_cache_request(), 4)
+        network_cache_utilization = round(substrate_network.get_network_cache_utilization_percentage(), 4)
+        mobile_cache_utilization = round(substrate_network.get_mobile_cache_utilization_percentage(), 4)
 
         cpu_used = substrate_network.get_cpu_total_used()
         cpu_per_flow = cpu_used / running_sfcs if running_sfcs else 0
@@ -436,6 +484,7 @@ class OutputWritter:
         sfc_recovered = None
 
         self.update_user_count(sfc_id)
+        self.counter_users += 1 # Incrementa o contador interno da classe
 
         first_loop = self.first_time == 0
         time_value = 0
@@ -457,11 +506,9 @@ class OutputWritter:
 
         if substrate_network.sfc_dict:
             for s_id, _sfc in substrate_network.sfc_dict.items():
-                # Ignora backups e SFCs sem rota
                 if "backup" in s_id or s_id not in substrate_network.sfc_route_info:
                     continue
 
-                # Calcula Confiabilidade REAL (Considerando Backups)
                 sfc_reliability = self._calculate_sfc_reliability_with_backups(
                     substrate_network, s_id, backups_dict
                 )
@@ -470,7 +517,6 @@ class OutputWritter:
                     total_reliability_sum += sfc_reliability
                     active_sfc_count += 1
 
-                    # Classificação de Risco Baseada na Confiabilidade Real
                     if sfc_reliability < 0.8666:
                         count_high_risk += 1
                     elif 0.8666 <= sfc_reliability <= 0.9333:
@@ -478,12 +524,10 @@ class OutputWritter:
                     else:
                         count_low_risk += 1
 
-        avg_sfc_reliability = (
-            total_reliability_sum / active_sfc_count if active_sfc_count > 0 else 0.0
-        )
+        avg_sfc_reliability = (total_reliability_sum / active_sfc_count if active_sfc_count > 0 else 0.0)
 
         line = (
-            f"{counter},"
+            f"{self.counter_users},"
             f"{current_time},"
             f"{time_value},"
             f"{self.counter_users},"

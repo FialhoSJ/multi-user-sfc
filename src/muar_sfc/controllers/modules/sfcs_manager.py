@@ -1,12 +1,15 @@
 import copy
 import time
+import logging
+import re
 from typing import Any
 
 from muar_sfc.controllers.modules.backup_manager import BackupManager
-
-# Assumindo interfaces/classes existentes no projeto
 from muar_sfc.core.net_v2 import Net2
 from muar_sfc.core.sfc import SFC
+from muar_sfc.controllers.sfc_generator import SFCGenerator # <- Novo import necessário
+
+logger = logging.getLogger(__name__)
 
 
 class SFCManager:
@@ -323,6 +326,112 @@ class SFCManager:
             )
 
         return True
+    
+    
+    
+    # ==========================================
+    # Lógica Extraída do Controller (SRP)
+    # ==========================================
+
+    def rebuild_sfcs_for_requeue(
+        self, sfc_list: list[SFC], changed_location: bool, new_location: Any
+    ) -> tuple[list[SFC], float]:
+        """
+        Reconstrói uma lista de SFCs para re-enfileiramento.
+        Abstrai do Controller a manipulação profunda de dicionários e RegEx.
+        Retorna as novas SFCs e o tempo restante (remaining_duration).
+        """
+        if not sfc_list:
+            return [], 0.0
+
+        session_id = sfc_list[0].dst_node
+        sfcs_tracker_info = self.sfcs_tracker.get(session_id)
+
+        if not sfcs_tracker_info:
+            return [], 0.0
+
+        session_start_time = sfcs_tracker_info["timer"]
+        original_duration = sfcs_tracker_info["duration"]
+
+        time_elapsed_absolute = time.time() - session_start_time
+        remaining_duration = original_duration - time_elapsed_absolute
+
+        if remaining_duration <= 1.0:
+            return [], remaining_duration # Sinaliza que expirou
+
+        new_sfc_list_dicts = []
+
+        for sfc in sfc_list:
+            sfc_id = sfc.id
+            location = new_location if changed_location else sfc.closer_router
+            new_vnfs_list_dict = copy.deepcopy(sfc.vnfs_dict)
+
+            if changed_location and "cache" in sfc_id:
+                old_loc = str(sfc.closer_router)
+                new_loc = str(new_location)
+
+                ma_old_key = "MA_region_" + old_loc
+                re_old_key = "RE_region_" + old_loc
+
+                if sfc_id in self.sfcs_routing_info:
+                    current_sfc_routes = self.sfcs_routing_info[sfc_id]
+                    if ma_old_key in current_sfc_routes:
+                        ma_new_key = re.sub(old_loc, new_loc, ma_old_key)
+                        new_vnfs_list_dict[1]["name"] = ma_new_key
+
+                    if re_old_key in current_sfc_routes:
+                        re_new_key = re.sub(old_loc, new_loc, re_old_key)
+                        new_vnfs_list_dict[2]["name"] = re_new_key
+
+            new_sfc_dict = {
+                "name": sfc_id,
+                "vnf_list": new_vnfs_list_dict,
+                "bandwidth": sfc.input_throughput,
+                "src_node": sfc.src.substrate_node,
+                "dst_node": sfc.dst_node,
+                "duration": remaining_duration,
+                "closer_router": location,
+                "latency": sfc.latency_request,
+            }
+            new_sfc_list_dicts.append(new_sfc_dict)
+
+        new_sfcs_objects = [SFCGenerator(d).generate() for d in new_sfc_list_dicts]
+
+        current_enqueue_time = time.time()
+        for sfc in new_sfcs_objects:
+            sfc.enqueue_time = current_enqueue_time
+
+        return new_sfcs_objects, remaining_duration
+
+    def run_garbage_collection(self, substrate_network: Net2) -> None:
+        """
+        Remove inconsistências entre a camada lógica e física (Zumbis).
+        """
+        infra_sfc_ids = set(substrate_network.sfc_dict.keys())
+        valid_logical_ids = set()
+
+        for session_info in self.sfcs_tracker.values():
+            valid_logical_ids.update(sfc.id for sfc in session_info["sfc_list"])
+
+        if self.backup_manager:
+            valid_logical_ids.update(
+                self.backup_manager.backups_sfc_instantiated.keys()
+            )
+
+        zombie_ids = infra_sfc_ids - valid_logical_ids
+
+        if zombie_ids:
+            if self.verbose:
+                logger.warning(
+                    f"[GC] Inconsistência detectada. Removendo {len(zombie_ids)} "
+                    f"SFCs órfãs: {zombie_ids}"
+                )
+
+            for z_id in zombie_ids:
+                try:
+                    substrate_network.undeploy_sfc(z_id)
+                except Exception:
+                    logger.exception(f"[GC] Erro crítico ao limpar zumbi {z_id}.")
 
     # ==========================================
     # Helpers

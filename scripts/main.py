@@ -23,8 +23,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger(__name__)
 
 
-# 1. O Contrato de Tipagem (O Padrão Ouro)
-# Usando TypedDict para firmar o contrato exato das chaves sem onerar a memória.
+# 1. O Contrato de Tipagem
 class FailureEvent(TypedDict):
     type: str
     start: float
@@ -53,7 +52,7 @@ def generate_failure_schedule(settings: SimulationSettings, simulation_duration:
         confiabilidade=settings.link_ava,
     )
 
-    # Coleções nativas 'list', obliterando as arcaicas 'typing.List'
+    # Coleções nativas 'list'
     full_failure_schedule: list[FailureEvent] = []
 
     for start, duration in raw_node_schedule:
@@ -89,8 +88,12 @@ def setup_controller(
 
     network = topology.generate_substrate_network()
     network.set_reliability_params(settings)
-    network.set_sharing_params(settings.share)
-    network.verbose = "y"
+    
+    # Proteção: Caso a biblioteca subjacente ainda exija strings "y"/"n", 
+    # nós fazemos a conversão aqui, mantendo a tipagem bool limpa no config.py
+    share_str = "y" if settings.share else "n"
+    network.set_sharing_params(share_str)
+    network.verbose = "y" if settings.verbose else "n"
 
     # Instanciamos as dependências primeiro
     backup_manager = BackupManager(args=settings)
@@ -102,7 +105,7 @@ def setup_controller(
     mobility_manager = MobilityManager(settings)
     output_writter = OutputWritter(topology, *create_output_dir(settings, topology))
 
-    # Injeção Limpa: O Controller nasce com tudo o que precisa.
+    # Injeção Limpa
     sbn_controller = SubstrateNetworkController(
         substrate_network=network,
         sfc_queue=sfc_queue,
@@ -117,7 +120,7 @@ def setup_controller(
         players=settings.n_players,
         flows=settings.n_sessions,
         sfc_name=settings.sfc,
-        verbose=(settings.verbose == "y")
+        verbose=settings.verbose  # Já passa o bool diretamente do Pydantic
     )
 
     return sbn_controller
@@ -126,7 +129,6 @@ def setup_controller(
 def main() -> None:
     signal.signal(signal.SIGINT, signal.default_int_handler)
 
-    # Instancia as configurações tipadas via Pydantic
     settings = SimulationSettings()
 
     topology = TopologyInstantiator().instantiate_topology(
@@ -145,7 +147,7 @@ def main() -> None:
 
     sfc_poisson_emitter.start(
         muar_scenario.generate_sfc_session,
-        (None),
+        (None,)  # <- CORREÇÃO: A vírgula obriga o Python a tratar isso como uma tupla válida
     )
 
     simulation_duration = settings.n_sessions * official_rate
@@ -163,7 +165,7 @@ def main() -> None:
         full_failure_schedule,
     )
 
-    # Bloco EAFP excelente.
+    # Bloco EAFP excelente encapsulando lógicas operatórias e mitigando falhas [cite: 211, 436]
     try:
         logger.info("Iniciando a simulação do controlador de rede...")
         sbn_controller.start()

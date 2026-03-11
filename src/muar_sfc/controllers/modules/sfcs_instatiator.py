@@ -471,8 +471,8 @@ class SFCInstatiator:
         """
         Verifica se a VNF permite reuso, consultando a Single Source of Truth (self.args).
         """
-        # Padrão fail-safe: se der erro ao ler args, assume 'n' (não compartilha)
-        share_enabled = getattr(self.args, "share", "n").lower() == "y"
+        share_val = getattr(self.args, "share", False)
+        share_enabled = share_val if isinstance(share_val, bool) else str(share_val).lower() == "y"
 
         if share_enabled:
             return service_name.startswith(SHAREABLE_PREFIXES)
