@@ -142,4 +142,4 @@ class Crasher:
         return False
 
     def activate_link_crasher(self, network):
-        return None
+        return None,None
