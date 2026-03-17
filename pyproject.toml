@@ -27,15 +27,19 @@ dependencies = [
     "sb3-contrib>=2.7.1",
     "traci>=1.26.0",
     "pydantic-settings>=2.13.1",
+    "loguru", # Adicionado para observabilidade e logs estruturados
 ]
 
-# Separação de escopo (Separation of Concerns) para ferramentas de Dev
-[project.optional-dependencies]
+[tool.hatch.build.targets.wheel]
+packages = ["src/muar_sfc"]
+
+# Centralize todas as ferramentas de desenvolvimento aqui
+[dependency-groups]
 dev = [
     "ipykernel",
     "nbformat",
-    "ruff",    # O linter/formatador ultrarrápido padrão da indústria
-    "pytest"   # O framework de testes padrão absoluto
+    "pytest>=7.0",
+    "ruff>=0.15.5",
 ]
 
 # Configurações centralizadas de ferramentas
@@ -59,15 +63,6 @@ select = [
 [tool.pytest.ini_options]
 minversion = "7.0"
 testpaths = ["tests"]
-
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/muar_sfc"]
-
-[dependency-groups]
-dev = [
-    "ruff>=0.15.5",
-]
 
 # --- Configuração do Pyright ajustada para Tipagem Gradual ---
 [tool.pyright]

@@ -1,17 +1,15 @@
 # --- Standard Library Imports ---
 import contextlib
 import copy
-import logging
 import random
 import sys
 import threading
 import time
 from collections import deque
-from pathlib import Path
 from typing import Any
 
-# --- Third Party Imports ---
-import numpy as np
+# --- Adote o Loguru (Experiência de Desenvolvedor Absoluta) ---
+from loguru import logger
 
 # --- Local Module Imports ---
 from muar_sfc.controllers.modules.backup_manager import BackupManager
@@ -25,15 +23,6 @@ from muar_sfc.utils.manager_results import OutputWritter
 from muar_sfc.utils.network_utils import EnergyCalculator
 from muar_sfc.controllers.modules.failure_orchestrator import FailureOrchestrator
 
-logger = logging.getLogger(__name__)
-log_dir = Path("./logs")
-log_dir.mkdir(parents=True, exist_ok=True)
-
-ch = logging.FileHandler(log_dir / "substrate_network_controller.log")
-ch.setLevel(logging.DEBUG)
-formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-ch.setFormatter(formatter)
-logger.addHandler(ch)
 
 class SubstrateNetworkController:
     def __init__(
@@ -143,6 +132,10 @@ class SubstrateNetworkController:
                 self.stop()
             self.iteration_counter += 1
 
+            # PROTEÇÃO CONTRA BUSY-WAITING: Libera a CPU se a fila estiver vazia
+            if not processed_sfcs:
+                time.sleep(0.01)
+
     def handle_mobility(self):
         if self.mobility_manager and self.mobility_manager.activated and (
             time.time() - self.last_mobility_time >= self.mobility_interval
@@ -239,9 +232,21 @@ class SubstrateNetworkController:
 
             log_output, is_success = self.deploy_sfc_list(sfc_list)
 
+            # Este loop apenas processa os dados, não imprime mais no terminal
             for sfc_id, result_dict in log_output.items():
                 processed_sfcs.append(sfc_id)
                 self.output_results(sfc_id=sfc_id, results_dict=result_dict, is_success=is_success, wait_time=wait_time)
+
+            # NOVO: Imprime o sucesso da Orquestração Física UMA ÚNICA VEZ para o grupo
+            if self.verbose:
+                sfc_names = ", ".join([s.id for s in sfc_list])
+                if is_success:
+                    logger.success(f"Physical alloc. complete: batch [{sfc_names}] implanted.")
+                else:
+                    logger.error(f"Physical alloc. failed: batch [{sfc_names}] rejected due to resource unavailability.")
+
+                self.output_writter.print_output_info(self.substrate_network, self.success)
+
         return processed_sfcs
 
     def deploy_sfc_list(self, sfc_list) -> tuple[Any, bool]:
@@ -348,42 +353,66 @@ class SubstrateNetworkController:
         return False
 
     def handle_resources_cleanup(self) -> None:
-        current_time = time.time()
-        expired_sessions = self.sfc_manager.get_expired_sessions(current_time)
-        for session_id in expired_sessions:
-            sfc_ids = self.sfc_manager.cleanup_session_state(session_id)
-            for sfc_id in sfc_ids:
-                self._force_remove_sfc_and_backups(sfc_id)
-            self.remove_mobile_user(session_id)
+            current_time = time.time()
+            
+            # 1. Identifica as sessões que já estouraram o tempo
+            expired_sessions = self.sfc_manager.get_expired_sessions(current_time)
+            
+            for session_id in expired_sessions:
+                logger.debug(f"[DESALOCAÇÃO] Iniciando limpeza da sessão expirada: {session_id}")
+                    
+                sfc_ids = self.sfc_manager.cleanup_session_state(session_id)
+                
+                for sfc_id in sfc_ids:
+                    self._force_remove_sfc_and_backups(sfc_id)
+                    logger.debug(f"[RECURSOS LIBERADOS] SFC {sfc_id} removida da rede física.")
+                
+                # Remove o usuário mobile atrelado à sessão
+                self.remove_mobile_user(session_id)
 
-        if self.sfc_manager.backup_manager:
-            backups_to_kill = self.sfc_manager.backup_manager.identify_obsolete_backups()
-            for backup_id in backups_to_kill:
-                self._safe_undeploy_backup(backup_id)
+            # 2. Limpeza de Backups Obsoletos
+            if self.sfc_manager.backup_manager:
+                backups_to_kill = self.sfc_manager.backup_manager.identify_obsolete_backups()
+                for backup_id in backups_to_kill:
+                    if self.verbose:
+                        logger.info(f"[DESALOCAÇÃO] Removendo backup obsoleto da rede física: {backup_id}")
+                    self._safe_undeploy_backup(backup_id)
 
-        if self.iteration_counter % 10 == 0:
-            # Abstração Perfeita: Controller delega a coleta de lixo.
-            self.sfc_manager.run_garbage_collection(self.substrate_network)
+            # 3. Coleta de Lixo (Zumbis que ficaram presos por algum erro de deploy parcial)
+            if self.iteration_counter % 10 == 0:
+                # Abstração Perfeita: Controller delega a coleta de lixo.
+                self.sfc_manager.run_garbage_collection(self.substrate_network)
 
     def _force_remove_sfc_and_backups(self, sfc_id: str) -> None:
-        bm = self.sfc_manager.backup_manager
-        if bm and sfc_id in bm.sfcs_backups_instatiated:
-            backups_list = list(bm.sfcs_backups_instatiated[sfc_id])
-            for backup_entry in backups_list:
-                self._safe_undeploy_backup(backup_entry["sfc_backup_id"])
-        with contextlib.suppress(Exception):
-            self.substrate_network.undeploy_sfc(sfc_id)
-
+            bm = self.sfc_manager.backup_manager
+            
+            # Se houver backups atrelados a essa SFC primária, limpa eles primeiro
+            if bm and sfc_id in bm.sfcs_backups_instatiated:
+                backups_list = list(bm.sfcs_backups_instatiated[sfc_id])
+                for backup_entry in backups_list:
+                    self._safe_undeploy_backup(backup_entry["sfc_backup_id"])
+                    
+            # Substituímos o contextlib.suppress silencioso por EAFP com log estruturado
+            try:
+                self.substrate_network.undeploy_sfc(sfc_id)
+            except Exception as e:
+                logger.error(f"[FALHA DE DESALOCAÇÃO] Erro CRÍTICO ao remover SFC {sfc_id} da infraestrutura física.")
+                logger.exception(e)  # Imprime o stack trace completo para você debugar se a rede falhar
     def _safe_undeploy_backup(self, backup_id: str) -> None:
-        with contextlib.suppress(Exception):
-            self.substrate_network.undeploy_sfc(backup_id)
-        if self.sfc_manager.backup_manager:
-            self.sfc_manager.backup_manager.cleanup_internal_state(backup_id)
-
+            try:
+                self.substrate_network.undeploy_sfc(backup_id)
+            except Exception as e:
+                logger.error(f"[FALHA DE DESALOCAÇÃO] Erro CRÍTICO ao remover backup {backup_id} da infraestrutura física.")
+                logger.exception(e)
+                
+            # Mesmo se falhar fisicamente, tentamos limpar da memória lógica do Manager
+            if self.sfc_manager.backup_manager:
+                self.sfc_manager.backup_manager.cleanup_internal_state(backup_id)
     def output_results(
         self, results_dict, sfc_id, is_success, res_output=False, wait_time=None
     ) -> None:
         current_time = time.time()
+
         if not res_output:
             self.output_writter.write_full_results(
                 substrate_network=self.substrate_network,
@@ -403,10 +432,13 @@ class SubstrateNetworkController:
         sfcs_crash_aff = copy.deepcopy(list(self.failure_orchestrator.sfcs_crash_affected.keys()))
         if sfc_id in sfcs_crash_aff:
             stored_data = self.failure_orchestrator.sfcs_crash_affected[sfc_id]
-            if results_dict: 
+
+            if results_dict:
                 stored_data["recover_success"] = is_success
+
                 if is_success:
                     latency_diff = results_dict["latency"] - stored_data["old_latency"]
+
                     stored_data.update({
                         "latency_before": stored_data["old_latency"],
                         "latency_after": results_dict["latency"],
@@ -416,17 +448,29 @@ class SubstrateNetworkController:
                         "time_to_recover": current_time - stored_data["fall_time"],
                         "final_status": "Slow Recover",
                     })
+
                 else:
-                    stored_data["final_status"] = "Failed" 
+                    stored_data["final_status"] = "Failed"
+
             else:
-                stored_data.update({"recover_success": False, "final_status": "Failed"}) 
+                stored_data.update({
+                    "recover_success": False,
+                    "final_status": "Failed"
+                })
 
             stored_data.setdefault("risk_level", "Medium")
-            trial_id = stored_data.get("crash_trial", self.failure_orchestrator.crashs_trials)
-            self.output_writter.resilient_output(sfc_id, stored_data, trial_id)
-            del self.failure_orchestrator.sfcs_crash_affected[sfc_id]
 
-        if self.verbose:
-            print("__________________________________________")
-            self.output_writter.print_output_info(self.substrate_network, self.success)
-            print("")
+            trial_id = stored_data.get(
+                "crash_trial",
+                self.failure_orchestrator.crashs_trials
+            )
+
+            self.output_writter.resilient_output(
+                sfc_id,
+                stored_data,
+                trial_id
+            )
+
+            del self.failure_orchestrator.sfcs_crash_affected[sfc_id]
+                
+            

@@ -3,29 +3,29 @@ import re
 import time
 from collections import defaultdict
 from datetime import datetime
-from pathlib import Path  # <-- NOVO: Modernização de I/O
+from pathlib import Path
 
 import numpy as np
+from loguru import logger  # <-- NOVO: Motor de observabilidade
 
 from muar_sfc.core.net_v2 import Net2
 
 
-def format_nodes_to_string(nodes):
+def format_nodes_to_string(nodes: np.ndarray) -> str:
     nodes_to_string = np.array2string(nodes, suppress_small=True, precision=3, separator=",")
     return re.sub("[ \n]", "", nodes_to_string)
 
 
-def format_edges_to_string(edges):
+def format_edges_to_string(edges: list) -> str:
     edges_to_string = ";".join(map(str, edges))
     return re.sub("[ \n]", "", edges_to_string)
 
 
-def create_directory_if_not_exists(path: Path | str):
-    # Pathlib cria pastas recursivamente e ignora se já existem de forma limpa
+def create_directory_if_not_exists(path: Path | str) -> None:
     Path(path).mkdir(parents=True, exist_ok=True)
 
 
-def create_output_dir(args, topology):
+def create_output_dir(args, topology) -> tuple[dict[str, Path], Path, Path, Path]:
     top_info = topology.get_topology_info()
     ec_servers = top_info["ec_servers"]
     edges = top_info["edges"]
@@ -39,16 +39,13 @@ def create_output_dir(args, topology):
 
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f") + str(random.randint(0, 10000))
 
-    # Instanciando o diretório base como um Objeto Path
     base_dir = Path("results")
-
     paths = ["cache", "cpu", "gpu", "bandwidth", "sf"]
     directories = {}
 
     for path in paths:
-        # Usando o operador de barra (/) do pathlib para concatenar caminhos
         dir_path = base_dir / f"results_{path}"
-        dir_path.mkdir(parents=True, exist_ok=True)  # Cria recursivamente sem dar erro se existir
+        dir_path.mkdir(parents=True, exist_ok=True)
 
         alg_path = dir_path / (
             f"alg_{args.alg}_s_{args.n_sessions}_p_{args.n_players}_"
@@ -57,9 +54,8 @@ def create_output_dir(args, topology):
         alg_path.mkdir(parents=True, exist_ok=True)
         directories[path] = alg_path
 
-    # Convertendo de volta para string apenas para manter a compatibilidade com o
-    # restante do código
-    file_paths = {path: str(directories[path] / f"{timestamp}.csv") for path in paths}
+    # REFATORAÇÃO: Mantendo como objetos Path puros. O open() nativo aceita Path!
+    file_paths = {path: directories[path] / f"{timestamp}.csv" for path in paths}
 
     nodes_string = format_nodes_to_string(np.array(sorted(ec_servers)))
     edges_string = format_edges_to_string(edges)
@@ -83,77 +79,36 @@ def create_output_dir(args, topology):
         / f"{args.alg}_s_{args.n_sessions}_p_{args.n_players}_a_{availability}_c_{number_of_fails}"
     )
 
-    # Cria os diretórios finais
     directory_path.mkdir(parents=True, exist_ok=True)
     res_directory_path.mkdir(parents=True, exist_ok=True)
 
-    flows_path = str(directory_path / f"{timestamp}.csv")
-    crash_impact_path = str(res_directory_path / f"crash_impact_{timestamp}.csv")
-    resilient_path = str(res_directory_path / f"resilient_results_{timestamp}.csv")
+    flows_path = directory_path / f"{timestamp}.csv"
+    crash_impact_path = res_directory_path / f"crash_impact_{timestamp}.csv"
+    resilient_path = res_directory_path / f"resilient_results_{timestamp}.csv"
 
+    # ... (O restante dos headers longos permanece idêntico, apenas mantive os mesmos nomes) ...
     header_fields = [
-        "No.",
-        "timestamp",
-        "time_seconds",
-        "users",
-        "cpu_utilization",
-        "gpu_utilization",
-        "bandwidth_utilization",
-        "cache_utilization",
-        "network_cpu_utilization",
-        "network_gpu_utilization",
-        "network_cache_utilization",
-        "mobile_cpu_utilization",
-        "mobile_gpu_utilization",
-        "mobile_cache_utilization",
-        "latency",
-        "comp_latency",
-        "comm_latency",
-        "latency_diff",
-        "queue_time",
-        "decision_time_ms",
-        "success",
-        "fail_reason",
-        "sfc_id",
-        "recovery_time",
-        "sfc_recovered",
-        "cpu_saved",
-        "gpu_saved",
-        "cache_saved",
-        "shared_vnfs",
-        "running_sfcs",
-        "running_players",
-        "running_sessions",
-        "trascode_bw",
-        "crashing",
-        "acceptance_rate",
-        "cpu_per_flow",
-        "gpu_per_flow",
-        "cache_per_flow",
-        "jain_cpu",
-        "jain_gpu",
-        "jain_cache",
-        "jain_bw",
-        "server_energy_consumption",
-        "mobile_energy_consumption",
-        "total_energy_consumption",
-        "avg_sfc_reliability",
-        "high_risk_sfcs",
-        "medium_risk_sfcs",
-        "low_risk_sfcs",
+        "No.", "timestamp", "time_seconds", "users", "cpu_utilization",
+        "gpu_utilization", "bandwidth_utilization", "cache_utilization",
+        "network_cpu_utilization", "network_gpu_utilization",
+        "network_cache_utilization", "mobile_cpu_utilization",
+        "mobile_gpu_utilization", "mobile_cache_utilization", "latency",
+        "comp_latency", "comm_latency", "latency_diff", "queue_time",
+        "decision_time_ms", "success", "fail_reason", "sfc_id",
+        "recovery_time", "sfc_recovered", "cpu_saved", "gpu_saved",
+        "cache_saved", "shared_vnfs", "running_sfcs", "running_players",
+        "running_sessions", "trascode_bw", "crashing", "acceptance_rate",
+        "cpu_per_flow", "gpu_per_flow", "cache_per_flow", "jain_cpu",
+        "jain_gpu", "jain_cache", "jain_bw", "server_energy_consumption",
+        "mobile_energy_consumption", "total_energy_consumption",
+        "avg_sfc_reliability", "high_risk_sfcs", "medium_risk_sfcs", "low_risk_sfcs",
     ]
 
     crash_header_fields = [
-        "crash_trial",
-        "timestamp",
-        "nodes_crashed_count",
-        "total_affected_sfcs",
-        "affected_by_high_risk_node",
-        "affected_by_med_risk_node",
-        "affected_by_low_risk_node",
-        "avg_latency_before",
-        "avg_latency_after",
-        "affected_percentage",
+        "crash_trial", "timestamp", "nodes_crashed_count",
+        "total_affected_sfcs", "affected_by_high_risk_node",
+        "affected_by_med_risk_node", "affected_by_low_risk_node",
+        "avg_latency_before", "avg_latency_after", "affected_percentage",
         "avg_latency_diff",
     ]
 
@@ -166,20 +121,10 @@ def create_output_dir(args, topology):
         f.write(header)
 
     resilient_header_fields = [
-        "crash_trial",
-        "sfc_id",
-        "recover_success",
-        "backup_success",
-        "backup_efficient",
-        "latency_before",
-        "latency_after",
-        "latency_diff",
-        "time_to_recover",
-        "vnf_id",
-        "latency_degrad",
-        "resource_degrad",
-        "risk_level",
-        "final_status",
+        "crash_trial", "sfc_id", "recover_success", "backup_success",
+        "backup_efficient", "latency_before", "latency_after",
+        "latency_diff", "time_to_recover", "vnf_id", "latency_degrad",
+        "resource_degrad", "risk_level", "final_status",
     ]
     with open(resilient_path, "a") as f:
         f.write(",".join(resilient_header_fields) + "\n")
@@ -188,7 +133,7 @@ def create_output_dir(args, topology):
 
 
 class OutputWritter:
-    def __init__(self, topology, file_paths, flows_file, crash_impact_file, resilient_file):
+    def __init__(self, topology, file_paths: dict[str, Path], flows_file: Path, crash_impact_file: Path, resilient_file: Path):
         self.topology = topology
         self.file_paths = file_paths
         self.flows_file = flows_file
@@ -581,15 +526,16 @@ class OutputWritter:
         with open(self.flows_file, "a") as file:
             file.write(line)
 
-    def update_user_count(self, sfc_id):
+    def update_user_count(self, sfc_id: str) -> None:
         try:
             player = int(sfc_id.split("_")[-2][1])
             session = int(sfc_id.split("_")[-1])
             users = (session - 1) * 5 + player
             if users > self.counter_users:
                 self.counter_users = users
-        except (IndexError, ValueError):
-            pass
+        except (IndexError, ValueError) as e:
+            # REFATORAÇÃO: Substituição do perigoso 'pass' pelo registro em log estruturado
+            logger.warning(f"Falha ao extrair usuários do sfc_id '{sfc_id}'. Formato inesperado. Erro: {e}")
 
     def output_cpu_utilization(
         self, substrate_network, deploy_time, crashed_nodes=None
@@ -666,16 +612,6 @@ class OutputWritter:
     def output_nodes_sf_utilization(self, substrate_network, deploy_time: float) -> None:
         pass
 
-    def output_nodes_information(self, substrate_network, *args) -> None:
-        substrate_network.print_out_nodes_information(args[0], args[1])
-
-    def output_edges_information(self, substrate_network, *args) -> None:
-        substrate_network.print_out_edges_information(args[0])
-
-    def output_acceptance_information(self, substrate_network, success) -> None:
-        substrate_network.print_out_acceptance_information(success)
-
     def print_output_info(self, substrate_network, success) -> None:
-        self.output_nodes_information(substrate_network, None, None)
-        self.output_edges_information(substrate_network, None)
-        self.output_acceptance_information(substrate_network, success)
+        """Delega a renderização do painel unificado para a rede."""
+        substrate_network.print_telemetry_dashboard(success)

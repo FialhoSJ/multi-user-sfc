@@ -1,9 +1,10 @@
 import copy
-import logging
 import math
 import random
 import time
 import traceback
+
+from loguru import logger
 
 from muar_sfc.algorithms.darsppo import DARSPPO
 from muar_sfc.algorithms.environments.env_da_rsppo import SFC_AllocationEnv_DARSPPO
@@ -33,7 +34,7 @@ SHAREABLE_PREFIXES = ("IA_DET_FT_", "RE_region_", "MA_region_")
 class SFCInstatiator:
     def __init__(self, alg, args=None):
         self.alg = alg
-        self.args = args  # <--- Armazena os args
+        self.args = args  
         self.sfc_list = []
         self.sfc_queue = []
         self.sfcs_routing_info = {}
@@ -51,29 +52,20 @@ class SFCInstatiator:
     # ==========================================
 
     def search_solution(self, sfc_list, substrate_network: Net2, is_backup=False):
-        # 1. Dicionário padrão de resposta
         default_solution_format = {
             sfc.id: {"route_info": None, "latency": None, "run_duration": None} for sfc in sfc_list
         }
 
-        # Prepara a instância original do algoritmo
         algorithm = self.alg
         algorithm.clear_all()
 
-        # --- LÓGICA CONDICIONAL DE INFRAESTRUTURA (CORREÇÃO) ---
         infra_to_use = copy.deepcopy(substrate_network.graph)
         graph = infra_to_use
 
-        # 2. Gestão de Dispositivo Móvel
-        # Adicionamos o MD ao grafo que será efetivamente usado pelo algoritmo e pelos ambientes
         dst_node_id = sfc_list[0].dst_node
         if dst_node_id in substrate_network.md_graph:
-            # 'graph' aqui é a referência correta para a cópia (ou o nx.Graph ou o Net2.graph)
             self.add_mobile_user_to_graph(graph, substrate_network, sfc_list)
-        # -------------------------------------------------------
-
-        # 3. Configuração do Ambiente (Environment) para algoritmos de IA
-        # Usamos o 'graph' já atualizado com o MD (ex: nó '11')
+            
         valid_nodes = [node for node in graph.nodes() if graph.nodes[node]["type"] != "router"]
 
         if isinstance(algorithm, Kuririn):
@@ -105,22 +97,9 @@ class SFCInstatiator:
                 is_training=False,
             )
 
-        # 4. Execução da busca sequencial
-        is_success = False
-        solution = default_solution_format
-
-        # Passamos infra_to_use:
-        # Se Musfico -> Passa a instância Net2 (Sandbox)
-        # Se outros  -> Passa o nx.Graph (Sandbox)
         solution, is_success = self.sequential_search(
             algorithm, sfc_list, infra_to_use, default_solution_format
         )
-
-        # 5. Mensagens de Log
-        if is_success:
-            self.deploy_success_message(sfc_list)
-        else:
-            self.deploy_failed_message(sfc_list)
 
         return solution, is_success
 
@@ -128,61 +107,36 @@ class SFCInstatiator:
         self, algorithm, sfc_list: list[SFC], graph: object, solution_format, graph_backup=None
     ) -> None:
         search_success = True
+        
+        # Variáveis de Agregação (Batch Processing)
+        total_elapsed_ms = 0.0
+        approved_sfcs = []
+        rejected_sfcs = []
 
         for sfc in sfc_list:
-            # Prepara o algoritmo com uma CÓPIA da rede e a SFC atual
             algorithm.install_substrate_network(copy.deepcopy(graph))
             algorithm.install_SFC(sfc)
-
             algorithm.allow_md_host = getattr(self.args, "allow_md_host", "n") == "y"
 
             s = time.time()
-
-            # # --- DEBUG / SALVAMENTO DE VARIÁVEIS ---
-            # self.list_graph.append(copy.deepcopy(graph))
-            # self.lists_sfcs.append(copy.deepcopy(sfc))
-
-            # if "unique_p4_49" in sfc.id:
-            #     lista_listas_grafos = dividir_em_n_grupos(self.list_graph, 5)
-            #     lista_listas_sfcs = dividir_em_n_grupos(self.lists_sfcs, 5)
-            #     for i in range(1, 6):
-            #         lista_grafo = lista_listas_grafos[i-1]
-            #         lista_sfc = lista_listas_sfcs[i-1]
-            #         salvar_lista(lista_grafo, f"list_graph{i}")
-            #         salvar_lista(lista_sfc, f"list_sfc{i}")
-
-            # if int(sfc.id.split('_')[-1]) <= 10:
-            #     # salvar_variavel(sfc, "list_sfc1")
-            #     # salvar_variavel(graph, "list_graph1")
-            #     pass
-            # elif int(sfc.id.split('_')[-1]) <= 20:
-            #     # salvar_variavel(sfc, "list_sfc2")
-            #     pass
-            # ---------------------------------------
-
-            # Executa o algoritmo dependendo do tipo
             alg_success = False
 
             if isinstance(algorithm, (Kuririn, DARSPPO, hephaestus, REPLIC)):
                 if self.env:
-                    # --- ALTERAÇÃO AQUI ---
-                    # Se for REPLIC, passamos os args para configurar a confiabilidade dinâmica
                     if isinstance(algorithm, REPLIC):
                         alg_success = algorithm.start_algorithm(self.env, args=self.args)
                     else:
-                        # Para os outros, mantém a chamada padrão
                         alg_success = algorithm.start_algorithm(self.env)
-                    # ----------------------
                 else:
-                    logging.error(
-                        f"Tentativa de usar {algorithm.name} sem um ambiente inicializado."
-                    )
+                    logger.error(f"Tentativa de usar {algorithm.name} sem um ambiente inicializado.")
                     alg_success = False
             else:
                 alg_success = algorithm.start_algorithm()
 
             s2 = time.time()
-            print(f"Algorithm {self.alg.name} Take time     :   {round((s2 - s) * 1000, 3)} ms")
+            
+            # Acumula o tempo processado desta SFC irmã
+            total_elapsed_ms += (s2 - s) * 1000
 
             total_latency = None
             comp_latency = None
@@ -194,68 +148,45 @@ class SFCInstatiator:
                     total_latency, comp_latency, comm_latency, res_info = self.submit_solution(
                         graph, sfc, route_info
                     )
+                    approved_sfcs.append(sfc.id)
                 except ValueError as ve:
-                    logging.error(f"Falha na submissão da solução para SFC {sfc.id}: {ve}")
+                    logger.warning(f"Falha de admissão (recursos insuficientes) para SFC {sfc.id}: {ve}")
                     algorithm.handle_failure()
                     alg_success = False
+                    rejected_sfcs.append(sfc.id)
                 except Exception as e:
-                    logging.error(f"Erro inesperado ao submeter solução para SFC {sfc.id}: {e}")
-                    logging.error(traceback.format_exc())
+                    logger.error(f"Erro inesperado ao submeter solução para SFC {sfc.id}: {e}")
+                    logger.error(traceback.format_exc())
                     algorithm.handle_failure()
                     alg_success = False
+                    rejected_sfcs.append(sfc.id)
+            else:
+                rejected_sfcs.append(sfc.id)
 
-            # # --- LÓGICA DE FALLBACK (DRY RUN) ---
-            # if not alg_success:
-            #     # Grafo temporário para cálculo, não modifica o original
-            #     fallback_graph = copy.deepcopy(graph)
-
-            #     try:
-            #         fallback_node_id = 0
-            #         fallback_route_info = {}
-            #         vnf_names = [vnf['name'] for vnf in sfc.vnfs_dict]
-            #         dst_node = sfc.dst_node
-
-            #         # Define path para node 0
-            #         for i in range(len(vnf_names) - 1):
-            #             fallback_route_info[vnf_names[i]] = [fallback_node_id]
-
-            #         last_vnf_name = vnf_names[-1]
-            #         path_list = k_shortest_paths(fallback_graph, fallback_node_id,
-            #           dst_node, k=1, weight='latency')
-
-            #         if not path_list:
-            #             logging.error(f"{sfc.id} falhou: Sem caminho do node 0 para {dst_node}")
-            #             algorithm.route_info = None
-            #         else:
-            #             fallback_route_info[last_vnf_name] = path_list[0]
-
-            #             # Tenta submeter no grafo temporário
-            #             total_latency, comp_latency, comm_latency, res_info =
-            #             self.submit_solution(fallback_graph, sfc, fallback_route_info)
-
-            #             logging.info(f"Fallback {sfc.id} BEM SUCEDIDO (Latência: total_latency}")
-            #             algorithm.route_info = fallback_route_info
-
-            #     except ValueError as ve:
-            #         logging.error(f"Fallback {sfc.id} FALHOU (Ex: node 0 sem recursos): {ve}")
-            #         algorithm.route_info = None
-            #     except Exception as e:
-            #         logging.error(f"Erro inesperado no fallback {sfc.id}: {e}")
-            #         logging.error(traceback.format_exc())
-            #         algorithm.route_info = None
-
-            # Consolidação da Solução
             solution_format[sfc.id] = {
                 "route_info": algorithm.get_route_info(),
                 "latency": total_latency,
                 "comp_latency": comp_latency,
                 "comm_latency": comm_latency,
                 "run_duration": s2 - s,
-                "resource_info": res_info if alg_success else 0,  # <--- AQUI ESTÁ O VALOR REAL
+                "resource_info": res_info if alg_success else 0, 
             }
 
             if not alg_success:
                 search_success = False
+
+        # REFATORAÇÃO: Emite um único painel visual resumindo o lote inteiro
+        if self.verbose:
+            sfc_names = ", ".join([s.id for s in sfc_list])
+            logger.info(f"Algoritmo '{self.alg.name}' processou o lote [{sfc_names}] no tempo total de {round(total_elapsed_ms, 3)} ms.")
+            
+            status_msg = []
+            if approved_sfcs:
+                status_msg.append(f"Aprovadas: {', '.join(approved_sfcs)}")
+            if rejected_sfcs:
+                status_msg.append(f"Rejeitadas: {', '.join(rejected_sfcs)}")
+            
+            logger.debug(f"Status lógico do lote -> {' | '.join(status_msg)}")
 
         return solution_format, search_success
 
@@ -267,7 +198,6 @@ class SFCInstatiator:
         mobile_device_id = sfc_list[0].dst_node
         closer_router = sfc_list[0].closer_router
 
-        # Os recursos do Mobile Device devem estar disponíveis somente para sua SFC
         md_info = copy.deepcopy(substrate_network.md_graph._node[mobile_device_id])
 
         graph.add_node(
@@ -286,7 +216,6 @@ class SFCInstatiator:
         router = graph._node[closer_router]
         wireless_free = router["w_channel_capacity"] - router["w_channel_used"]
 
-        # TODO: Permitir que o próprio algoritmo escolha o roteador e calcular latência real
         signal_latency = 1
         graph.add_edge(
             mobile_device_id,
@@ -299,9 +228,6 @@ class SFCInstatiator:
 
     def submit_solution(self, graph, sfc, route_info):
 
-        # ============================================================
-        # ALOCAÇÃO DE MICROSSERVIÇOS (RETORNA LATÊNCIA + RECURSOS GASTOS)
-        # ============================================================
         def allocate_microservice(vnf, node_id, session_id):
             service_id = vnf.id
             service_key = (service_id, session_id)
@@ -313,22 +239,17 @@ class SFCInstatiator:
                 node = graph.graph.nodes[node_id]
             latency = calculate_computational_latency(graph, node_id, vnf)
 
-            allocated_resources = 0.0  # rastreia o custo real de recursos
+            allocated_resources = 0.0  
 
-            # Nó especial (ex: cloud/origem)
             if node_id == 0:
                 return 0, 0.0
 
             if node["type"] not in ["server", "mobile_device"]:
                 raise ValueError("Serviços só podem ser alocados em servidores ou usuários.")
 
-            # ==========================================
-            # CORREÇÃO: Paridade com a detecção de reuso do Net2
-            # ==========================================
             clean_current_id = service_id.replace("_b", "")
             compatible_instance_found = False
 
-            # Varre o nó para ver se a versão "limpa" (primária) já existe
             if self.is_shareable(service_id) or self.is_shareable(clean_current_id):
                 for existing_id, existing_session in node["services"]:
                     existing_clean = existing_id.replace("_b", "")
@@ -336,9 +257,6 @@ class SFCInstatiator:
                         compatible_instance_found = True
                         break
 
-            # ------------------------------------------------------------
-            # 1) Serviço já existe no nó (Match Exato da Chave)
-            # ------------------------------------------------------------
             if service_key in node["services"]:
                 node["services"][service_key]["copys"] += 1
 
@@ -353,16 +271,12 @@ class SFCInstatiator:
 
                     node["cpu_used"] += cpu_required
                     node["cache_used"] += cache_required
-                    allocated_resources = cpu_required  # gastou recurso
+                    allocated_resources = cpu_required  
 
-            # ------------------------------------------------------------
-            # 2) Serviço novo no nó (Mas pode ser compatível com um primário)
-            # ------------------------------------------------------------
             else:
                 cost_cpu = cpu_required
                 cost_cache = cache_required
 
-                # Aplicação do subsídio: O algoritmo de IA agora sabe que é de graça
                 if compatible_instance_found:
                     cost_cpu = 0.0
                     cost_cache = 0.0
@@ -378,7 +292,6 @@ class SFCInstatiator:
                 node["cpu_used"] += cost_cpu
                 node["cache_used"] += cost_cache
 
-                # Relata o gasto real (0 se for reuso) para o Controller validar
                 allocated_resources = cost_cpu
 
                 if self.is_shareable(service_id) or self.is_shareable(clean_current_id):
@@ -386,9 +299,6 @@ class SFCInstatiator:
 
             return latency, allocated_resources
 
-        # ============================================================
-        # ALOCAÇÃO DE BANDA (MANTIDA COMO ORIGINAL)
-        # ============================================================
         def allocate_bandwidth(node1, node2, vnf, ms_name):
             bw_required = vnf.get_outcome_interface_bandwidth()
             latency = calculate_latency_betwen_nodes(graph, node1, node2, vnf)
@@ -406,14 +316,10 @@ class SFCInstatiator:
 
             return latency
 
-        # ============================================================
-        # EXECUÇÃO DA SFC
-        # ============================================================
         session = sfc.id.split("_")[-1]
         total_latency = 0
-        total_resources_consumed = 0.0  # acumulador global de recursos
+        total_resources_consumed = 0.0  
 
-        # Estrutura de debug de latências
         tsaber = {"computacao": {}, "comunicacao": {}}
 
         for ms_name, path in route_info.items():
@@ -423,7 +329,6 @@ class SFCInstatiator:
             vnf = sfc.get_vnf_by_id(ms_name)
             node_allocated = path[0]
 
-            # Captura retorno duplo
             comp_latency, res_consumed = allocate_microservice(vnf, node_allocated, session)
 
             total_latency += comp_latency
@@ -435,7 +340,6 @@ class SFCInstatiator:
                 "recursos_consumidos": res_consumed,
             }
 
-            # Comunicação (links)
             if len(path) > 1:
                 for u, v in zip(path[:-1], path[1:], strict=False):
                     comm_latency = allocate_bandwidth(u, v, vnf, ms_name)
@@ -448,9 +352,6 @@ class SFCInstatiator:
                         {"de": u, "para": v, "latencia_comm": comm_latency}
                     )
 
-        # ============================================================
-        # CÁLCULOS FINAIS
-        # ============================================================
         total_comp_latency = sum(d["latencia_comp"] for d in tsaber["computacao"].values())
         total_comm_latency = sum(
             item["latencia_comm"] for items in tsaber["comunicacao"].values() for item in items
@@ -463,14 +364,7 @@ class SFCInstatiator:
             round(total_resources_consumed, 4),
         )
 
-    # ==========================================
-    # Helper Methods & Calculations
-    # ==========================================
-
     def is_shareable(self, service_name: str) -> bool:
-        """
-        Verifica se a VNF permite reuso, consultando a Single Source of Truth (self.args).
-        """
         share_val = getattr(self.args, "share", False)
         share_enabled = share_val if isinstance(share_val, bool) else str(share_val).lower() == "y"
 
@@ -479,65 +373,7 @@ class SFCInstatiator:
 
         return False
 
-    def calcular_latencia_5g(
-        self,
-        data,
-        distancia_m=750,
-        potencia_transmissao_dbm=20.0,
-        largura_banda_hz=50e6,
-        temperatura_kelvin=290,
-        figura_ruido_db=10.0,
-        eficiencia_codec=0.5,
-        snr_minimo_db=0.0,
-        freq_portadora_hz=3.5e9,
-        sigma_shadowing_db=6.00,
-    ):
-        """
-        Calcula latência (ms) para uma dada distância em 5G, considerando path loss com shadowing.
-        """
-        BOLTZMANN = 1.380649e-23
-
-        def path_loss_5g(distancia_m):
-            pl_db = 28.0 + 22 * math.log10(distancia_m) + 20 * math.log10(freq_portadora_hz / 1e9)
-            pl_db += random.gauss(0, sigma_shadowing_db)
-            return 10 ** (-pl_db / 10)
-
-        def calcular_latencia_um_ponto(dado):
-            ganho = path_loss_5g(distancia_m)
-            potencia_w = 10 ** (potencia_transmissao_dbm / 10) / 1000
-            ruido_w_hz = BOLTZMANN * temperatura_kelvin * (10 ** (figura_ruido_db / 10))
-            snr_linear = (ganho * potencia_w) / (ruido_w_hz * largura_banda_hz)
-            snr_linear = max(snr_linear, 10 ** (snr_minimo_db / 10))
-            taxa_bps = largura_banda_hz * math.log2(1 + snr_linear) * eficiencia_codec
-            latencia_ms = (dado / taxa_bps) * 1000
-            return latencia_ms
-
-        return calcular_latencia_um_ponto(data)
-
-    def deploy_success_message(self, sfc_list: object) -> None:
-        if self.verbose:
-            for sfc in sfc_list:
-                print("deploy succeed, sfc: ", sfc.id)
-
-    def deploy_failed_message(self, sfc_list: object) -> None:
-        if self.verbose:
-            for sfc in sfc_list:
-                print(" deploy FAILED, sfc: ", sfc.id)
-
-    # ==========================================
-    # Legacy / Musfico Logic
-    # ==========================================
-
     def musfico_method(self, sfc, substrate_network):
-        """
-        Calculates the latency and obtains the route information for the musfico algorithm.
-        """
-        # IMPORTANTE PARA RODAR MUSFICO !!!
-        # if sfc.id in list(self.sfcs_routing_info.keys()):
-        #     del self.sfcs_routing_info[sfc.id]
-        # # Adiciona a SFC com o novo route_info
-        # self.sfcs_routing_info[sfc.id] = copy.deepcopy(route_info)
-
         route_info = copy.deepcopy(self.sfcs_routing_info[sfc.id])
 
         dst_vnf = sfc.get_dst_vnf()
@@ -545,7 +381,6 @@ class SFCInstatiator:
         dst_substrate_node = sfc.get_substrate_node(dst_vnf)
         prev_vnf_node = route_info[previous_vnf.id][0]
 
-        # applies k shortest to link the last vnf with the previous one
         shortest_path = k_shortest_paths(
             substrate_network, prev_vnf_node, dst_substrate_node, k=1, weight="latency"
         )

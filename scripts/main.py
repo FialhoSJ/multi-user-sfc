@@ -1,7 +1,12 @@
-import logging
 import signal
 import sys
 from typing import Any, TypedDict
+
+from loguru import logger 
+
+
+logger.remove() 
+logger.add(sys.stderr, format="<cyan>[{file.name}]</cyan> <level>{message}</level>", level="INFO")
 
 from muar_sfc.algorithms.instantiator import AlgorithmInstantiator
 from muar_sfc.config import SimulationSettings
@@ -17,10 +22,6 @@ from muar_sfc.core.scenarios.muar import MuarScenario
 from muar_sfc.topology.instantiator import TopologyInstantiator
 from muar_sfc.utils.failure_generator import calcular_janelas_falha
 from muar_sfc.utils.manager_results import OutputWritter, create_output_dir
-
-# Adoção correta da biblioteca logging.
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-logger = logging.getLogger(__name__)
 
 
 # 1. O Contrato de Tipagem
@@ -120,7 +121,7 @@ def setup_controller(
         players=settings.n_players,
         flows=settings.n_sessions,
         sfc_name=settings.sfc,
-        verbose=settings.verbose  # Já passa o bool diretamente do Pydantic
+        verbose=settings.verbose  
     )
 
     return sbn_controller
@@ -147,7 +148,7 @@ def main() -> None:
 
     sfc_poisson_emitter.start(
         muar_scenario.generate_sfc_session,
-        (None,)  # <- CORREÇÃO: A vírgula obriga o Python a tratar isso como uma tupla válida
+        (None,)  
     )
 
     simulation_duration = settings.n_sessions * official_rate
@@ -165,7 +166,6 @@ def main() -> None:
         full_failure_schedule,
     )
 
-    # Bloco EAFP excelente encapsulando lógicas operatórias e mitigando falhas [cite: 211, 436]
     try:
         logger.info("Iniciando a simulação do controlador de rede...")
         sbn_controller.start()

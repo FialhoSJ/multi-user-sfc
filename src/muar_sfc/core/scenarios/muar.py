@@ -73,7 +73,7 @@ class MuarScenario:
         self.session_counter = 0
         self.topology = topology
         self.src_node = 0
-        self.max_duration = int(args.time)
+        self.max_duration = int(args.sfc_lifetime)
         self.average_time_session_arrival = 20
         self.factor = 0.33  # 1 jogador consome `FACTOR*100%` dos recursos
 
