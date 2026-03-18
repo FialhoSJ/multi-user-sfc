@@ -2,6 +2,7 @@ import threading
 
 # Imports condicionais ou mocks poderiam ser usados aqui,
 # mas manteremos a estrutura original para simplicidade.
+from muar_sfc.core.net_v2 import Net2
 from muar_sfc.sumo.luxembourg.luxembourg_trace import Sumo_Luxembourg
 from muar_sfc.sumo.tracer_instantiator import TracerInstantiator
 
@@ -129,3 +130,23 @@ class MobilityManager:
                     new_locations.append(closest_router)
 
         return moved_sfcs, new_locations
+    
+    def register_mobile_user_in_network(self, sfc_list: list, substrate_network: Net2) -> str:
+        """Registra o usuário móvel na rede substrata e gerencia seus parâmetros."""
+        group_id = sfc_list[0].dst_node
+        closer_router = sfc_list[0].closer_router
+        sfc_id_list = [sfc.id for sfc in sfc_list]
+
+        self.add_player(group_id, closer_router, sfc_id_list)
+        distance = self.get_md_distance_from_router(group_id, closer_router)
+        
+        # Os "Magic Numbers" devem, idealmente, vir de uma configuração global (Settings)
+        substrate_network.add_node(
+            group_id, 
+            "mobile_device", 
+            cpu_capacity=25.00, 
+            cache_capacity=10.00, 
+            ips=0.1, 
+            position=distance
+        )
+        return group_id

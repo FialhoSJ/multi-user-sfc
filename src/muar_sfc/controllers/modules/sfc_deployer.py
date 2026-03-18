@@ -139,3 +139,14 @@ class SFCDeployer:
                     substrate_network.undeploy_sfc(z_id)
                 except Exception:
                     logger.exception(f"[GC] Erro crítico ao limpar zumbi {z_id} da infraestrutura.")
+                    
+    def safe_network_removal(self, sfc_id: str, substrate_network: Net2) -> None:
+        """
+        Remove com segurança uma SFC da infraestrutura física (SRP).
+        """
+        try:
+            substrate_network.undeploy_sfc(sfc_id)
+            if self.verbose:
+                logger.debug(f"[RECURSOS LIBERADOS] Instância {sfc_id} purgada da rede física.")
+        except Exception:
+            logger.exception(f"[FALHA DE DESALOCAÇÃO] Erro CRÍTICO ao tentar remover {sfc_id} da infraestrutura.")

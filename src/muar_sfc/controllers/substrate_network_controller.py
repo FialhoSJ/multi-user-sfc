@@ -1,5 +1,4 @@
 # --- Standard Library Imports ---
-import contextlib
 import copy
 import random
 import sys
@@ -227,7 +226,7 @@ class SubstrateNetworkController:
                 wait_time = dequeue_time - getattr(sfc_list[0], "arrival_time", 0.0)
 
             for sfc in sfc_list:
-                if sfc.dst_node in self.sfc_manager.sfcs_tracker:
+                if self.sfc_manager.is_session_active(sfc.dst_node):
                     raise ValueError("SFC já submetida")
 
             log_output, is_success = self.deploy_sfc_list(sfc_list)
@@ -308,8 +307,10 @@ class SubstrateNetworkController:
                 self.timer_qeue_sfcs = []
 
     def check_mobility(self, interval=5):
-        if self.sfc_manager.sfcs_tracker != {}:
-            sfcs_moved, new_locations = self.mobility_manager.check_all_vehicles_position_changes()
+        # ANTES: if self.sfc_manager.sfcs_tracker != {}:
+        # AGORA: Pergunta para o Tracker se a rede está vazia
+        if self.sfc_manager.tracker.sfcs_tracker:  
+            sfcs_moved, new_locations = self.mobility_manager.check_all_vehicles_position_changes()            
             for sfc_list, new_location in zip(sfcs_moved, new_locations, strict=False):
                 obj_sfc_list = []
                 valid_move = True
@@ -327,15 +328,9 @@ class SubstrateNetworkController:
                     logger.info(f"SFCs moved: {sfc_list} | New Location: {new_location}")
                     self.send_back_to_qeue(obj_sfc_list, changed_location=True, new_location=new_location)
 
-    def create_mobile_user(self, sfc_list):
-        group_id = sfc_list[0].dst_node
-        closer_router = sfc_list[0].closer_router
-        sfc_id_list = [sfc.id for sfc in sfc_list]
-
-        self.mobility_manager.add_player(group_id, closer_router, sfc_id_list)
-        distance = self.mobility_manager.get_md_distance_from_router(group_id, closer_router)
-        self.substrate_network.add_node(group_id, "mobile_device", cpu_capacity=25.00, cache_capacity=10.00, ips=0.1, position=distance)
-        return group_id
+    def create_mobile_user(self, sfc_list) -> str:
+        """Delega a criação do usuário móvel para o gerenciador de domínio."""
+        return self.mobility_manager.register_mobile_user_in_network(sfc_list, self.substrate_network)
 
     def remove_mobile_user(self, sfc_list_id):
         self.mobility_manager.remove_player(sfc_list_id)
@@ -353,35 +348,18 @@ class SubstrateNetworkController:
         return False
 
     def handle_resources_cleanup(self) -> None:
-            current_time = time.time()
-            
-            # 1. Identifica as sessões que já estouraram o tempo
-            expired_sessions = self.sfc_manager.get_expired_sessions(current_time)
-            
-            for session_id in expired_sessions:
-                logger.debug(f"[DESALOCAÇÃO] Iniciando limpeza da sessão expirada: {session_id}")
-                    
-                sfc_ids = self.sfc_manager.cleanup_session_state(session_id)
-                
-                for sfc_id in sfc_ids:
-                    self._force_remove_sfc_and_backups(sfc_id)
-                    logger.debug(f"[RECURSOS LIBERADOS] SFC {sfc_id} removida da rede física.")
-                
-                # Remove o usuário mobile atrelado à sessão
-                self.remove_mobile_user(session_id)
+        """Delega a desalocação de recursos físicos ao SFCManager."""
+        current_time = time.time()
+        
+        # 1. O Manager faz a faxina de primárias e backups
+        self.sfc_manager.cleanup_network_resources(self.substrate_network, current_time)
+        
+        # 2. Usuários móveis órfãos devem ser limpos pelo MobilityManager (idealmente)
+        # self.mobility_manager.cleanup_orphaned_users(...)
 
-            # 2. Limpeza de Backups Obsoletos
-            if self.sfc_manager.backup_manager:
-                backups_to_kill = self.sfc_manager.backup_manager.identify_obsolete_backups()
-                for backup_id in backups_to_kill:
-                    if self.verbose:
-                        logger.info(f"[DESALOCAÇÃO] Removendo backup obsoleto da rede física: {backup_id}")
-                    self._safe_undeploy_backup(backup_id)
-
-            # 3. Coleta de Lixo (Zumbis que ficaram presos por algum erro de deploy parcial)
-            if self.iteration_counter % 10 == 0:
-                # Abstração Perfeita: Controller delega a coleta de lixo.
-                self.sfc_manager.run_garbage_collection(self.substrate_network)
+        # 3. Coleta de lixo programada
+        if self.iteration_counter % 10 == 0:
+            self.sfc_manager.run_garbage_collection(self.substrate_network)
 
     def _force_remove_sfc_and_backups(self, sfc_id: str) -> None:
             bm = self.sfc_manager.backup_manager
@@ -472,5 +450,3 @@ class SubstrateNetworkController:
             )
 
             del self.failure_orchestrator.sfcs_crash_affected[sfc_id]
-                
-            

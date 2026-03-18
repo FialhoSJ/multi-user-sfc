@@ -1,5 +1,6 @@
 import signal
 import sys
+import time
 from typing import Any, TypedDict
 
 from loguru import logger 
@@ -169,14 +170,15 @@ def main() -> None:
     try:
         logger.info("Iniciando a simulação do controlador de rede...")
         sbn_controller.start()
+        
+        # Mantém a thread principal viva para poder receber o Ctrl+C de forma limpa
+        while not sbn_controller.is_stopped:
+            time.sleep(1)
 
     except KeyboardInterrupt:
-        logger.warning("Execução interrompida pelo usuário (Ctrl+C).")
+        logger.warning("Execução interrompida pelo usuário (Ctrl+C). Iniciando encerramento suave...")
+        sbn_controller.stop()  # Primeiro para a Thread do controlador
         sys.exit(0)
-
-    except Exception:
-        logger.exception("Ocorreu um erro crítico durante a execução.")
-        sys.exit(1)
 
 
 if __name__ == "__main__":
