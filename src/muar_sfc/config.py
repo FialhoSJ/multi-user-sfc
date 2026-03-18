@@ -31,7 +31,7 @@ class SimulationSettings(BaseSettings):
     # --- Parâmetros de Topologia e Rede ---
     topology: str = "luxembourgv2"
     eco_effi_ratio: float = 0.7
-    mobility: bool = False
+    mobility: bool = True
 
     # --- Parâmetros de Entrada Obrigatórios e Tráfego ---
     n_sessions: int = 50

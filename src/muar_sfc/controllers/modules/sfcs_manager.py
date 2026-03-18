@@ -113,3 +113,20 @@ class SFCManager:
     def is_session_active(self, session_id: str) -> bool:
         """Verifica de forma segura se uma sessão (SFC) já está ativa na rede."""
         return session_id in self.tracker.sfcs_tracker
+    
+    
+    # ==========================================
+    # Delegação: Contratos de Estado (Leitura Segura)
+    # ==========================================
+
+    def get_routing_info(self, sfc_id: str | None = None) -> dict | Any:
+        """Fornece leitura segura para o dicionário de rotas sem expor a raiz mutável."""
+        if sfc_id:
+            return self.tracker.sfcs_routing_info.get(sfc_id)
+        return self.tracker.sfcs_routing_info
+
+    def get_session_info(self, session_id: str | None = None) -> dict | Any:
+        """Fornece leitura segura para as informações de uma sessão específica."""
+        if session_id:
+            return self.tracker.sfcs_tracker.get(session_id)
+        return self.tracker.sfcs_tracker

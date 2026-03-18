@@ -612,6 +612,82 @@ class OutputWritter:
     def output_nodes_sf_utilization(self, substrate_network, deploy_time: float) -> None:
         pass
 
-    def print_output_info(self, substrate_network, success) -> None:
-        """Delega a renderização do painel unificado para a rede."""
-        substrate_network.print_telemetry_dashboard(success)
+    def print_output_info(self, substrate_network, success):
+        # ... (código anterior) ...
+        # Agora o próprio OutputWritter (self) imprime o painel, passando a rede como argumento!
+        self.print_telemetry_dashboard(substrate_network, success)
+        
+        
+    # =========================================================================
+    # PAINÉIS DE TELEMETRIA (Movidos da classe Net2 para o OutputWritter - SRP)
+    # =========================================================================
+
+    def print_network(self, network) -> None:
+        """Imprime a topologia estrita da rede."""
+        logger.debug("--- Nós ---")
+        for node, data in network.graph.nodes(data=True):
+            logger.debug(f"{node} -> {data}")
+        logger.debug("--- Arestas ---")
+        for u, v, data in network.graph.edges(data=True):
+            logger.debug(f"{u} <-> {v} -> {data}")
+
+    def print_telemetry_dashboard(self, network, success_arr: list, failure_band: float | None = None) -> None:
+        """Gera um painel canónico e unificado com todas as métricas da infraestrutura."""
+        total_cpu_util = network.get_total_system_utilization_cpu_rate() * 100
+        total_gpu_util = network.get_total_system_utilization_gpu_rate() * 100
+        total_processing_util = network.get_total_system_processing_utilization_rate() * 100
+
+        cpu_save = (network.metrics.total_cpu_saved / network.metrics.total_cpu_requested * 100) if network.metrics.total_cpu_requested > 0 else 0.0
+        gpu_save = (network.metrics.total_gpu_saved / network.metrics.total_gpu_requested * 100) if network.metrics.total_gpu_requested > 0 else 0.0
+        
+        cache_cap = network.total_cache_capacity if hasattr(network, 'total_cache_capacity') and network.total_cache_capacity > 0 else 1.0
+        cache_util = ((network.metrics.total_cache_used + network.metrics.mobile_cache_used) / cache_cap * 100)
+        cache_save = (network.metrics.total_cache_saved / network.metrics.total_cache_requested * 100) if network.metrics.total_cache_requested > 0 else 0.0
+
+        cpu_str = f"{cpu_save:.3f}%" if network.metrics.total_cpu_requested > 0 else "N/A"
+        gpu_str = f"{gpu_save:.3f}%" if network.metrics.total_gpu_requested > 0 else "N/A"
+        cache_save_str = f"{cache_save:.3f}%" if network.metrics.total_cache_requested > 0 else "N/A"
+
+        bw_cap = network.total_bandwidth_capacity if hasattr(network, 'total_bandwidth_capacity') and network.total_bandwidth_capacity > 0 else 1.0
+        bw_util = (network.metrics.total_bandwidth_used * 1.0 / bw_cap * 100)
+
+        import numpy as np # Certifique-se de que o numpy está importado no topo deste ficheiro
+        media_porc = np.mean(success_arr) * 100 if len(success_arr) > 0 else 0.0
+
+        band_failure_str = f"│ ◦ Band Failure  : {failure_band}%\n" if failure_band is not None else ""
+
+        # Construção do Painel Simétrico
+        panel = (
+            "\n╭── [ PAINEL UNIFICADO DE TELEMETRIA ] ──────────────────────\n"
+            f"│ [ ORQUESTRAÇÃO ]\n"
+            f"│ ◦ Acceptance Rate : {media_porc:.3f}%\n"
+            f"├────────────────────────────────────────────────────────────\n"
+            f"│ [ NÓS E PROCESSAMENTO ]\n"
+            f"│ ◦ Total Proc. Util: {total_processing_util:.3f}%\n"
+            f"│ ◦ Sys CPU Util.   : {total_cpu_util:.3f}%\n"
+            f"│ ◦ Sys GPU Util.   : {total_gpu_util:.3f}%\n"
+            f"│ ◦ Net CPU Util.   : {network.get_network_cpu_utilization_percentage():.3f}%\n"
+            f"│ ◦ Net GPU Util.   : {network.get_network_gpu_utilization_percentage():.3f}%\n"
+            f"│ ◦ Mobile CPU Util.: {network.get_mobile_cpu_utilization_percentage():.3f}%\n"
+            f"├────────────────────────────────────────────────────────────\n"
+            f"│ [ REDE E ECONOMIA (SAVINGS) ]\n"
+            f"│ ◦ Bandwidth Util. : {bw_util:.3f}%\n"
+            f"{band_failure_str}"
+            f"│ ◦ CPU Saving Rate : {cpu_str}\n"
+            f"│ ◦ GPU Saving Rate : {gpu_str}\n"
+            f"│ ◦ Cache Util.     : {cache_util:.3f}%\n"
+            f"│ ◦ Cache Saving    : {cache_save_str}\n"
+            "╰────────────────────────────────────────────────────────────"
+        )
+        logger.info(panel)
+
+    def print_out_acceptance_information(self, success_arr: list) -> None:
+        """Imprime métricas básicas de sucesso isoladamente."""
+        if len(success_arr) != 0:
+            import numpy as np
+            media_porc = np.mean(success_arr) * 100
+            panel = (
+                "\n╭── [ ORQUESTRAÇÃO E RESULTADO ]\n"
+                f"╰── Acceptance Rate : {media_porc:.3f}%"
+            )
+            logger.info(panel)

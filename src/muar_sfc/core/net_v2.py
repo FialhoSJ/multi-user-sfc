@@ -1,216 +1,115 @@
-import math
-import random
 import re
-from collections import defaultdict
-from contextlib import suppress
-from dataclasses import dataclass
-
 import networkx as nx
 import numpy as np
-from loguru import logger  # <-- NOVO: Observabilidade corporativa
+from typing import Any
+from loguru import logger
+from collections import defaultdict
+from contextlib import suppress
 
+from muar_sfc.core.infrastructure.enums import NodeType, NodeLevel, SHAREABLE_PREFIXES
+from muar_sfc.core.infrastructure.topology import TopologyManager
+from muar_sfc.core.infrastructure.resource_allocator import ResourceAllocator
+from muar_sfc.core.network_metrics import NetworkMetrics
+from muar_sfc.core.infrastructure.physics import TelecomPhysics
 from muar_sfc.core.vnf import VNF
-
-# =========================================================================
-# CLASSE AUXILIAR DE MÉTRICAS (Refatoração SRP)
-# =========================================================================
-
-
-@dataclass
-class NetworkMetrics:
-    """
-    Centraliza o gerenciamento de métricas dinâmicas da rede.
-    Substitui as variáveis soltas da classe Net2 para garantir consistência.
-    """
-
-    # --- CPU ---
-    total_cpu_requested: float = 0.0
-    total_cpu_used: float = 0.0
-    total_cpu_saved: float = 0.0
-    mobile_cpu_used: float = 0.0
-
-    # --- GPU ---
-    total_gpu_requested: float = 0.0
-    total_gpu_used: float = 0.0
-    total_gpu_saved: float = 0.0
-    mobile_gpu_used: float = 0.0
-
-    # --- Cache ---
-    total_cache_requested: float = 0.0
-    total_cache_used: float = 0.0
-    total_cache_saved: float = 0.0
-    mobile_cache_used: float = 0.0
-
-    # --- Banda e Outros ---
-    total_bandwidth_used: float = 0.0
-    shared_vnfs_count: int = 0
-
 
 # =========================================================================
 # FUNÇÕES E CONSTANTES GLOBAIS
 # =========================================================================
 
-
-def extrair_sessao(s):
+def extrair_sessao(s: str) -> str | None:
+    """Extrai o ID da sessão de uma string de SFC de forma segura usando regex."""
     match = re.search(r"p\d+_(\d+)(?:_|$)", s)
     return match.group(1) if match else None
 
-
-SHAREABLE_PREFIXES = ("IA_DET_FT_", "RE_region_", "MA_region_")
-
-
 # =========================================================================
-# CLASSE PRINCIPAL NET2
+# CLASSE PRINCIPAL NET2 (Facade / Fachada)
 # =========================================================================
-
 
 class Net2:
-    def __init__(self):
-        # --- Inicialização de Grafos (Topologia) ---
-        self.graph = nx.Graph()
-        self.md_graph = nx.Graph()
+    def __init__(self) -> None:
+        # --- 1. Inicializando a Infraestrutura Moderna ---
+        self.metrics = NetworkMetrics()
+        self.topology = TopologyManager()
+        self.allocator = ResourceAllocator(self.topology, self.metrics)
+
+        # --- 2. Ponte de Retrocompatibilidade (Magia do Strangler Fig) ---
+        self.graph = self.topology.graph
+        self.md_graph = self.topology.md_graph
 
         # --- Estruturas de Dados de Controle e Roteamento ---
-        self.sfc_dict = {}
-        self.sfc_route_info = {}  # Mapeamento: sfc_id -> route_info
-        self.nodes_reliability = {}
+        self.sfc_dict: dict[str, Any] = {}
+        self.sfc_route_info: dict[str, dict] = {}
+        self.nodes_reliability: dict[str, float] = {}
 
-        # Parâmetros de Confiabilidade e Estresse
-        self.alpha_stress = {"default": 0.0, "a": 0.0, "b": 0.0, "c": 0.0}
-        self.tier_reliability = {"default": 1.0, "a": 1.0, "b": 1.0, "c": 1.0}
+        self.alpha_stress: dict[str, float] = {NodeLevel.DEFAULT.value: 0.0, NodeLevel.A.value: 0.0, NodeLevel.B.value: 0.0, NodeLevel.C.value: 0.0}
+        self.tier_reliability: dict[str, float] = {NodeLevel.DEFAULT.value: 1.0, NodeLevel.A.value: 1.0, NodeLevel.B.value: 1.0, NodeLevel.C.value: 1.0}
 
-        self.processing_delay_info = []
-        self.shareable_sf_sfc = {}
-        self.sf_route_info = {}
-        self.sfs_flux_info = {}
-        self.shared_sfs = {}
-        self.single_source_minimum_latency_path = None
+        self.processing_delay_info: list[Any] = []
+        self.shareable_sf_sfc: dict[str, Any] = {}
+        self.sf_route_info: dict[str, Any] = {}
+        self.sfs_flux_info: dict[str, Any] = {}
+        self.shared_sfs: dict[str, Any] = {}
+        self.single_source_minimum_latency_path: dict | None = None
 
         # --- Flags de Configuração ---
-        self.shareable_band = False
-        self.shareable_node = True
-        self.verbose = False
-
-        # --- Gerenciamento Centralizado de Métricas (Refatorado) ---
-        self.metrics = NetworkMetrics()
+        self.shareable_band: bool = False
+        self.shareable_node: bool = True
+        self.verbose: bool = False
 
         # --- Capacidades Totais da Infraestrutura ---
-        # Representam o "teto" físico da rede
-        self.total_cpu_capacity = 0.00
-        self.total_gpu_capacity = 0.00
-        self.total_cache_capacity = 0.00
-        self.total_bandwidth_capacity = 0.00
+        self.total_cpu_capacity: float = 0.00
+        self.total_gpu_capacity: float = 0.00
+        self.total_cache_capacity: float = 0.00
+        self.total_bandwidth_capacity: float = 0.00
 
     # =========================================================================
-    # 1. GERENCIAMENTO DE TOPOLOGIA (NÓS E ARESTAS)
+    # 1. DELEGAÇÃO DE INFRAESTRUTURA (FACADE)
+    # =========================================================================
+
+    def add_node(self, *args, **kwargs) -> None:
+        self.topology.add_node(*args, **kwargs)
+
+    def add_edge(self, *args, **kwargs) -> None:
+        self.topology.add_edge(*args, **kwargs)
+
+    def remove_node(self, *args, **kwargs) -> None:
+        self.topology.remove_node(*args, **kwargs)
+
+    def connect_mobile_user(self, *args, **kwargs) -> None:
+        self.topology.connect_mobile_user(*args, **kwargs)
+
+    def allocate_microservice(self, sfc, vnf, node_id):
+        self.allocator.allocate_microservice(sfc, vnf, node_id)
+
+    def deallocate_microservice(self, node_id: str, sfc_id: str, vnf: VNF) -> None:
+        self.allocator.deallocate_microservice(node_id, sfc_id, vnf)
+
+    def allocate_bandwidth(self, node1, node2, bw_required, ms_name, is_backup=False):
+        self.allocator.allocate_bandwidth(node1, node2, bw_required, ms_name, is_backup)
+        return self.get_link_latency(node1, node2)
+
+    def release_bandwidth(self, node1, node2, ms_name):
+        self.allocator.release_bandwidth(node1, node2, ms_name)
+
+    def allocate_wireless_bandwidth(self, node1, node2, bw_required, ms_name):
+        self.allocator.allocate_wireless_bandwidth(node1, node2, bw_required, ms_name)
+        return 0
+
+    def release_wireless_bandwidth(self, node1, node2, ms_name):
+        self.allocator.release_wireless_bandwidth(node1, node2, ms_name)
+
+    def set_sharing_params(self, share_arg: str | bool) -> None:
+        self.shareable_node = str(share_arg).lower() == "y"
+        self.allocator.shareable_node = self.shareable_node
+
+    # =========================================================================
+    # 2. CICLO DE VIDA DE SFC (DEPLOY E UNDEPLOY LÓGICO)
     # =========================================================================
 
     def detach_vnf_from_route_record(self, sfc_id: str, vnf_name: str) -> None:
         if sfc_id in self.sfc_route_info and vnf_name in self.sfc_route_info[sfc_id]:
             del self.sfc_route_info[sfc_id][vnf_name]
-
-    def set_sharing_params(self, share_arg: str) -> None:
-        """
-        Injeta a configuração global de reuso (SF Sharing) definida no CLI.
-        Substitui o comportamento hardcoded.
-        """
-        # Garante que qualquer variação de 'Y', 'y', etc., seja interpretada corretamente
-        self.shareable_node = str(share_arg).lower() == "y"
-
-    def add_node(
-        self,
-        node_id,
-        node_type,
-        cpu_capacity=0.00,
-        cache_capacity=0.00,
-        w_channel_capacity=0.0,
-        position=(0, 0),
-        ips=0,
-    ):
-        if "server" in node_type:
-            node_level = node_type.split("_")[-1]
-            node_type_clean = node_type.split("_")[0]
-            self.graph.add_node(
-                node_id,
-                type=node_type_clean,
-                cpu_capacity=cpu_capacity,
-                cache_capacity=cache_capacity,
-                cpu_used=0.00,
-                cache_used=0.00,
-                ips=ips * 10e10,
-                position=position,
-                reuse=[],
-                services={},
-                sfcs_list=[],
-                level_server=node_level,
-                is_active=True,
-            )
-
-        elif node_type == "mobile_device":
-            sorteio = random.random()
-            if sorteio <= 0.33:
-                cpu_capacity *= 0.75
-                cache_capacity *= 0.75
-                ips *= 0.75
-            elif sorteio > 0.67:
-                cpu_capacity *= 1.25
-                cache_capacity *= 1.25
-                ips *= 1.25
-
-            self.md_graph.add_node(
-                node_id,
-                type=node_type,
-                cpu_capacity=cpu_capacity,
-                cache_capacity=cache_capacity,
-                cpu_used=0.00,
-                cache_used=0.00,
-                ips=ips * 10e10,
-                position=position,
-                reuse=[],
-                services={},
-                sfcs_list=[],
-                is_active=True,
-            )
-
-        elif node_type == "router":
-            self.graph.add_node(
-                node_id,
-                type=node_type,
-                cpu_capacity=cpu_capacity,
-                cache_capacity=cache_capacity,
-                cpu_used=0.00,
-                cache_used=0.00,
-                w_channel_capacity=w_channel_capacity,
-                w_channel_used=0.0,
-                position=position,
-                services={},
-                w_services={},
-                is_active=True,
-            )
-        else:
-            raise ValueError("Tipo de nó não reconhecido")
-
-    def remove_node(self, node_id):
-        self.md_graph.remove_node(node_id)
-
-    def add_edge(self, node1, node2, bandwidth_capacity=1000.00, latency=1):
-        self.graph.add_edge(
-            node1,
-            node2,
-            bandwidth_capacity=bandwidth_capacity,
-            bandwidth_used=0.00,
-            bandwidth_reserved=0.00,
-            latency=latency,
-            services_in_transit={},
-        )
-
-    def connect_mobile_user(self, user_id, router_id, cpu_capacity):
-        self.add_node(user_id, "mobile_device", cpu_capacity=cpu_capacity)
-        self.add_edge(user_id, router_id, bandwidth_capacity=100, latency=5)
-
-    # =========================================================================
-    # 2. ALOCAÇÃO E CICLO DE VIDA DE SFC
-    # =========================================================================
 
     def deploy_sfc(self, sfc, route_info):
         sfc_id = sfc.id
@@ -218,7 +117,6 @@ class Net2:
 
         if sfc_id not in self.sfc_dict:
             self.sfc_dict[sfc_id] = sfc
-
         if sfc_id not in self.sfc_route_info:
             self.sfc_route_info[sfc_id] = route_info
 
@@ -229,7 +127,6 @@ class Net2:
             node_allocated = path[0]
 
             self.allocate_microservice(sfc, vnf, node_allocated)
-
             bw_req = vnf.get_outcome_interface_bandwidth()
 
             if len(path) > 1:
@@ -243,13 +140,6 @@ class Net2:
         return True
 
     def undeploy_sfc(self, sfc_id):
-        """
-        Remove a SFC da rede.
-
-        Aplica o padrão EAFP e garante atomicidade na remoção lógica.
-        Mesmo se falhar ao liberar recursos físicos (nó caiu, link sumiu),
-        o registro lógica da SFC é removido para evitar vazamento de memória (Zumbis).
-        """
         if sfc_id not in self.sfc_dict:
             return
 
@@ -258,33 +148,24 @@ class Net2:
             route_info = self.sfc_route_info.get(sfc_id, {})
 
             for ms_name, path in list(route_info.items()):
-                if ms_name in ["src", "dst"] or "virt" in ms_name:
-                    continue
-
-                if not path:
+                if ms_name in ["src", "dst"] or "virt" in ms_name or not path:
                     continue
 
                 node_allocated = path[0]
-
-                node_exists = (node_allocated in self.graph) or (
-                    node_allocated in self.md_graph
-                )
+                node_exists = (node_allocated in self.graph) or (node_allocated in self.md_graph)
 
                 if node_exists:
                     try:
                         vnf = sfc.get_vnf_by_id(ms_name)
                         self.deallocate_microservice(node_allocated, sfc_id, vnf)
                     except Exception as e:
-                        if self.verbose:
-                            logger.warning(f"Falha parcial ao desalocar VNF {ms_name} de {sfc_id}: {e}")
+                        if self.verbose: logger.warning(f"Falha parcial ao desalocar VNF: {e}")
 
                 if len(path) > 1:
                     self._safe_release_bandwidth(path, ms_name)
 
         except Exception as critical_error:
-            if self.verbose:
-                logger.error(f"Erro crítico durante undeploy de {sfc_id}: {critical_error}")
-
+            if self.verbose: logger.error(f"Erro crítico durante undeploy de {sfc_id}: {critical_error}")
         finally:
             self._remove_sfc_from_registry(sfc_id)
 
@@ -295,539 +176,77 @@ class Net2:
                 v_exists = v in self.graph or v in self.md_graph
 
                 if u_exists and v_exists:
-                    if isinstance(v, str):
-                        self.release_wireless_bandwidth(u, v, ms_name)
-                    elif isinstance(u, str):
-                        self.release_wireless_bandwidth(v, u, ms_name)
-                    else:
-                        self.release_bandwidth(u, v, ms_name)
+                    if isinstance(v, str): self.release_wireless_bandwidth(u, v, ms_name)
+                    elif isinstance(u, str): self.release_wireless_bandwidth(v, u, ms_name)
+                    else: self.release_bandwidth(u, v, ms_name)
         except ValueError:
             pass 
 
     def _remove_sfc_from_registry(self, sfc_id):
-        if sfc_id in self.sfc_dict:
-            del self.sfc_dict[sfc_id]
-
-        if sfc_id in self.sfc_route_info:
-            del self.sfc_route_info[sfc_id]
+        if sfc_id in self.sfc_dict: del self.sfc_dict[sfc_id]
+        if sfc_id in self.sfc_route_info: del self.sfc_route_info[sfc_id]
 
         self.metrics.total_cpu_used = max(0.0, self.metrics.total_cpu_used)
         self.metrics.total_cache_used = max(0.0, self.metrics.total_cache_used)
         self.metrics.total_bandwidth_used = max(0.0, self.metrics.total_bandwidth_used)
 
     def undeploy_specific_vnf_context(self, sfc_id, vnf_id_to_remove):
-        if sfc_id not in self.sfc_dict:
+        if sfc_id not in self.sfc_dict or not self.sfc_route_info.get(sfc_id):
             return False
 
         sfc = self.sfc_dict[sfc_id]
-        route_info = self.sfc_route_info.get(sfc_id)
-
-        if not route_info:
-            return False
-
+        route_info = self.sfc_route_info[sfc_id]
         vnf_target = sfc.get_vnf_by_id(vnf_id_to_remove)
-        if not vnf_target:
-            return False
+        if not vnf_target: return False
 
         vnf_prev = sfc.get_previous_vnf(vnf_target)
 
         if vnf_id_to_remove in route_info:
             path = route_info[vnf_id_to_remove]
-
             if path:
-                node_allocated = path[0]
                 with suppress(ValueError):
-                    self.deallocate_microservice(node_allocated, sfc_id, vnf_target)
-
+                    self.deallocate_microservice(path[0], sfc_id, vnf_target)
                 if len(path) > 1:
-                    for u, v in zip(path[:-1], path[1:], strict=True):
-                        try:
-                            if isinstance(v, str):
-                                self.release_wireless_bandwidth(u, v, vnf_id_to_remove)
-                            elif isinstance(u, str):
-                                self.release_wireless_bandwidth(v, u, vnf_id_to_remove)
-                            else:
-                                self.release_bandwidth(u, v, vnf_id_to_remove)
-                        except ValueError:
-                            pass
+                    self._safe_release_bandwidth(path, vnf_id_to_remove)
 
             del route_info[vnf_id_to_remove]
 
             if vnf_prev and vnf_prev.id != "src" and vnf_prev.id in route_info:
                 path_prev = route_info[vnf_prev.id]
-
                 if len(path_prev) > 1:
-                    for u, v in zip(path_prev[:-1], path_prev[1:], strict=True):
-                        try:
-                            if isinstance(v, str):
-                                self.release_wireless_bandwidth(u, v, vnf_prev.id)
-                            elif isinstance(u, str):
-                                self.release_wireless_bandwidth(v, u, vnf_prev.id)
-                            else:
-                                self.release_bandwidth(u, v, vnf_prev.id)
-                        except ValueError:
-                            pass
-
+                    self._safe_release_bandwidth(path_prev, vnf_prev.id)
                 if path_prev:
                     route_info[vnf_prev.id] = [path_prev[0]]
 
         return True
 
     # =========================================================================
-    # 3. ALOCAÇÃO DE RECURSOS (COMPUTACIONAIS E REDE)
+    # 3. FÍSICA E CÁLCULO DE LATÊNCIA
     # =========================================================================
 
-    def allocate_microservice(self, sfc, vnf, node_id):
-        sfc_id = sfc.id
-
-        if hasattr(sfc, "session_id"):
-            session = sfc.session_id
-        else:
-            parts = sfc_id.split("_")
-            if "backup" in sfc_id:
-                session = parts[3] if len(parts) > 3 else parts[-1]
-            else:
-                session = parts[-1]
-
-        mobile = False
-        if node_id in self.md_graph:
-            node = self.md_graph.nodes[node_id]
-            mobile = True
-        elif node_id in self.graph:
-            node = self.graph.nodes[node_id]
-            mobile = False
-        else:
-            raise ValueError(f"Nó {node_id} não encontrado.")
-
-        if not node.get("is_active", True):
-            raise ValueError(f"Falha critica: nó {node_id} inativo")
-
-        service_id = vnf.id
-        cpu_required = vnf.get_cpu_request()
-        cache_required = vnf.get_cache_request()
-
-        is_gpu = self._is_gpu_node(node_id)
-
-        # Atualização de Metrics (REQUESTED)
-        if is_gpu:
-            self.metrics.total_gpu_requested = round(
-                self.metrics.total_gpu_requested + cpu_required, 2
-            )
-        else:
-            self.metrics.total_cpu_requested = round(
-                self.metrics.total_cpu_requested + cpu_required, 2
-            )
-
-        self.metrics.total_cache_requested = round(
-            self.metrics.total_cache_requested + cache_required, 2
-        )
-
-        if node["type"] not in ["server", "mobile_device"]:
-            raise ValueError(f"Tipo de nó inválido: {node['type']}")
-
-        # --- Helper Interno ---
-        def put_resource(cpu_req, cache_req, is_mobile):
-            node["cpu_used"] = round(node["cpu_used"] + cpu_req, 2)
-            node["cache_used"] = round(node["cache_used"] + cache_req, 2)
-
-            if is_gpu:
-                if is_mobile:
-                    self.metrics.mobile_gpu_used = round(self.metrics.mobile_gpu_used + cpu_req, 2)
-                else:
-                    self.metrics.total_gpu_used = round(self.metrics.total_gpu_used + cpu_req, 2)
-            else:
-                if is_mobile:
-                    self.metrics.mobile_cpu_used = round(self.metrics.mobile_cpu_used + cpu_req, 2)
-                else:
-                    self.metrics.total_cpu_used = round(self.metrics.total_cpu_used + cpu_req, 2)
-
-            if is_mobile:
-                self.metrics.mobile_cache_used = round(
-                    self.metrics.mobile_cache_used + cache_req, 2
-                )
-            else:
-                self.metrics.total_cache_used = round(self.metrics.total_cache_used + cache_req, 2)
-
-        # ----------------------
-
-        clean_current_id = service_id.replace("_b", "")
-
-        compatible_instance_found = False
-        if self.is_shareable(service_id) or self.is_shareable(clean_current_id):
-            for existing_id, existing_session in node["services"]:
-                existing_clean = existing_id.replace("_b", "")
-                if existing_clean == clean_current_id and existing_session == session:
-                    compatible_instance_found = True
-                    break
-
-        if sfc_id not in node["sfcs_list"]:
-            node["sfcs_list"].append(sfc_id)
-
-        service_key = (service_id, session)
-
-        # CASO 1: Match Exato (Reuso)
-        if service_key in node["services"]:
-            node["services"][service_key]["copys"] += 1
-
-            if not self.is_shareable(service_id):
-                if (
-                    node["cpu_used"] + cpu_required > node["cpu_capacity"]
-                    or node["cache_used"] + cache_required > node["cache_capacity"]
-                ):
-                    node["services"][service_key]["copys"] -= 1
-                    if sfc_id in node["sfcs_list"]:
-                        node["sfcs_list"].remove(sfc_id)
-                    raise ValueError(f"Sem capacidade no nó {node_id} para instância não-shared.")
-                put_resource(cpu_required, cache_required, mobile)
-            else:
-                # É compartilhável -> Saving
-                if is_gpu:
-                    self.metrics.total_gpu_saved = round(
-                        self.metrics.total_gpu_saved + cpu_required, 2
-                    )
-                else:
-                    self.metrics.total_cpu_saved = round(
-                        self.metrics.total_cpu_saved + cpu_required, 2
-                    )
-
-                self.metrics.total_cache_saved = round(
-                    self.metrics.total_cache_saved + cache_required, 2
-                )
-                self.metrics.shared_vnfs_count += 1
-
-        # CASO 2: Nova Instância
-        else:
-            cost_cpu = cpu_required
-            cost_cache = cache_required
-
-            if compatible_instance_found:
-                # Reuso de binário/imagem
-                cost_cpu = 0
-                cost_cache = 0
-
-                if is_gpu:
-                    self.metrics.total_gpu_saved = round(
-                        self.metrics.total_gpu_saved + cpu_required, 2
-                    )
-                else:
-                    self.metrics.total_cpu_saved = round(
-                        self.metrics.total_cpu_saved + cpu_required, 2
-                    )
-
-                self.metrics.total_cache_saved = round(
-                    self.metrics.total_cache_saved + cache_required, 2
-                )
-                self.metrics.shared_vnfs_count += 1
-
-            if (
-                node["cpu_used"] + cost_cpu > node["cpu_capacity"]
-                or node["cache_used"] + cost_cache > node["cache_capacity"]
-            ):
-                if sfc_id in node["sfcs_list"]:
-                    node["sfcs_list"].remove(sfc_id)
-                raise ValueError(f"Sem capacidade no nó {node_id} para novo serviço.")
-
-            node["services"][service_key] = {"cpu": cost_cpu, "cache": cost_cache, "copys": 1}
-            put_resource(cost_cpu, cost_cache, mobile)
-
-            if self.is_shareable(service_id):
-                node["reuse"].append(vnf)
-
-    def deallocate_microservice(self, node_id: str, sfc_id: str, vnf: VNF) -> None:
-        if node_id in self.md_graph:
-            node = self.md_graph.nodes[node_id]
-            is_mobile = True
-        elif node_id in self.graph:
-            node = self.graph.nodes[node_id]
-            is_mobile = False
-        else:
-            return  
-
-        service_id = vnf.id
-        session_id = extrair_sessao(sfc_id)
-        service_key = (service_id, session_id)
-
-        if service_key not in node.get("services", {}):
-            return
-
-        cpu_req = vnf.get_cpu_request()
-        cache_req = vnf.get_cache_request()
-        is_gpu_node = self._is_gpu_node(node_id)
-        service_info = node["services"][service_key]
-
-        service_info["copys"] -= 1
-        remove_physical_instance = service_info["copys"] <= 0
-        is_shareable_service = self.is_shareable(service_id)
-
-        if is_gpu_node:
-            self.metrics.total_gpu_requested -= cpu_req
-        else:
-            self.metrics.total_cpu_requested -= cpu_req
-        self.metrics.total_cache_requested -= cache_req
-
-        stored_cache_cost = service_info.get("cache", 0.0)
-        stored_cpu_cost = service_info.get("cpu", 0.0)
-
-        was_subsidized_cache = stored_cache_cost < cache_req
-        was_subsidized_cpu = stored_cpu_cost < cpu_req
-
-        if not remove_physical_instance or was_subsidized_cache:
-            self.metrics.total_cache_saved = max(0.0, self.metrics.total_cache_saved - cache_req)
-
-        if not remove_physical_instance or was_subsidized_cpu:
-            if is_gpu_node:
-                self.metrics.total_gpu_saved = max(0.0, self.metrics.total_gpu_saved - cpu_req)
-            else:
-                self.metrics.total_cpu_saved = max(0.0, self.metrics.total_cpu_saved - cpu_req)
-
-            if is_shareable_service:
-                self.metrics.shared_vnfs_count = max(0, self.metrics.shared_vnfs_count - 1)
-
-        if sfc_id in node["sfcs_list"]:
-            node["sfcs_list"].remove(sfc_id)
-
-        if remove_physical_instance:
-            del node["services"][service_key]
-
-            node["cpu_used"] = round(node["cpu_used"] - cpu_req, 2)
-            node["cache_used"] = round(node["cache_used"] - cache_req, 2)
-
-            if is_gpu_node:
-                if is_mobile:
-                    self.metrics.mobile_gpu_used -= cpu_req
-                else:
-                    self.metrics.total_gpu_used -= cpu_req
-            else:
-                if is_mobile:
-                    self.metrics.mobile_cpu_used -= cpu_req
-                else:
-                    self.metrics.total_cpu_used -= cpu_req
-
-            if is_mobile:
-                self.metrics.mobile_cache_used -= cache_req
-            else:
-                self.metrics.total_cache_used -= cache_req
-
-            if is_shareable_service and vnf in node.get("reuse", []):
-                node["reuse"].remove(vnf)
-
-    def allocate_bandwidth(self, node1, node2, bw_required, ms_name, is_backup=False):
-        if not self.graph.has_edge(node1, node2):
-            raise ValueError(f"Aresta entre {node1} e {node2} não existe.")
-
-        edge = self.graph.edges[node1, node2]
-        current_reserved = edge.get("bandwidth_reserved", 0.0)
-        total_committed = edge["bandwidth_used"] + current_reserved
-
-        if ms_name in edge["services_in_transit"]:
-            existing_bw = edge["services_in_transit"][ms_name]["bw_used"]
-            total_committed -= existing_bw
-
-        if total_committed + bw_required > edge["bandwidth_capacity"]:
-            raise ValueError(f"Banda insuficiente entre {node1} e {node2}.")
-
-        if ms_name in edge["services_in_transit"]:
-            edge["services_in_transit"][ms_name]["copys"] += 1
-            edge["services_in_transit"][ms_name]["bw_used"] += bw_required
-        else:
-            edge["services_in_transit"][ms_name] = {
-                "copys": 1,
-                "bw_used": bw_required,
-                "is_backup": is_backup,
-            }
-
-        if is_backup:
-            edge["bandwidth_reserved"] = edge.get("bandwidth_reserved", 0.0) + bw_required
-        else:
-            edge["bandwidth_used"] += bw_required
-            self.metrics.total_bandwidth_used += bw_required
-
-        return self.get_link_latency(node1, node2)
-
-    def get_shortest_path_with_bw(
-        self, source: str, target: str, required_bw: float
-    ) -> list[str] | None:
-        if source == target:
-            return [source]
-
-        def filter_edge(u, v):
-            if self.graph.has_edge(u, v):
-                edge = self.graph[u][v]
-                free_bw = edge["bandwidth_capacity"] - edge["bandwidth_used"]
-                return free_bw >= required_bw
-            return False
-
-        valid_view = nx.subgraph_view(self.graph, filter_edge=filter_edge)
-
+    def calculate_computational_latency(self, graph: nx.Graph, node: str, vnf: VNF) -> float:
         try:
-            return nx.dijkstra_path(valid_view, source, target, weight="latency")
-        except (nx.NetworkXNoPath, nx.NodeNotFound):
-            return None
+            ips = self.md_graph.nodes[node]["ips"] if self.is_mobile_node(node) else self.graph.nodes[node]["ips"]
+        except KeyError:
+            return float('inf')
+            
+        packet = (vnf.get_income_interface_bandwidth() / 60) * 1e6
+        return (packet * 10 * 1000) / ips if ips > 0 else float('inf')
 
-    def release_bandwidth(self, node1, node2, ms_name):
-        if not self.graph.has_edge(node1, node2):
-            return
-
-        edge = self.graph.edges[node1, node2]
-        services = edge.get("services_in_transit", {})
-
-        if ms_name not in services:
-            return
-
-        entry = services[ms_name]
-        bw_to_release = entry["bw_used"]
-        is_backup_entry = entry.get("is_backup", False)
-
-        entry["copys"] -= 1
-
-        if is_backup_entry:
-            edge["bandwidth_reserved"] = max(
-                0.0, edge.get("bandwidth_reserved", 0.0) - bw_to_release
-            )
-        else:
-            edge["bandwidth_used"] = max(0.0, edge["bandwidth_used"] - bw_to_release)
-            self.metrics.total_bandwidth_used = max(
-                0.0, self.metrics.total_bandwidth_used - bw_to_release
-            )
-
-        if entry["copys"] <= 0:
-            del services[ms_name]
-
-    def allocate_wireless_bandwidth(self, node1, node2, bw_required, ms_name):
-        router = self.graph.nodes[node1]
-        if ms_name in router["w_services"]:
-            router["w_services"][ms_name]["copys"] += 1
-            router["w_channel_used"] += bw_required
-            self.metrics.total_bandwidth_used += bw_required
-        else:
-            if router["w_channel_used"] + bw_required > router["w_channel_capacity"]:
-                raise ValueError(f"Banda insuficiente entre {node1} e {node2}.")
-            router["w_services"][ms_name] = {"copys": 1, "bw_used": bw_required}
-            router["w_channel_used"] += bw_required
-            self.metrics.total_bandwidth_used += bw_required
-
-        return 0
-
-    def release_wireless_bandwidth(self, node1, node2, ms_name):
-        router = self.graph.nodes[node1]
-        services = router.get("w_services", {})
-
-        if ms_name not in services:
-            raise ValueError(f"Serviço {ms_name} não está em trânsito.")
-
-        services[ms_name]["copys"] -= 1
-        bw_to_release = services[ms_name]["bw_used"]
-        router["w_channel_used"] = max(0.0, router["w_channel_used"] - bw_to_release)
-
-        self.metrics.total_bandwidth_used = max(
-            0.0, self.metrics.total_bandwidth_used - bw_to_release
-        )
-
-        if services[ms_name]["copys"] == 0:
-            del services[ms_name]
-
-    # =========================================================================
-    # 4. CÁLCULO DE LATÊNCIA E MODELOS FÍSICOS
-    # =========================================================================
-
-    def calculate_5g_latency(
-        self,
-        graph,
-        data,
-        distancia_m=750,
-        potencia_transmissao_dbm=30.0,
-        largura_banda_hz=100e6,
-        temperatura_kelvin=290,
-        figura_ruido_db=10.0,
-        eficiencia_codec=0.5,
-        snr_minimo_db=0.0,
-        freq_portadora_hz=3.5e9,
-        sigma_shadowing_db=0,
-    ):
-
-        BOLTZMANN = 1.380649e-23
-
-        def path_loss_5g(distancia_m):
-            pl_db = 28.0 + 22 * math.log10(distancia_m) + 20 * math.log10(freq_portadora_hz / 1e9)
-            pl_db += random.gauss(0, sigma_shadowing_db)
-            return 10 ** (-pl_db / 10)
-
-        def calcular_latencia_um_ponto(dado):
-            ganho = path_loss_5g(distancia_m)
-            potencia_w = 10 ** (potencia_transmissao_dbm / 10) / 1000
-            ruido_w_hz = BOLTZMANN * temperatura_kelvin * (10 ** (figura_ruido_db / 10))
-            snr_linear = (ganho * potencia_w) / (ruido_w_hz * largura_banda_hz)
-            snr_linear = max(snr_linear, 10 ** (snr_minimo_db / 10))
-            taxa_bps = largura_banda_hz * math.log2(1 + snr_linear) * eficiencia_codec
-            latencia_ms = (dado / taxa_bps) * 1000
-            return latencia_ms
-
-        return calcular_latencia_um_ponto(data)
-
-    def calculate_computational_latency(self, graph, node, vnf):
-        ips = self.md_graph[node]["ips"] if self.is_mobile_node(node) else self.graph[node]["ips"]
-        packet = vnf.get_income_interface_bandwidth() / 60 * 1e6
-        return packet * 10 * 1000 / ips
-
-    def calculate_latency_betwen_nodes(self, graph, node1, node2, vnf):
+    def calculate_latency_betwen_nodes(self, graph: nx.Graph, node1: str, node2: str, vnf: VNF) -> float:
         data_packet = (vnf.get_outcome_interface_bandwidth() / 60) * 1e6
         if self.is_mobile_node(node1):
-            return self.calculate_5g_latency(data_packet, self.md_graph.nodes[node1]["position"])
+            return TelecomPhysics.calculate_5g_latency(data_packet, self.md_graph.nodes[node1]["position"])
         elif self.is_mobile_node(node2):
-            return self.calculate_5g_latency(data_packet, self.md_graph.nodes[node2]["position"])
-        else:
-            return self.get_link_latency(node1, node2)
+            return TelecomPhysics.calculate_5g_latency(data_packet, self.md_graph.nodes[node2]["position"])
+        return self.get_link_latency(node1, node2)
 
-    def calculate_average_sfc_latency(self):
-        if not self.sfc_dict:
-            return 0.0
-
-        total_latency_all_sfcs = 0.0
-        for sfc_id, sfc in self.sfc_dict.items():
-            current_sfc_latency = 0.0
-            route_info = self.sfc_route_info[sfc_id]
-
-            current_vnf = sfc.get_vnf_by_id("src")
-            while current_vnf and current_vnf.id != "dst":
-                next_vnf = sfc.get_next_vnf(current_vnf)
-                if not next_vnf or next_vnf.id == "dst":
-                    break
-
-                allocation_path = route_info.get(next_vnf.id)
-                if not allocation_path:
-                    current_vnf = next_vnf
-                    continue
-
-                allocated_node = allocation_path[0]
-                if self.is_mobile_node(allocated_node):
-                    ips = self.md_graph.nodes[allocated_node]["ips"]
-                else:
-                    ips = self.graph.nodes[allocated_node]["ips"]
-
-                packet = next_vnf.get_income_interface_bandwidth() / 60 * 1e6
-                comp_latency = packet * 10 * 1000 / ips
-                current_sfc_latency += comp_latency
-
-                path_to_next_vnf = route_info.get(next_vnf.id, [])
-                if len(path_to_next_vnf) > 1:
-                    edge_latency = 0
-                    for i in range(len(path_to_next_vnf) - 1):
-                        u = path_to_next_vnf[i]
-                        v = path_to_next_vnf[i + 1]
-                        edge_latency += self.calculate_latency_betwen_nodes(
-                            self.graph, u, v, next_vnf
-                        )
-                    current_sfc_latency += edge_latency
-
-                current_vnf = next_vnf
-
-            total_latency_all_sfcs += current_sfc_latency
-
-        return total_latency_all_sfcs / len(self.sfc_dict)
+    def calculate_average_sfc_latency(self) -> float:
+        if not self.sfc_dict: return 0.0
+        return sum(self.calculate_sfc_total_latency(s_id) for s_id in self.sfc_dict) / len(self.sfc_dict)
 
     def calculate_sfc_total_latency(self, sfc_id: str) -> float:
-        if sfc_id not in self.sfc_dict or sfc_id not in self.sfc_route_info:
-            return 0.0
+        if sfc_id not in self.sfc_dict or sfc_id not in self.sfc_route_info: return 0.0
 
         sfc = self.sfc_dict[sfc_id]
         route_info = self.sfc_route_info[sfc_id]
@@ -836,8 +255,7 @@ class Net2:
         current_vnf = sfc.get_vnf_by_id("src")
         while current_vnf and current_vnf.id != "dst":
             next_vnf = sfc.get_next_vnf(current_vnf)
-            if not next_vnf or next_vnf.id == "dst":
-                break
+            if not next_vnf or next_vnf.id == "dst": break
 
             allocation_path = route_info.get(next_vnf.id)
             if not allocation_path:
@@ -845,49 +263,31 @@ class Net2:
                 continue
 
             allocated_node = allocation_path[0]
-            if self.is_mobile_node(allocated_node):
-                ips = self.md_graph.nodes[allocated_node]["ips"]
-            else:
-                ips = self.graph.nodes[allocated_node]["ips"]
-
-            packet = next_vnf.get_income_interface_bandwidth() / 60 * 1e6
-            comp_latency = packet * 10 * 1000 / ips
-            total_latency += comp_latency
+            ips = self.md_graph.nodes[allocated_node]["ips"] if self.is_mobile_node(allocated_node) else self.graph.nodes[allocated_node]["ips"]
+            
+            packet = (next_vnf.get_income_interface_bandwidth() / 60) * 1e6
+            total_latency += (packet * 10 * 1000) / ips if ips > 0 else float('inf')
 
             if len(allocation_path) > 1:
-                for i in range(len(allocation_path) - 1):
-                    u = allocation_path[i]
-                    v = allocation_path[i + 1]
-                    total_latency += self.calculate_latency_betwen_nodes(
-                        self.graph, u, v, next_vnf
-                    )
+                for u, v in zip(allocation_path[:-1], allocation_path[1:]):
+                    total_latency += self.calculate_latency_betwen_nodes(self.graph, u, v, next_vnf)
 
             current_vnf = next_vnf
-
         return total_latency
 
     # =========================================================================
-    # 5. SIMULAÇÃO DE FALHAS E RECUPERAÇÃO
+    # 4. SIMULAÇÃO DE FALHAS (A SER EXTRAÍDO NO FUTURO)
     # =========================================================================
 
-    def calculate_average_system_reliability(
-        self, backups_dict: dict[str, list[dict]] = None
-    ) -> float:
-        if not self.sfc_dict:
-            return 0.0
+    def calculate_average_system_reliability(self, backups_dict: dict[str, list[dict]] | None = None) -> float:
+        if not self.sfc_dict: return 0.0
 
         total_reliability_sum = 0.0
         active_primary_sfcs_count = 0
-
-        if not backups_dict:
-            backups_dict = {}
+        backups_dict = backups_dict or {}
 
         for sfc_id, sfc in self.sfc_dict.items():
-            if "backup" in sfc_id or getattr(sfc, "is_backup", False):
-                continue
-
-            if sfc_id not in self.sfc_route_info:
-                continue
+            if "backup" in sfc_id or getattr(sfc, "is_backup", False) or sfc_id not in self.sfc_route_info: continue
 
             route_info = self.sfc_route_info[sfc_id]
             vnf_backup_reliability_map = {}
@@ -896,204 +296,144 @@ class Net2:
                 for backup_entry in backups_dict[sfc_id]:
                     vnf_target_id = backup_entry.get("vnf_id")
                     bk_route = backup_entry.get("route_info", {})
-
-                    bk_node_list = next(
-                        (v for k, v in bk_route.items() if k.endswith("_b") and v), None
-                    )
-
+                    bk_node_list = next((v for k, v in bk_route.items() if k.endswith("_b") and v), None)
                     if vnf_target_id and bk_node_list:
-                        bk_node_id = bk_node_list[0]
-                        vnf_backup_reliability_map[vnf_target_id] = self.get_node_reliability(
-                            bk_node_id
-                        )
+                        vnf_backup_reliability_map[vnf_target_id] = self.get_node_reliability(bk_node_list[0])
 
             node_groups = defaultdict(list)
-
             for vnf_id, path in route_info.items():
-                if vnf_id in ["src", "dst"] or not path:
-                    continue
-                primary_node = path[0]
-                node_groups[primary_node].append(vnf_id)
+                if vnf_id in ["src", "dst"] or not path: continue
+                node_groups[path[0]].append(vnf_id)
 
             sfc_reliability = 1.0
-
             for primary_node, vnfs_list in node_groups.items():
-                try:
-                    r_primary = self.get_node_reliability(primary_node)
-                except (KeyError, AttributeError):
-                    r_primary = 1.0 
+                try: r_primary = self.get_node_reliability(primary_node)
+                except (KeyError, AttributeError): r_primary = 1.0 
 
                 all_vnfs_protected = True
                 prob_backups_fail_combined = 1.0
 
                 for vnf_id in vnfs_list:
                     r_backup = vnf_backup_reliability_map.get(vnf_id, 0.0)
+                    if r_backup > 0.0: prob_backups_fail_combined *= (1.0 - r_backup)
+                    else: all_vnfs_protected = False
 
-                    if r_backup > 0.0:
-                        prob_backups_fail_combined *= 1.0 - r_backup
-                    else:
-                        all_vnfs_protected = False
-
-                if all_vnfs_protected:
-                    prob_primary_fail = 1.0 - r_primary
-                    prob_stage_fail = prob_primary_fail * prob_backups_fail_combined
-                    stage_reliability = 1.0 - prob_stage_fail
-                else:
-                    stage_reliability = r_primary
-
+                stage_reliability = 1.0 - ((1.0 - r_primary) * prob_backups_fail_combined) if all_vnfs_protected else r_primary
                 sfc_reliability *= stage_reliability
 
             total_reliability_sum += sfc_reliability
             active_primary_sfcs_count += 1
 
-        if active_primary_sfcs_count == 0:
-            return 0.0
+        return (total_reliability_sum / active_primary_sfcs_count) if active_primary_sfcs_count > 0 else 0.0
 
-        return total_reliability_sum / active_primary_sfcs_count
-
-    def set_node_down(self, node_id):
-        if node_id not in self.graph:
+    def set_node_down(self, node_id: str) -> None:
+        try:
+            node = self.graph.nodes[node_id]
+        except KeyError:
             raise ValueError(f"Nó {node_id} inexistente.")
-        node = self.graph.nodes[node_id]
+            
         node["is_active"] = False
+        node.setdefault("original_cpu_capacity", node.get("cpu_capacity", 0.0))
+        node.setdefault("original_cache_capacity", node.get("cache_capacity", 0.0))
+        node["cpu_capacity"] = 0.0
+        node["cache_capacity"] = 0.0
 
-        if "original_cpu_capacity" not in node:
-            node["original_cpu_capacity"] = node.get("cpu_capacity", 0)
-            node["original_cache_capacity"] = node.get("cache_capacity", 0)
-
-        node["cpu_capacity"] = 0
-        node["cache_capacity"] = 0
-        logger.warning(f"Simulação de Falha: Nó {node_id} caiu!")
-
-    def restore_node(self, node_id, cpu_capacity=None, cache_capacity=None):
-        if node_id not in self.graph:
+    def restore_node(self, node_id: str, cpu_capacity: float | None = None, cache_capacity: float | None = None) -> None:
+        try:
+            node = self.graph.nodes[node_id]
+        except KeyError:
             raise ValueError(f"Nó {node_id} inexistente.")
-        node = self.graph.nodes[node_id]
+            
         node["is_active"] = True
-
-        restored_cpu = (
-            cpu_capacity if cpu_capacity is not None else node.get("original_cpu_capacity", 100)
-        )
-        restored_cache = (
-            cache_capacity
-            if cache_capacity is not None
-            else node.get("original_cache_capacity", 100)
-        )
-
-        node["cpu_capacity"] = restored_cpu
-        node["cache_capacity"] = restored_cache
+        node["cpu_capacity"] = cpu_capacity if cpu_capacity is not None else node.get("original_cpu_capacity", 100.0)
+        node["cache_capacity"] = cache_capacity if cache_capacity is not None else node.get("original_cache_capacity", 100.0)
         node.pop("original_cpu_capacity", None)
         node.pop("original_cache_capacity", None)
-
-    def set_link_down(self, u, v):
-        if not self.graph.has_edge(u, v):
+        
+    def set_link_down(self, u: str | int, v: str | int) -> None:
+        try:
+            edge = self.graph.edges[u, v]
+        except KeyError:
             raise ValueError(f"Link {u}-{v} inexistente.")
-        edge = self.graph.edges[u, v]
-        if "original_bw" not in edge:
-            edge["original_bw"] = edge.get("bandwidth_capacity", 1000.0)
-            edge["original_lat"] = edge.get("latency", 1.0)
-
+            
+        edge.setdefault("original_bw", edge.get("bandwidth_capacity", 1000.0))
+        edge.setdefault("original_lat", edge.get("latency", 1.0))
         edge["bandwidth_capacity"] = 0.0
         edge["latency"] = float("inf")
 
-    def restore_link(self, u, v):
-        if not self.graph.has_edge(u, v):
-            return
-        edge = self.graph.edges[u, v]
-        if "original_bw" in edge:
-            edge["bandwidth_capacity"] = edge["original_bw"]
-            edge["latency"] = edge["original_lat"]
-            del edge["original_bw"]
-            del edge["original_lat"]
+    def restore_link(self, u: str | int, v: str | int) -> None:
+        try:
+            edge = self.graph.edges[u, v]
+            if "original_bw" in edge:
+                edge["bandwidth_capacity"] = edge["original_bw"]
+                edge["latency"] = edge["original_lat"]
+                del edge["original_bw"]
+                del edge["original_lat"]
+        except KeyError:
+            pass
 
-    def activate_backup_path_bandwidth(self, path, bw_required, vnf_id_backup):
+    def activate_backup_path_bandwidth(self, path: list[str | int], bw_required: float, vnf_id_backup: str) -> bool:
         for u, v in zip(path[:-1], path[1:], strict=True):
-            if not self.graph.has_edge(u, v):
-                continue
+            if not self.graph.has_edge(u, v): continue
             edge = self.graph.edges[u, v]
 
             if edge["bandwidth_used"] + bw_required > edge["bandwidth_capacity"]:
-                logger.error(f"Falha ao ativar banda backup {u}-{v}.")
                 return False
 
             edge["bandwidth_used"] += bw_required
             self.metrics.total_bandwidth_used += bw_required
-
-            if vnf_id_backup in edge["services_in_transit"]:
-                edge["services_in_transit"][vnf_id_backup]["bw_used"] += bw_required
-            else:
-                edge["services_in_transit"][vnf_id_backup] = {"copys": 1, "bw_used": bw_required}
+            edge.setdefault("services_in_transit", {}).setdefault(vnf_id_backup, {"copys": 0, "bw_used": 0.0})
+            edge["services_in_transit"][vnf_id_backup]["copys"] += 1
+            edge["services_in_transit"][vnf_id_backup]["bw_used"] += bw_required
         return True
 
-    def set_reliability_params(self, args):
-        stress_c = getattr(args, "stress_high", 0.0009)
-        stress_b = getattr(args, "stress_normal", 0.04)
-        stress_a = getattr(args, "stress_low", 0.15)
-
+    def set_reliability_params(self, args: Any) -> None:
         self.alpha_stress = {
-            "c": max(0.0, stress_c),
-            "b": max(0.0, stress_b),
-            "a": max(0.0, stress_a),
-            "default": max(0.0, stress_b),
+            NodeLevel.C.value: max(0.0, getattr(args, "stress_high", 0.0009)),
+            NodeLevel.B.value: max(0.0, getattr(args, "stress_normal", 0.04)),
+            NodeLevel.A.value: max(0.0, getattr(args, "stress_low", 0.15)),
+            NodeLevel.DEFAULT.value: max(0.0, getattr(args, "stress_normal", 0.04)),
         }
-
-        def validate(val):
-            return val if 0.0 <= val <= 1.0 else 0.99
-
+        def validate(val: float) -> float: return val if 0.0 <= val <= 1.0 else 0.99
         self.tier_reliability = {
-            "c": validate(getattr(args, "rel_high", 0.9999)),
-            "b": validate(getattr(args, "rel_normal", 0.99)),
-            "a": validate(getattr(args, "rel_low", 0.95)),
-            "default": validate(getattr(args, "rel_normal", 0.99)),
+            NodeLevel.C.value: validate(getattr(args, "rel_high", 0.9999)),
+            NodeLevel.B.value: validate(getattr(args, "rel_normal", 0.99)),
+            NodeLevel.A.value: validate(getattr(args, "rel_low", 0.95)),
+            NodeLevel.DEFAULT.value: validate(getattr(args, "rel_normal", 0.99)),
         }
 
-    def get_node_reliability(self, node_id):
+    def get_node_reliability(self, node_id: str | int) -> float:
         node_id_str = str(node_id)
-        if node_id_str.endswith(".1"):
-            base_id = node_id_str.replace(".1", "")
-            gpu_id = node_id_str
-        else:
-            base_id = node_id_str
-            gpu_id = node_id_str + ".1"
+        base_id, gpu_id = (node_id_str.replace(".1", ""), node_id_str) if node_id_str.endswith(".1") else (node_id_str, node_id_str + ".1")
 
         def get_part_data(nid):
-            if nid in self.graph:
+            if nid in self.graph and self.graph.nodes[nid].get("is_active", True):
                 node = self.graph.nodes[nid]
-                if node.get("is_active", True):
-                    cap = node.get("cpu_capacity", 0.0)
-                    if cap <= 0:
-                        cap = node.get("original_cpu_capacity", 1.0) or 1.0
-                    return (
-                        node.get("cpu_used", 0.0),
-                        cap,
-                        node.get("level_server", "default"),
-                        True,
-                    )
+                cap = node.get("cpu_capacity", 0.0) or node.get("original_cpu_capacity", 1.0) or 1.0
+                return float(node.get("cpu_used", 0.0)), float(cap), node.get("level_server", NodeLevel.DEFAULT.value), True
             return 0.0, 0.0, None, False
 
-        used_cpu, cap_cpu, lvl_cpu, active_cpu = get_part_data(int(base_id))
-        used_gpu, cap_gpu, lvl_gpu, active_gpu = get_part_data(float(gpu_id))
+        try: used_cpu, cap_cpu, lvl_cpu, active_cpu = get_part_data(int(base_id))
+        except ValueError: used_cpu, cap_cpu, lvl_cpu, active_cpu = get_part_data(base_id)
+            
+        try: used_gpu, cap_gpu, lvl_gpu, active_gpu = get_part_data(float(gpu_id))
+        except ValueError: used_gpu, cap_gpu, lvl_gpu, active_gpu = get_part_data(gpu_id)
 
-        if not active_cpu and not active_gpu:
-            return 0.0
+        if not active_cpu and not active_gpu: return 0.0
 
-        server_level = lvl_cpu if lvl_cpu else (lvl_gpu if lvl_gpu else "default")
-        total_used = used_cpu + used_gpu
+        server_level = lvl_cpu or lvl_gpu or NodeLevel.DEFAULT.value
         total_capacity = cap_cpu + cap_gpu
-
-        if total_capacity <= 0:
-            return 0.0
+        if total_capacity <= 0: return 0.0
 
         level_key = str(server_level).lower()
-        base_r = self.tier_reliability.get(level_key, self.tier_reliability["default"])
-        alpha = self.alpha_stress.get(level_key, self.alpha_stress["default"])
-        global_utilization = total_used / total_capacity
-        stress_penalty = global_utilization * alpha
-
-        return max(0.0, base_r - stress_penalty)
-
+        base_r = self.tier_reliability.get(level_key, self.tier_reliability[NodeLevel.DEFAULT.value])
+        alpha = self.alpha_stress.get(level_key, self.alpha_stress[NodeLevel.DEFAULT.value])
+        
+        return max(0.0, base_r - ((used_cpu + used_gpu) / total_capacity) * alpha)
+    
+    
     # =========================================================================
-    # 6. ALGORITMOS DE CAMINHO MÍNIMO
+    # ALGORITMOS DE CAMINHO MÍNIMO E ROTEAMENTO
     # =========================================================================
 
     def get_shortest_path_length(self, source, target):
@@ -1121,453 +461,111 @@ class Net2:
         return single_source_minimum_latency_path
 
     # =========================================================================
-    # 7. GETTERS E MÉTRICAS DE RECURSOS (CORRIGIDOS COM self.metrics)
+    # 5. GETTERS (EAFP Aplicado) E MÉTODOS AUXILIARES
     # =========================================================================
+    
+    def get_link_bandwidth_used(self, node1, node2):
+        try:
+            return self.graph.edges[node1, node2]["bandwidth_used"]
+        except KeyError:
+            raise ValueError("Aresta inexistente.")
+
+    def get_link_bandwidth_free(self, node1, node2):
+        try:
+            edge = self.graph.edges[node1, node2]
+            return edge["bandwidth_capacity"] - edge["bandwidth_used"]
+        except KeyError:
+            raise ValueError("Aresta inexistente.")
+
+    def get_link_bandwidth_capacity(self, node1, node2):
+        try:
+            return self.graph.edges[node1, node2]["bandwidth_capacity"]
+        except KeyError:
+            raise ValueError("Aresta inexistente.")
+
+    def get_link_info(self, node1, node2):
+        try:
+            return self.graph.edges[node1, node2]
+        except KeyError:
+            raise ValueError("Aresta inexistente.")
+
+    def get_node_sfcs(self, node_id):
+        try:
+            return self.graph.nodes[node_id].get("sfcs_list", [])
+        except KeyError:
+            raise ValueError(f"Nó {node_id} inexistente.")
 
     def get_node_sfc_vnf_list(self, node_id):
-        if node_id not in self.graph:
+        try:
+            node_sfcs = self.graph.nodes[node_id].get("sfcs_list", [])
+        except KeyError:
             return []
 
-        node_sfcs = self.graph.nodes[node_id].get("sfcs_list", [])
         result = []
-
         for sfc_id in node_sfcs:
-            if sfc_id not in self.sfc_dict:
-                continue
-
+            if sfc_id not in self.sfc_dict: continue
             sfc = self.sfc_dict[sfc_id]
-
-            if sfc_id in self.sfc_route_info:
-                route_info = self.sfc_route_info[sfc_id]
-
-                for vnf_id, path in route_info.items():
-                    if vnf_id in ["src", "dst"] or not path:
-                        continue
-
-                    if path[0] == node_id:
-                        vnf = sfc.get_vnf_by_id(vnf_id)
-                        if vnf:
-                            result.append((sfc_id, vnf))
-
+            route_info = self.sfc_route_info.get(sfc_id, {})
+            for vnf_id, path in route_info.items():
+                if vnf_id in ["src", "dst"] or not path: continue
+                if path[0] == node_id:
+                    vnf = sfc.get_vnf_by_id(vnf_id)
+                    if vnf: result.append((sfc_id, vnf))
         return result
 
     def get_node_cpu_used(self, node_id):
-        if node_id not in self.graph:
-            raise ValueError(f"Nó {node_id} inexistente.")
-        return self.graph.nodes[node_id]["cpu_used"]
+        try: return self.graph.nodes[node_id]["cpu_used"]
+        except KeyError: raise ValueError(f"Nó {node_id} inexistente.")
 
     def get_node_cpu_free(self, node_id):
-        if node_id not in self.graph:
-            raise ValueError(f"Nó {node_id} inexistente.")
-        return self.graph.nodes[node_id]["cpu_capacity"] - self.graph.nodes[node_id]["cpu_used"]
+        try: return self.graph.nodes[node_id]["cpu_capacity"] - self.graph.nodes[node_id]["cpu_used"]
+        except KeyError: raise ValueError(f"Nó {node_id} inexistente.")
 
     def get_node_cpu_capacity(self, node_id):
-        if node_id not in self.graph:
-            raise ValueError(f"Nó {node_id} inexistente.")
-        return self.graph.nodes[node_id]["cpu_capacity"]
+        try: return self.graph.nodes[node_id]["cpu_capacity"]
+        except KeyError: raise ValueError(f"Nó {node_id} inexistente.")
 
     def get_node_cache_used(self, node_id):
-        if node_id not in self.graph:
-            raise ValueError(f"Nó {node_id} inexistente.")
-        return self.graph.nodes[node_id]["cache_used"]
+        try: return self.graph.nodes[node_id]["cache_used"]
+        except KeyError: raise ValueError(f"Nó {node_id} inexistente.")
 
     def get_node_cache_free(self, node_id):
-        if node_id not in self.graph:
-            raise ValueError(f"Nó {node_id} inexistente.")
-        return (
-            self.graph.nodes[node_id]["cache_capacity"] - self.graph.nodes[node_id]["cache_used"]
-        )
+        try: return self.graph.nodes[node_id]["cache_capacity"] - self.graph.nodes[node_id]["cache_used"]
+        except KeyError: raise ValueError(f"Nó {node_id} inexistente.")
 
     def get_node_is_active(self, node_id):
-        if node_id not in self.graph:
-            raise ValueError(f"Nó {node_id} inexistente.")
-        return self.graph.nodes[node_id].get("is_active", True)
+        try: return self.graph.nodes[node_id].get("is_active", True)
+        except KeyError: raise ValueError(f"Nó {node_id} inexistente.")
 
     def get_node_cache_capacity(self, node_id):
-        if node_id not in self.graph:
-            raise ValueError(f"Nó {node_id} inexistente.")
-        return self.graph.nodes[node_id]["cache_capacity"]
-
-    def get_node_sfcs(self, node_id):
-        return self.graph.nodes[node_id]["sfcs_list"]
-
-    def get_link_bandwidth_used(self, node1, node2):
-        if not self.graph.has_edge(node1, node2):
-            raise ValueError("Aresta inexistente.")
-        return self.graph.edges[node1, node2]["bandwidth_used"]
-
-    def get_link_bandwidth_free(self, node1, node2):
-        if not self.graph.has_edge(node1, node2):
-            raise ValueError("Aresta inexistente.")
-        return (
-            self.graph.edges[node1, node2]["bandwidth_capacity"]
-            - self.graph.edges[node1, node2]["bandwidth_used"]
-        )
-
-    def get_link_bandwidth_capacity(self, node1, node2):
-        if not self.graph.has_edge(node1, node2):
-            raise ValueError("Aresta inexistente.")
-        return self.graph.edges[node1, node2]["bandwidth_capacity"]
+        try: return self.graph.nodes[node_id]["cache_capacity"]
+        except KeyError: raise ValueError(f"Nó {node_id} inexistente.")
 
     def get_link_latency(self, node1, node2):
-        if not self.graph.has_edge(node1, node2):
-            raise ValueError("Aresta inexistente.")
-        return self.graph.edges[node1, node2]["latency"]
+        try: return self.graph.edges[node1, node2]["latency"]
+        except KeyError: raise ValueError("Aresta inexistente.")
 
-    def get_link_info(self, node1, node2):
-        return self.graph.edges[node1, node2]
-
-    # --- Totais Requisitados e Economizados (Corrigido) ---
-    def get_total_gpu_request(self):
-        return self.metrics.total_gpu_requested
-
-    def get_total_gpu_saved(self):
-        return self.metrics.total_gpu_saved
-
-    def get_total_cpu_request(self):
-        return self.metrics.total_cpu_requested
-
-    def get_total_cpu_saved(self):
-        return self.metrics.total_cpu_saved
-
-    def get_total_cache_request(self):
-        return self.metrics.total_cache_requested
-
-    def get_total_cache_saved(self):
-        return self.metrics.total_cache_saved
-
-    # --- Totais Usados (Corrigido) ---
-    def get_cpu_network_used(self):
-        return self.metrics.total_cpu_used
-
-    def get_gpu_network_used(self):
-        return self.metrics.total_gpu_used
-
-    def get_cpu_total_used(self):
-        return self.metrics.total_cpu_used + self.metrics.mobile_cpu_used
-
-    def get_network_only_processing_utilization(self):
-        network_used_cpu = self.metrics.total_cpu_used
-        network_used_gpu = self.metrics.total_gpu_used
-        total_load = network_used_cpu + network_used_gpu
-
-        total_capacity = 0.0
-
-        for _node_id, node_data in self.graph.nodes(data=True):
-            if node_data.get("type") == "server":
-                total_capacity += node_data.get("cpu_capacity", 0.0)
-
-        if total_capacity == 0:
-            return 1.0 if total_load == 0 else 999.0
-
-        return total_load / total_capacity
-
-    def get_gpu_total_used(self):
-        return self.metrics.total_gpu_used + self.metrics.mobile_gpu_used
-
-    def get_cache_total_used(self):
-        return self.metrics.total_cache_used + self.metrics.mobile_cache_used
-
-    def get_cache_used(self):
-        return self.metrics.total_cache_used
-
-    # --- Capacidades Totais do Sistema ---
-    def get_total_system_cpu_capacity(self):
-        total_capacity = 0.0
-        for node_id, node_data in self.graph.nodes(data=True):
-            if "cpu_capacity" in node_data and not self._is_gpu_node(node_id):
-                total_capacity += node_data["cpu_capacity"]
-        for node_id, node_data in self.md_graph.nodes(data=True):
-            if "cpu_capacity" in node_data and not self._is_gpu_node(node_id):
-                total_capacity += node_data["cpu_capacity"]
-        return total_capacity
-
-    def get_total_system_gpu_capacity(self):
-        total_capacity = 0.0
-        for node_id, node_data in self.graph.nodes(data=True):
-            if "cpu_capacity" in node_data and self._is_gpu_node(node_id):
-                total_capacity += node_data["cpu_capacity"]
-        for node_id, node_data in self.md_graph.nodes(data=True):
-            if "cpu_capacity" in node_data and self._is_gpu_node(node_id):
-                total_capacity += node_data["cpu_capacity"]
-        return total_capacity
-
-    # --- Taxas de Utilização do Sistema (Corrigidas) ---
-    def get_server_cpu_utilization_rate(self):
-        if self.total_cpu_capacity == 0:
-            return 0.0
-        return self.metrics.total_cpu_used / self.total_cpu_capacity
-
-    def get_total_system_utilization_cpu_rate(self):
-        total_capacity = self.get_total_system_cpu_capacity()
-        if total_capacity == 0:
-            return 0.0
-        total_used = self.metrics.total_cpu_used + self.metrics.mobile_cpu_used
-        return total_used / total_capacity
-
-    def get_total_system_utilization_gpu_rate(self):
-        total_capacity = self.get_total_system_gpu_capacity()
-        if total_capacity == 0:
-            return 0.0
-        total_used = self.metrics.total_gpu_used + self.metrics.mobile_gpu_used
-        return total_used / total_capacity
-
-    def get_total_system_utilization_cache_rate(self):
-        if self.total_cache_capacity == 0:
-            return 0.0
-        total_used = self.metrics.total_cache_used + self.metrics.mobile_cache_used
-        return total_used / self.total_cache_capacity
-
-    def get_total_system_processing_utilization_rate(self):
-        total_processing_used = self.get_cpu_total_used() + self.get_gpu_total_used()
-        total_processing_capacity = (
-            self.get_total_system_cpu_capacity() + self.get_total_system_gpu_capacity()
-        )
-        if total_processing_capacity == 0:
-            return 0.0
-        return total_processing_used / total_processing_capacity
-
-    def get_cache_utilization_rate(self):
-        return self.metrics.total_cache_used * 1.0 / self.total_cache_capacity
-
-    def get_bandwidth_utilization_rate(self):
-        self.update()
-        return self.metrics.total_bandwidth_used * 1.0 / self.total_bandwidth_capacity
-
-    # --- Percentuais de Utilização Específicos (Corrigidos) ---
-    def get_network_cpu_utilization_percentage(self):
-        total_network_capacity = 0.0
-        for node_id, node_data in self.graph.nodes(data=True):
-            if not self._is_gpu_node(node_id):
-                current_cap = node_data.get("cpu_capacity", 0.0)
-                if not node_data.get("is_active", True):
-                    current_cap = node_data.get("original_cpu_capacity", current_cap)
-
-                total_network_capacity += current_cap
-
-        if total_network_capacity == 0:
-            return 0.0
-
-        return (self.metrics.total_cpu_used / total_network_capacity) * 100
-
-    def get_network_gpu_utilization_percentage(self):
-        total_network_capacity = 0.0
-        for node_id, node_data in self.graph.nodes(data=True):
-            if self._is_gpu_node(node_id):
-                current_cap = node_data.get("cpu_capacity", 0.0)
-                if not node_data.get("is_active", True):
-                    current_cap = node_data.get("original_cpu_capacity", current_cap)
-
-                total_network_capacity += current_cap
-
-        if total_network_capacity == 0:
-            return 0.0
-        return (self.metrics.total_gpu_used / total_network_capacity) * 100
-
-    def get_processing_network_used_precise(self):
-        total_used = 0.0
-        total_capacity = 0.0
-        for _node_id, node in self.graph.nodes(data=True):
-            if node.get("type") == "server" and node.get("is_active", True):
-                total_used += node.get("cpu_used", 0.0)
-                total_capacity += node.get("cpu_capacity", 0.0)
-        if total_capacity == 0:
-            return 0.0
-        return total_used / total_capacity
-
-    def get_network_cache_utilization_percentage(self):
-        total_network_capacity = 0.0
-        for _node_id, node_data in self.graph.nodes(data=True):
-            if "cache_capacity" in node_data:
-                total_network_capacity += node_data["cache_capacity"]
-        if total_network_capacity == 0:
-            return 0.0
-        return (self.metrics.total_cache_used / total_network_capacity) * 100
-
-    def get_mobile_cpu_utilization_percentage(self):
-        total_mobile_capacity = 0.0
-        for node_id, node_data in self.md_graph.nodes(data=True):
-            if "cpu_capacity" in node_data and not self._is_gpu_node(node_id):
-                total_mobile_capacity += node_data["cpu_capacity"]
-        if total_mobile_capacity == 0:
-            return 0.0
-        return (self.metrics.mobile_cpu_used / total_mobile_capacity) * 100
-
-    def get_mobile_gpu_utilization_percentage(self):
-        total_mobile_capacity = 0.0
-        for node_id, node_data in self.md_graph.nodes(data=True):
-            if "cpu_capacity" in node_data and self._is_gpu_node(node_id):
-                total_mobile_capacity += node_data["cpu_capacity"]
-        if total_mobile_capacity == 0:
-            return 0.0
-        return (self.metrics.mobile_gpu_used / total_mobile_capacity) * 100
-
-    def get_mobile_cache_utilization_percentage(self):
-        total_mobile_capacity = 0.0
-        for _node_id, node_data in self.md_graph.nodes(data=True):
-            if "cache_capacity" in node_data:
-                total_mobile_capacity += node_data["cache_capacity"]
-        if total_mobile_capacity == 0:
-            return 0.0
-        return (self.metrics.mobile_cache_used / total_mobile_capacity) * 100
-
-    # =========================================================================
-    # 8. JAIN'S FAIRNESS INDEX (JFI)
-    # =========================================================================
-
-    def calculate_jain_fairness(self, utilizations):
-        if not utilizations:
-            return 1.0
-        n = len(utilizations)
-        sum_of_values = sum(utilizations)
-        sum_of_squares = sum(x * x for x in utilizations)
-        if sum_of_squares == 0:
-            return 1.0
-        return (sum_of_values**2) / (n * sum_of_squares)
-
-    def get_cpu_jain_fairness(self):
-        cpu_utilizations = []
-        for node_id, node_data in self.graph.nodes(data=True):
-            if not self._is_gpu_node(node_id) and node_data.get("cpu_capacity", 0) > 0:
-                cpu_utilizations.append(node_data["cpu_used"] / node_data["cpu_capacity"])
-        for node_id, node_data in self.md_graph.nodes(data=True):
-            if not self._is_gpu_node(node_id) and node_data.get("cpu_capacity", 0) > 0:
-                cpu_utilizations.append(node_data["cpu_used"] / node_data["cpu_capacity"])
-        return self.calculate_jain_fairness(cpu_utilizations)
-
-    def get_gpu_jain_fairness(self):
-        gpu_utilizations = []
-        for node_id, node_data in self.graph.nodes(data=True):
-            if self._is_gpu_node(node_id) and node_data.get("cpu_capacity", 0) > 0:
-                gpu_utilizations.append(node_data["cpu_used"] / node_data["cpu_capacity"])
-        for node_id, node_data in self.md_graph.nodes(data=True):
-            if self._is_gpu_node(node_id) and node_data.get("cpu_capacity", 0) > 0:
-                gpu_utilizations.append(node_data["cpu_used"] / node_data["cpu_capacity"])
-        return self.calculate_jain_fairness(gpu_utilizations)
-
-    def get_cache_jain_fairness(self):
-        cache_utilizations = []
-        for _node_id, node_data in self.graph.nodes(data=True):
-            if node_data.get("cache_capacity", 0) > 0:
-                cache_utilizations.append(node_data["cache_used"] / node_data["cache_capacity"])
-        for _node_id, node_data in self.md_graph.nodes(data=True):
-            if node_data.get("cache_capacity", 0) > 0:
-                cache_utilizations.append(node_data["cache_used"] / node_data["cache_capacity"])
-        return self.calculate_jain_fairness(cache_utilizations)
-
-    def get_bandwidth_jain_fairness(self):
-        bw_utilizations = []
-        for _u, _v, edge_data in self.graph.edges(data=True):
-            if edge_data.get("bandwidth_capacity", 0) > 0:
-                bw_utilizations.append(
-                    edge_data["bandwidth_used"] / edge_data["bandwidth_capacity"]
-                )
-        for _node_id, node_data in self.graph.nodes(data=True):
-            if node_data.get("type") == "router" and node_data.get("w_channel_capacity", 0) > 0:
-                bw_utilizations.append(
-                    node_data["w_channel_used"] / node_data["w_channel_capacity"]
-                )
-        return self.calculate_jain_fairness(bw_utilizations)
-
-    # =========================================================================
-    # 9. OUTPUT E DEBUG (PAINEL DE TELEMETRIA REFATORADO)
-    # =========================================================================
-
-    def print_network(self):
-        logger.debug("--- Nós ---")
-        for node, data in self.graph.nodes(data=True):
-            logger.debug(f"{node} -> {data}")
-        logger.debug("--- Arestas ---")
-        for u, v, data in self.graph.edges(data=True):
-            logger.debug(f"{u} <-> {v} -> {data}")
-
-    def print_telemetry_dashboard(self, success_arr, failure_band=None) -> None:
-        """Gera um painel canônico e unificado com todas as métricas em uma única chamada."""
-        total_cpu_util = self.get_total_system_utilization_cpu_rate() * 100
-        total_gpu_util = self.get_total_system_utilization_gpu_rate() * 100
-        total_processing_util = self.get_total_system_processing_utilization_rate() * 100
-
-        cpu_save = (self.metrics.total_cpu_saved / self.metrics.total_cpu_requested * 100) if self.metrics.total_cpu_requested > 0 else 0.0
-        gpu_save = (self.metrics.total_gpu_saved / self.metrics.total_gpu_requested * 100) if self.metrics.total_gpu_requested > 0 else 0.0
+    def get_shortest_path_with_bw(self, source: str, target: str, required_bw: float) -> list[str] | None:
+        if source == target: return [source]
+        def filter_edge(u, v):
+            if self.graph.has_edge(u, v):
+                return (self.graph[u][v]["bandwidth_capacity"] - self.graph[u][v]["bandwidth_used"]) >= required_bw
+            return False
+        valid_view = nx.subgraph_view(self.graph, filter_edge=filter_edge)
+        try: return nx.dijkstra_path(valid_view, source, target, weight="latency")
+        except (nx.NetworkXNoPath, nx.NodeNotFound): return None
         
-        cache_cap = self.total_cache_capacity if hasattr(self, 'total_cache_capacity') and self.total_cache_capacity > 0 else 1.0
-        cache_util = ((self.metrics.total_cache_used + self.metrics.mobile_cache_used) / cache_cap * 100)
-        cache_save = (self.metrics.total_cache_saved / self.metrics.total_cache_requested * 100) if self.metrics.total_cache_requested > 0 else 0.0
-
-        cpu_str = f"{cpu_save:.3f}%" if self.metrics.total_cpu_requested > 0 else "N/A"
-        gpu_str = f"{gpu_save:.3f}%" if self.metrics.total_gpu_requested > 0 else "N/A"
-        cache_save_str = f"{cache_save:.3f}%" if self.metrics.total_cache_requested > 0 else "N/A"
-
-        bw_cap = self.total_bandwidth_capacity if hasattr(self, 'total_bandwidth_capacity') and self.total_bandwidth_capacity > 0 else 1.0
-        bw_util = (self.metrics.total_bandwidth_used * 1.0 / bw_cap * 100)
-
-        media_porc = np.mean(success_arr) * 100 if len(success_arr) > 0 else 0.0
-
-        band_failure_str = f"│ ◦ Band Failure  : {failure_band}%\n" if failure_band is not None else ""
-
-        # Construção do Painel Simétrico
-        panel = (
-            "\n╭── [ PAINEL UNIFICADO DE TELEMETRIA ] ──────────────────────\n"
-            f"│ [ ORQUESTRAÇÃO ]\n"
-            f"│ ◦ Acceptance Rate : {media_porc:.3f}%\n"
-            f"├────────────────────────────────────────────────────────────\n"
-            f"│ [ NÓS E PROCESSAMENTO ]\n"
-            f"│ ◦ Total Proc. Util: {total_processing_util:.3f}%\n"
-            f"│ ◦ Sys CPU Util.   : {total_cpu_util:.3f}%\n"
-            f"│ ◦ Sys GPU Util.   : {total_gpu_util:.3f}%\n"
-            f"│ ◦ Net CPU Util.   : {self.get_network_cpu_utilization_percentage():.3f}%\n"
-            f"│ ◦ Net GPU Util.   : {self.get_network_gpu_utilization_percentage():.3f}%\n"
-            f"│ ◦ Mobile CPU Util.: {self.get_mobile_cpu_utilization_percentage():.3f}%\n"
-            f"├────────────────────────────────────────────────────────────\n"
-            f"│ [ REDE E ECONOMIA (SAVINGS) ]\n"
-            f"│ ◦ Bandwidth Util. : {bw_util:.3f}%\n"
-            f"{band_failure_str}"
-            f"│ ◦ CPU Saving Rate : {cpu_str}\n"
-            f"│ ◦ GPU Saving Rate : {gpu_str}\n"
-            f"│ ◦ Cache Util.     : {cache_util:.3f}%\n"
-            f"│ ◦ Cache Saving    : {cache_save_str}\n"
-            "╰────────────────────────────────────────────────────────────"
-        )
-        logger.info(panel)
-
-    # def print_out_edges_information(self, failure_band=None):
-    #     bw_cap = self.total_bandwidth_capacity if hasattr(self, 'total_bandwidth_capacity') and self.total_bandwidth_capacity > 0 else 1.0
-    #     bw_util = (self.metrics.total_bandwidth_used * 1.0 / bw_cap * 100)
         
-    #     if failure_band is None:
-    #         panel = (
-    #             "\n╭── [ TELEMETRIA DE REDE ]\n"
-    #             f"╰── Bandwidth Util. : {bw_util:.3f}%"
-    #         )
-    #     else:
-    #         panel = (
-    #             "\n╭── [ TELEMETRIA DE REDE ]\n"
-    #             f"│ Bandwidth Util. : {bw_util:.3f}%\n"
-    #             f"╰── Band Failure  : {failure_band}%"
-    #         )
-    #     logger.info(panel)
-
-    def print_out_acceptance_information(self, success_arr):
-        if len(success_arr) != 0:
-            media_porc = np.mean(success_arr) * 100
-            panel = (
-                "\n╭── [ ORQUESTRAÇÃO E RESULTADO ]\n"
-                f"╰── Acceptance Rate : {media_porc:.3f}%"
-            )
-            logger.info(panel)
-
-    # =========================================================================
-    # 10. MÉTODOS AUXILIARES (HELPERS)
-    # =========================================================================
-
-    def update(self):
-        pass
+    # --- MÉTODOS AUXILIARES DE ORQUESTRAÇÃO E ESTADO ---
 
     def get_shareable_sfs(self):
         return self.shared_sfs
 
     def get_sfc_by_id(self, sfc_id):
-        return self.sfc_dict[sfc_id]
+        try:
+            return self.sfc_dict[sfc_id]
+        except KeyError:
+            raise ValueError(f"SFC {sfc_id} não encontrada.")
 
     def get_number_actives_sfcs(self):
         return len(self.sfc_dict)
@@ -1582,49 +580,133 @@ class Net2:
                 count += 1
         return count
 
-    def get_acceptance_rate(self, success_arr):
-        if len(success_arr) != 0:
-            media = np.mean(success_arr)
-            media_porc = media * 100
-            return media_porc
-
     def get_servers_reliability_dict(self):
         temp_list = []
-
         for node_id, data in self.graph.nodes(data=True):
             if data.get("type") == "server":
                 if data.get("cpu_capacity", 0) == 0:
                     reliability = 0.0
                 else:
                     reliability = self.get_node_reliability(node_id)
-
                 temp_list.append((node_id, reliability))
 
         temp_list.sort(key=lambda x: x[1])
-
         return {node_id: rel for node_id, rel in temp_list}
 
+    # =========================================================================
+    # 6. RELATÓRIOS E MÉTRICAS (A SER EXTRAÍDO NO FUTURO)
+    # =========================================================================
+
+    def get_total_gpu_request(self): return self.metrics.total_gpu_requested
+    def get_total_gpu_saved(self): return self.metrics.total_gpu_saved
+    def get_total_cpu_request(self): return self.metrics.total_cpu_requested
+    def get_total_cpu_saved(self): return self.metrics.total_cpu_saved
+    def get_total_cache_request(self): return self.metrics.total_cache_requested
+    def get_total_cache_saved(self): return self.metrics.total_cache_saved
+    def get_cpu_network_used(self): return self.metrics.total_cpu_used
+    def get_gpu_network_used(self): return self.metrics.total_gpu_used
+    def get_cpu_total_used(self): return self.metrics.total_cpu_used + self.metrics.mobile_cpu_used
+    def get_gpu_total_used(self): return self.metrics.total_gpu_used + self.metrics.mobile_gpu_used
+    def get_cache_total_used(self): return self.metrics.total_cache_used + self.metrics.mobile_cache_used
+    def get_cache_used(self): return self.metrics.total_cache_used
+
+    def get_total_system_cpu_capacity(self):
+        total = sum(d["cpu_capacity"] for n, d in self.graph.nodes(data=True) if "cpu_capacity" in d and not self._is_gpu_node(n))
+        total += sum(d["cpu_capacity"] for n, d in self.md_graph.nodes(data=True) if "cpu_capacity" in d and not self._is_gpu_node(n))
+        return total
+
+    def get_total_system_gpu_capacity(self):
+        total = sum(d["cpu_capacity"] for n, d in self.graph.nodes(data=True) if "cpu_capacity" in d and self._is_gpu_node(n))
+        total += sum(d["cpu_capacity"] for n, d in self.md_graph.nodes(data=True) if "cpu_capacity" in d and self._is_gpu_node(n))
+        return total
+
+    def get_server_cpu_utilization_rate(self):
+        return self.metrics.total_cpu_used / self.total_cpu_capacity if self.total_cpu_capacity > 0 else 0.0
+
+    def get_total_system_utilization_cpu_rate(self):
+        cap = self.get_total_system_cpu_capacity()
+        return (self.metrics.total_cpu_used + self.metrics.mobile_cpu_used) / cap if cap > 0 else 0.0
+
+    def get_total_system_utilization_gpu_rate(self):
+        cap = self.get_total_system_gpu_capacity()
+        return (self.metrics.total_gpu_used + self.metrics.mobile_gpu_used) / cap if cap > 0 else 0.0
+
+    def get_total_system_utilization_cache_rate(self):
+        return (self.metrics.total_cache_used + self.metrics.mobile_cache_used) / self.total_cache_capacity if self.total_cache_capacity > 0 else 0.0
+
+    def get_bandwidth_utilization_rate(self):
+        return self.metrics.total_bandwidth_used * 1.0 / self.total_bandwidth_capacity if self.total_bandwidth_capacity > 0 else 0.0
+
+    def get_network_cpu_utilization_percentage(self):
+        cap = sum(d.get("original_cpu_capacity", d.get("cpu_capacity", 0.0)) for n, d in self.graph.nodes(data=True) if not self._is_gpu_node(n))
+        return (self.metrics.total_cpu_used / cap) * 100 if cap > 0 else 0.0
+
+    def get_network_gpu_utilization_percentage(self):
+        cap = sum(d.get("original_cpu_capacity", d.get("cpu_capacity", 0.0)) for n, d in self.graph.nodes(data=True) if self._is_gpu_node(n))
+        return (self.metrics.total_gpu_used / cap) * 100 if cap > 0 else 0.0
+
+    def get_network_cache_utilization_percentage(self):
+        cap = sum(d.get("cache_capacity", 0.0) for n, d in self.graph.nodes(data=True))
+        return (self.metrics.total_cache_used / cap) * 100 if cap > 0 else 0.0
+
+    def calculate_jain_fairness(self, utilizations):
+        if not utilizations or sum(x * x for x in utilizations) == 0: return 1.0
+        return (sum(utilizations)**2) / (len(utilizations) * sum(x * x for x in utilizations))
+
+    def get_cpu_jain_fairness(self):
+        utils = [d["cpu_used"] / d["cpu_capacity"] for graph in (self.graph, self.md_graph) for n, d in graph.nodes(data=True) if not self._is_gpu_node(n) and d.get("cpu_capacity", 0) > 0]
+        return self.calculate_jain_fairness(utils)
+
+    def get_gpu_jain_fairness(self):
+        utils = [d["cpu_used"] / d["cpu_capacity"] for graph in (self.graph, self.md_graph) for n, d in graph.nodes(data=True) if self._is_gpu_node(n) and d.get("cpu_capacity", 0) > 0]
+        return self.calculate_jain_fairness(utils)
+
+    def get_cache_jain_fairness(self):
+        utils = [d["cache_used"] / d["cache_capacity"] for graph in (self.graph, self.md_graph) for n, d in graph.nodes(data=True) if d.get("cache_capacity", 0) > 0]
+        return self.calculate_jain_fairness(utils)
+
+    def get_bandwidth_jain_fairness(self):
+        utils = [d["bandwidth_used"] / d["bandwidth_capacity"] for u, v, d in self.graph.edges(data=True) if d.get("bandwidth_capacity", 0) > 0]
+        utils += [d["w_channel_used"] / d["w_channel_capacity"] for n, d in self.graph.nodes(data=True) if d.get("type") == "router" and d.get("w_channel_capacity", 0) > 0]
+        return self.calculate_jain_fairness(utils)
+
+    def get_acceptance_rate(self, success_arr):
+        return np.mean(success_arr) * 100 if len(success_arr) > 0 else 0.0
+
     def is_shareable(self, service_name):
-        if self.shareable_node:
-            return service_name.startswith(SHAREABLE_PREFIXES)
-        else:
-            return False
+        return service_name.startswith(SHAREABLE_PREFIXES) if self.shareable_node else False
 
     def is_mobile_node(self, node):
         return node in self.md_graph
 
     def _is_gpu_node(self, node_id):
-        id_str = str(node_id)
-        return id_str.endswith(".1")
+        return str(node_id).endswith(".1")
+    
+    def update(self):
+        pass
+    
+    def get_mobile_cpu_utilization_percentage(self):
+        cap = sum(d.get("cpu_capacity", 0.0) for n, d in self.md_graph.nodes(data=True) if not self._is_gpu_node(n))
+        return (self.metrics.mobile_cpu_used / cap) * 100 if cap > 0 else 0.0
 
+    def get_mobile_gpu_utilization_percentage(self):
+        cap = sum(d.get("cpu_capacity", 0.0) for n, d in self.md_graph.nodes(data=True) if self._is_gpu_node(n))
+        return (self.metrics.mobile_gpu_used / cap) * 100 if cap > 0 else 0.0
 
-# =========================================================================
-# TESTE BÁSICO (Para validação rápida)
-# =========================================================================
-if __name__ == "__main__":
-    try:
-        substrate_network = Net2()
-        logger.success("Net2 inicializado com sucesso.")
-        logger.info(f"Metrics inicializadas: {substrate_network.metrics}")
-    except Exception as e:
-        logger.exception(f"Erro na inicialização: {e}")
+    def get_mobile_cache_utilization_percentage(self):
+        cap = sum(d.get("cache_capacity", 0.0) for n, d in self.md_graph.nodes(data=True))
+        return (self.metrics.mobile_cache_used / cap) * 100 if cap > 0 else 0.0
+    
+    def get_total_system_processing_utilization_rate(self):
+        total_processing_used = self.get_cpu_total_used() + self.get_gpu_total_used()
+        total_processing_capacity = (
+            self.get_total_system_cpu_capacity() + self.get_total_system_gpu_capacity()
+        )
+        if total_processing_capacity == 0:
+            return 0.0
+        return total_processing_used / total_processing_capacity
+
+    def get_cache_utilization_rate(self):
+        if self.total_cache_capacity == 0:
+            return 0.0
+        return self.metrics.total_cache_used / self.total_cache_capacity

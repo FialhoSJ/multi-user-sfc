@@ -37,10 +37,8 @@ class FailureOrchestrator:
         self.alg = alg
         self.verbose = verbose
         
-        # Injeção de callback: Desacopla o orquestrador do Controller
         self.requeue_callback = requeue_callback
 
-        # Estados transferidos do Controller
         self.crashs_trials = 0
         self.sfcs_crash_affected: dict[str, Any] = {}
 
@@ -90,7 +88,7 @@ class FailureOrchestrator:
         logger.warning(f">>> [CRASHER] Link Sorteado na Roleta: {u} <-> {v}")
 
         affected_sfcs = []
-        for sfc_id, routing_info in self.sfc_manager.sfcs_routing_info.items():
+        for sfc_id, routing_info in self.sfc_manager.get_routing_info().items():
             path_broken = False
             for vnf, path in routing_info.items():
                 if vnf in ["src", "dst"] or not path:
@@ -118,10 +116,11 @@ class FailureOrchestrator:
                 pass
 
         for group_id in affected_groups:
-            if group_id in self.sfc_manager.sfcs_tracker:
+            session_info = self.sfc_manager.get_session_info(group_id)
+            if session_info:
                 if self.mobility_manager:
                     self.mobility_manager.mark_vehicle_as_redeploying(group_id)
-                sfc_list = self.sfc_manager.sfcs_tracker[group_id]["sfc_list"]
+                sfc_list = session_info.get("sfc_list", [])
                 self.requeue_callback(sfc_list, changed_location=False)
                 fallen_sfcs_objects.extend(sfc_list)
 
@@ -131,8 +130,6 @@ class FailureOrchestrator:
         u, v = link_tuple
         self.network.restore_link(u, v)
         logger.info(f">>> [RECOVERY] Link Restaurado: {u} <-> {v}")
-
-    # --- Métodos Privados Internos ---
     
     def _trigger_crash(self) -> list[str]:
         servers_failed = self.fail_manager.activate_crasher(self.network, self.sfc_manager, self.alg)
@@ -252,10 +249,9 @@ class FailureOrchestrator:
 
             try:
                 sfc_obj = self.network.get_sfc_by_id(sfc_id)
-                old_route_info = copy.deepcopy(self.sfc_manager.sfcs_routing_info.get(sfc_id))
-            except KeyError:
+                old_route_info = copy.deepcopy(self.sfc_manager.get_routing_info(sfc_id))
+            except (KeyError, ValueError):
                 continue
-
             affected_vnf_id = None
             if old_route_info:
                 for vnf, path in old_route_info.items():
@@ -280,13 +276,15 @@ class FailureOrchestrator:
                     "recover_success": False, "risk_level": risk_level, "final_status": "Processing",
                 }
                 tracker_id = sfc_owners_map.get(sfc_id)
-                if tracker_id and tracker_id in self.sfc_manager.sfcs_tracker:
-                    if self.mobility_manager:
-                        self.mobility_manager.mark_vehicle_as_redeploying(tracker_id)
-                    sfc_list_tracker = self.sfc_manager.sfcs_tracker[tracker_id]["sfc_list"]
-                    if sfc_list_tracker:
-                        self.requeue_callback(sfc_list_tracker, changed_location=False)
-                        fallen_sfcs_list.extend(sfc_list_tracker)
+                if tracker_id:
+                    session_info = self.sfc_manager.get_session_info(tracker_id)
+                    if session_info:
+                        if self.mobility_manager:
+                            self.mobility_manager.mark_vehicle_as_redeploying(tracker_id)
+                        sfc_list_tracker = session_info.get("sfc_list", [])
+                        if sfc_list_tracker:
+                            self.requeue_callback(sfc_list_tracker, changed_location=False)
+                            fallen_sfcs_list.extend(sfc_list_tracker)
                 continue
 
             try:
@@ -328,10 +326,11 @@ class FailureOrchestrator:
         return fallen_sfcs_list, post_crash_latencies
 
     def _requeue_session(self, tracker_id: str, fallen_list: list) -> None:
-        if tracker_id in self.sfc_manager.sfcs_tracker:
+        session_info = self.sfc_manager.get_session_info(tracker_id)
+        if session_info:
             if self.mobility_manager:
                 self.mobility_manager.mark_vehicle_as_redeploying(tracker_id)
-            sfc_list_tracker = self.sfc_manager.sfcs_tracker[tracker_id]["sfc_list"]
+            sfc_list_tracker = session_info.get("sfc_list", [])
             self.requeue_callback(sfc_list_tracker, changed_location=False)
             fallen_list.extend(sfc_list_tracker)
 
@@ -351,3 +350,50 @@ class FailureOrchestrator:
             self.crashs_trials, len(servers_failed), total_affected,
             high_risk, med_risk, low_risk, avg_lat_before, avg_lat_after, affected_pct, avg_lat_diff,
         )
+
+    def update_crash_recovery_status(self, sfc_id: str, results_dict: dict | None, is_success: bool, current_time: float) -> None:
+        """
+        Recebe o resultado do deploy pelo Controlador e atualiza os status internos de recuperação.
+        """
+        sfcs_crash_aff = copy.deepcopy(list(self.sfcs_crash_affected.keys()))
+        
+        if sfc_id in sfcs_crash_aff:
+            stored_data = self.sfcs_crash_affected[sfc_id]
+
+            if results_dict:
+                stored_data["recover_success"] = is_success
+
+                if is_success:
+                    latency_diff = results_dict["latency"] - stored_data["old_latency"]
+
+                    stored_data.update({
+                        "latency_before": stored_data["old_latency"],
+                        "latency_after": results_dict["latency"],
+                        "latency_diff": latency_diff,
+                        "latency_degrad": latency_diff,
+                        "resource_degrad": stored_data["resource_info"] - results_dict.get("resource_info", 0),
+                        "time_to_recover": current_time - stored_data["fall_time"],
+                        "final_status": "Slow Recover",
+                    })
+                else:
+                    stored_data["final_status"] = "Failed"
+            else:
+                stored_data.update({
+                    "recover_success": False,
+                    "final_status": "Failed"
+                })
+
+            stored_data.setdefault("risk_level", "Medium")
+
+            trial_id = stored_data.get(
+                "crash_trial",
+                self.crashs_trials
+            )
+
+            self.output_writter.resilient_output(
+                sfc_id,
+                stored_data,
+                trial_id
+            )
+
+            del self.sfcs_crash_affected[sfc_id]

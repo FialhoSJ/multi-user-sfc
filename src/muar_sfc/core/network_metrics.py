@@ -24,6 +24,8 @@ class NetworkMetrics:
     mobile_cpu_used: float = 0.0
     mobile_gpu_used: float = 0.0
     mobile_cache_used: float = 0.0
+    
+    total_bandwidth_used: float = 0.0
 
     shared_vnfs_count: int = 0
 

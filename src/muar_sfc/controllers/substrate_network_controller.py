@@ -1,4 +1,3 @@
-# --- Standard Library Imports ---
 import copy
 import random
 import sys
@@ -7,10 +6,8 @@ import time
 from collections import deque
 from typing import Any
 
-# --- Adote o Loguru (Experiência de Desenvolvedor Absoluta) ---
 from loguru import logger
 
-# --- Local Module Imports ---
 from muar_sfc.controllers.modules.backup_manager import BackupManager
 from muar_sfc.controllers.modules.crasher import Crasher
 from muar_sfc.controllers.modules.mobility_manager import MobilityManager
@@ -19,8 +16,8 @@ from muar_sfc.controllers.modules.sfcs_manager import SFCManager
 from muar_sfc.controllers.sfc_queue import SFCQueue
 from muar_sfc.core.net_v2 import Net2
 from muar_sfc.utils.manager_results import OutputWritter
-from muar_sfc.utils.network_utils import EnergyCalculator
 from muar_sfc.controllers.modules.failure_orchestrator import FailureOrchestrator
+from muar_sfc.utils.network_utils import EnergyCalculator
 
 
 class SubstrateNetworkController:
@@ -84,7 +81,7 @@ class SubstrateNetworkController:
             output_writter=self.output_writter,
             alg=self.alg,
             verbose=self.verbose,
-            requeue_callback=self.send_back_to_qeue
+            requeue_callback=self.send_back_to_queue  # Correção do typo aqui
         )
 
     def start(self) -> None:
@@ -109,7 +106,7 @@ class SubstrateNetworkController:
         logger.info("Simulação encerrada.")
         sys.exit(0)
 
-    def initialize_timers(self):
+    def initialize_timers(self) -> None:
         self.mobility_interval = 5
         self.backup_interval_creation = 40 if self.alg in ["msf", "greedyb"] else 5
         self.start_time = time.time()
@@ -131,11 +128,10 @@ class SubstrateNetworkController:
                 self.stop()
             self.iteration_counter += 1
 
-            # PROTEÇÃO CONTRA BUSY-WAITING: Libera a CPU se a fila estiver vazia
             if not processed_sfcs:
                 time.sleep(0.01)
 
-    def handle_mobility(self):
+    def handle_mobility(self) -> None:
         if self.mobility_manager and self.mobility_manager.activated and (
             time.time() - self.last_mobility_time >= self.mobility_interval
         ):
@@ -172,7 +168,7 @@ class SubstrateNetworkController:
                 except Exception:
                     logger.exception(f"Erro ao implantar backup {backup_sfc.id}.")
 
-    def handle_fails(self):
+    def handle_fails(self) -> None:
         if not self.fail_manager.activated:
             return
 
@@ -205,8 +201,8 @@ class SubstrateNetworkController:
                         self.active_failures.append({"type": "link", "target": link_crashed, "recovery_time": recovery_time})
                         logger.info(f" -> Recuperação (link) agendada para T={recovery_time:.2f}s")
 
-    def submit_sfcs(self):
-        self.check_timer_qeue()
+    def submit_sfcs(self) -> list[str]:
+        self.check_timer_queue()
 
         if self.max_queue_size < self.sfc_queue.qsize():
             self.max_queue_size = self.sfc_queue.qsize()
@@ -231,12 +227,10 @@ class SubstrateNetworkController:
 
             log_output, is_success = self.deploy_sfc_list(sfc_list)
 
-            # Este loop apenas processa os dados, não imprime mais no terminal
             for sfc_id, result_dict in log_output.items():
                 processed_sfcs.append(sfc_id)
                 self.output_results(sfc_id=sfc_id, results_dict=result_dict, is_success=is_success, wait_time=wait_time)
 
-            # NOVO: Imprime o sucesso da Orquestração Física UMA ÚNICA VEZ para o grupo
             if self.verbose:
                 sfc_names = ", ".join([s.id for s in sfc_list])
                 if is_success:
@@ -259,8 +253,8 @@ class SubstrateNetworkController:
             self.remove_mobile_user(mob_player_id)
         return solution, is_success
 
-    def send_back_to_qeue(
-        self, sfc_list: list, changed_location: bool = False, new_location=False
+    def send_back_to_queue(
+        self, sfc_list: list, changed_location: bool = False, new_location: Any = False
     ) -> None:
         """
         (Refatorado) Delega a reconstrução para o SFCManager e apenas enfileira o resultado.
@@ -270,7 +264,6 @@ class SubstrateNetworkController:
 
         session_id = sfc_list[0].dst_node
         
-        # Abstração Perfeita: O Controller pede, o Manager entrega.
         new_sfcs, remaining_dur = self.sfc_manager.rebuild_sfcs_for_requeue(
             sfc_list, changed_location, new_location
         )
@@ -281,20 +274,18 @@ class SubstrateNetworkController:
             self._force_cleanup_session(session_id)
             return
 
-        # Limpa o rastreamento antigo
         ids_to_remove = self.sfc_manager.cleanup_session_state(session_id)
         for old_sfc_id in ids_to_remove:
             self._force_remove_sfc_and_backups(old_sfc_id)
 
-        # Re-enfileira as novas instâncias
         self.sfc_queue.put_begin(new_sfcs)
 
-    def _force_cleanup_session(self, session_id: str):
+    def _force_cleanup_session(self, session_id: str) -> None:
         ids = self.sfc_manager.cleanup_session_state(session_id)
         for sfc_id in ids:
             self._force_remove_sfc_and_backups(sfc_id)
 
-    def check_timer_qeue(self):
+    def check_timer_queue(self) -> None:
         if self.timer_qeue_sfcs:
             final_time = time.time()
             time_elapsed = final_time - self.timer_qeue_sfcs[0]["timer"]
@@ -306,9 +297,7 @@ class SubstrateNetworkController:
                     self.sfc_queue.put_begin(entry["new_sfc_list"])
                 self.timer_qeue_sfcs = []
 
-    def check_mobility(self, interval=5):
-        # ANTES: if self.sfc_manager.sfcs_tracker != {}:
-        # AGORA: Pergunta para o Tracker se a rede está vazia
+    def check_mobility(self, interval: int = 5) -> None:
         if self.sfc_manager.tracker.sfcs_tracker:  
             sfcs_moved, new_locations = self.mobility_manager.check_all_vehicles_position_changes()            
             for sfc_list, new_location in zip(sfcs_moved, new_locations, strict=False):
@@ -326,17 +315,17 @@ class SubstrateNetworkController:
 
                 if valid_move and obj_sfc_list:
                     logger.info(f"SFCs moved: {sfc_list} | New Location: {new_location}")
-                    self.send_back_to_qeue(obj_sfc_list, changed_location=True, new_location=new_location)
+                    self.send_back_to_queue(obj_sfc_list, changed_location=True, new_location=new_location)
 
     def create_mobile_user(self, sfc_list) -> str:
         """Delega a criação do usuário móvel para o gerenciador de domínio."""
         return self.mobility_manager.register_mobile_user_in_network(sfc_list, self.substrate_network)
 
-    def remove_mobile_user(self, sfc_list_id):
+    def remove_mobile_user(self, sfc_list_id: str) -> None:
         self.mobility_manager.remove_player(sfc_list_id)
         self.substrate_network.remove_node(sfc_list_id)
 
-    def check_simulation_end(self, sfc_list):
+    def check_simulation_end(self, sfc_list: list[str]) -> bool:
         last_sf_mono = f"sfc_unique_p{self.players}_{self.flows}"
         last_sf_dec = f"sfc_mono_p{self.players}_{self.flows}"
         for sfc_id in sfc_list:
@@ -351,43 +340,38 @@ class SubstrateNetworkController:
         """Delega a desalocação de recursos físicos ao SFCManager."""
         current_time = time.time()
         
-        # 1. O Manager faz a faxina de primárias e backups
         self.sfc_manager.cleanup_network_resources(self.substrate_network, current_time)
         
-        # 2. Usuários móveis órfãos devem ser limpos pelo MobilityManager (idealmente)
-        # self.mobility_manager.cleanup_orphaned_users(...)
-
-        # 3. Coleta de lixo programada
         if self.iteration_counter % 10 == 0:
             self.sfc_manager.run_garbage_collection(self.substrate_network)
 
+    # Indentação corrigida a partir daqui
     def _force_remove_sfc_and_backups(self, sfc_id: str) -> None:
-            bm = self.sfc_manager.backup_manager
-            
-            # Se houver backups atrelados a essa SFC primária, limpa eles primeiro
-            if bm and sfc_id in bm.sfcs_backups_instatiated:
-                backups_list = list(bm.sfcs_backups_instatiated[sfc_id])
-                for backup_entry in backups_list:
-                    self._safe_undeploy_backup(backup_entry["sfc_backup_id"])
-                    
-            # Substituímos o contextlib.suppress silencioso por EAFP com log estruturado
-            try:
-                self.substrate_network.undeploy_sfc(sfc_id)
-            except Exception as e:
-                logger.error(f"[FALHA DE DESALOCAÇÃO] Erro CRÍTICO ao remover SFC {sfc_id} da infraestrutura física.")
-                logger.exception(e)  # Imprime o stack trace completo para você debugar se a rede falhar
-    def _safe_undeploy_backup(self, backup_id: str) -> None:
-            try:
-                self.substrate_network.undeploy_sfc(backup_id)
-            except Exception as e:
-                logger.error(f"[FALHA DE DESALOCAÇÃO] Erro CRÍTICO ao remover backup {backup_id} da infraestrutura física.")
-                logger.exception(e)
+        bm = self.sfc_manager.backup_manager
+        
+        if bm and sfc_id in bm.sfcs_backups_instatiated:
+            backups_list = list(bm.sfcs_backups_instatiated[sfc_id])
+            for backup_entry in backups_list:
+                self._safe_undeploy_backup(backup_entry["sfc_backup_id"])
                 
-            # Mesmo se falhar fisicamente, tentamos limpar da memória lógica do Manager
-            if self.sfc_manager.backup_manager:
-                self.sfc_manager.backup_manager.cleanup_internal_state(backup_id)
+        try:
+            self.substrate_network.undeploy_sfc(sfc_id)
+        except Exception as e:
+            logger.error(f"[FALHA DE DESALOCAÇÃO] Erro CRÍTICO ao remover SFC {sfc_id} da infraestrutura física.")
+            logger.exception(e)  
+
+    def _safe_undeploy_backup(self, backup_id: str) -> None:
+        try:
+            self.substrate_network.undeploy_sfc(backup_id)
+        except Exception as e:
+            logger.error(f"[FALHA DE DESALOCAÇÃO] Erro CRÍTICO ao remover backup {backup_id} da infraestrutura física.")
+            logger.exception(e)
+            
+        if self.sfc_manager.backup_manager:
+            self.sfc_manager.backup_manager.cleanup_internal_state(backup_id)
+
     def output_results(
-        self, results_dict, sfc_id, is_success, res_output=False, wait_time=None
+        self, results_dict: dict, sfc_id: str, is_success: bool, res_output: bool = False, wait_time: float | None = None
     ) -> None:
         current_time = time.time()
 
@@ -407,46 +391,10 @@ class SubstrateNetworkController:
                 wait_time=wait_time,
             )
 
-        sfcs_crash_aff = copy.deepcopy(list(self.failure_orchestrator.sfcs_crash_affected.keys()))
-        if sfc_id in sfcs_crash_aff:
-            stored_data = self.failure_orchestrator.sfcs_crash_affected[sfc_id]
-
-            if results_dict:
-                stored_data["recover_success"] = is_success
-
-                if is_success:
-                    latency_diff = results_dict["latency"] - stored_data["old_latency"]
-
-                    stored_data.update({
-                        "latency_before": stored_data["old_latency"],
-                        "latency_after": results_dict["latency"],
-                        "latency_diff": latency_diff,
-                        "latency_degrad": latency_diff,
-                        "resource_degrad": stored_data["resource_info"] - results_dict.get("resource_info", 0),
-                        "time_to_recover": current_time - stored_data["fall_time"],
-                        "final_status": "Slow Recover",
-                    })
-
-                else:
-                    stored_data["final_status"] = "Failed"
-
-            else:
-                stored_data.update({
-                    "recover_success": False,
-                    "final_status": "Failed"
-                })
-
-            stored_data.setdefault("risk_level", "Medium")
-
-            trial_id = stored_data.get(
-                "crash_trial",
-                self.failure_orchestrator.crashs_trials
+        if hasattr(self.failure_orchestrator, "update_crash_recovery_status"):
+            self.failure_orchestrator.update_crash_recovery_status(
+                sfc_id=sfc_id,
+                results_dict=results_dict,
+                is_success=is_success,
+                current_time=current_time
             )
-
-            self.output_writter.resilient_output(
-                sfc_id,
-                stored_data,
-                trial_id
-            )
-
-            del self.failure_orchestrator.sfcs_crash_affected[sfc_id]
