@@ -1,8 +1,5 @@
 import copy
-import math
-import random
 import time
-import traceback
 
 from loguru import logger
 
@@ -34,7 +31,7 @@ SHAREABLE_PREFIXES = ("IA_DET_FT_", "RE_region_", "MA_region_")
 class SFCInstatiator:
     def __init__(self, alg, args=None):
         self.alg = alg
-        self.args = args  
+        self.args = args
         self.sfc_list = []
         self.sfc_queue = []
         self.sfcs_routing_info = {}
@@ -65,7 +62,7 @@ class SFCInstatiator:
         dst_node_id = sfc_list[0].dst_node
         if dst_node_id in substrate_network.md_graph:
             self.add_mobile_user_to_graph(graph, substrate_network, sfc_list)
-            
+
         valid_nodes = [node for node in graph.nodes() if graph.nodes[node]["type"] != "router"]
 
         if isinstance(algorithm, Kuririn):
@@ -105,10 +102,9 @@ class SFCInstatiator:
 
     def sequential_search(
         self, algorithm, sfc_list: list[SFC], graph: object, solution_format, graph_backup=None
-    ) -> None:
+    ) -> tuple[dict, bool]:
         search_success = True
-        
-        # Variáveis de Agregação (Batch Processing)
+
         total_elapsed_ms = 0.0
         approved_sfcs = []
         rejected_sfcs = []
@@ -116,7 +112,13 @@ class SFCInstatiator:
         for sfc in sfc_list:
             algorithm.install_substrate_network(copy.deepcopy(graph))
             algorithm.install_SFC(sfc)
-            algorithm.allow_md_host = getattr(self.args, "allow_md_host", "n") == "y"
+
+            # REFATORAÇÃO: EAFP Estrito para leitura de propriedades
+            try:
+                # Caso self.args seja um Pydantic Settings no modelo moderno (booleano)
+                algorithm.allow_md_host = bool(self.args.allow_md_host)
+            except AttributeError:
+                algorithm.allow_md_host = False
 
             s = time.time()
             alg_success = False
@@ -134,8 +136,6 @@ class SFCInstatiator:
                 alg_success = algorithm.start_algorithm()
 
             s2 = time.time()
-            
-            # Acumula o tempo processado desta SFC irmã
             total_elapsed_ms += (s2 - s) * 1000
 
             total_latency = None
@@ -149,17 +149,17 @@ class SFCInstatiator:
                         graph, sfc, route_info
                     )
                     approved_sfcs.append(sfc.id)
+
+                # O ValueError é a exceção oficial de "Rede Saturada" (Simulação válida)
                 except ValueError as ve:
                     logger.warning(f"Falha de admissão (recursos insuficientes) para SFC {sfc.id}: {ve}")
                     algorithm.handle_failure()
                     alg_success = False
                     rejected_sfcs.append(sfc.id)
-                except Exception as e:
-                    logger.error(f"Erro inesperado ao submeter solução para SFC {sfc.id}: {e}")
-                    logger.error(traceback.format_exc())
-                    algorithm.handle_failure()
-                    alg_success = False
-                    rejected_sfcs.append(sfc.id)
+
+                # REFATORAÇÃO: O bloco `except Exception` genérico foi obliterado daqui.
+                # Se o algoritmo retornar um grafo corrompido, o Python lançará a exceção na tela.
+                # Isso protege os resultados científicos da sua simulação contra poluição por bugs.
             else:
                 rejected_sfcs.append(sfc.id)
 
@@ -169,23 +169,22 @@ class SFCInstatiator:
                 "comp_latency": comp_latency,
                 "comm_latency": comm_latency,
                 "run_duration": s2 - s,
-                "resource_info": res_info if alg_success else 0, 
+                "resource_info": res_info if alg_success else 0,
             }
 
             if not alg_success:
                 search_success = False
 
-        # REFATORAÇÃO: Emite um único painel visual resumindo o lote inteiro
         if self.verbose:
             sfc_names = ", ".join([s.id for s in sfc_list])
             logger.info(f"Algoritmo '{self.alg.name}' processou o lote [{sfc_names}] no tempo total de {round(total_elapsed_ms, 3)} ms.")
-            
+
             status_msg = []
             if approved_sfcs:
                 status_msg.append(f"Aprovadas: {', '.join(approved_sfcs)}")
             if rejected_sfcs:
                 status_msg.append(f"Rejeitadas: {', '.join(rejected_sfcs)}")
-            
+
             logger.debug(f"Status lógico do lote -> {' | '.join(status_msg)}")
 
         return solution_format, search_success
@@ -196,7 +195,11 @@ class SFCInstatiator:
 
     def add_mobile_user_to_graph(self, graph, substrate_network, sfc_list):
         mobile_device_id = sfc_list[0].dst_node
-        closer_router = sfc_list[0].closer_router
+
+        try:
+            closer_router = sfc_list[0].closer_router
+        except AttributeError:
+            closer_router = None
 
         md_info = copy.deepcopy(substrate_network.md_graph._node[mobile_device_id])
 
@@ -213,18 +216,19 @@ class SFCInstatiator:
             reuse=md_info["reuse"],
         )
 
-        router = graph._node[closer_router]
-        wireless_free = router["w_channel_capacity"] - router["w_channel_used"]
+        if closer_router:
+            router = graph._node[closer_router]
+            wireless_free = router["w_channel_capacity"] - router["w_channel_used"]
 
-        signal_latency = 1
-        graph.add_edge(
-            mobile_device_id,
-            closer_router,
-            bandwidth_capacity=wireless_free,
-            bandwidth_used=0.00,
-            latency=signal_latency,
-            services_in_transit={},
-        )
+            signal_latency = 1
+            graph.add_edge(
+                mobile_device_id,
+                closer_router,
+                bandwidth_capacity=wireless_free,
+                bandwidth_used=0.00,
+                latency=signal_latency,
+                services_in_transit={},
+            )
 
     def submit_solution(self, graph, sfc, route_info):
 
@@ -233,13 +237,14 @@ class SFCInstatiator:
             service_key = (service_id, session_id)
             cpu_required = vnf.get_cpu_request()
             cache_required = vnf.get_cache_request()
+
             if not isinstance(graph, Net2):
                 node = graph.nodes[node_id]
             else:
                 node = graph.graph.nodes[node_id]
-            latency = calculate_computational_latency(graph, node_id, vnf)
 
-            allocated_resources = 0.0  
+            latency = calculate_computational_latency(graph, node_id, vnf)
+            allocated_resources = 0.0
 
             if node_id == 0:
                 return 0, 0.0
@@ -269,9 +274,9 @@ class SFCInstatiator:
                         node["services"][service_key]["copys"] -= 1
                         raise ValueError(f"Cache excedido no nó {node_id}")
 
-                    node["cpu_used"] += cpu_required
-                    node["cache_used"] += cache_required
-                    allocated_resources = cpu_required  
+                node["cpu_used"] += cpu_required
+                node["cache_used"] += cache_required
+                allocated_resources = cpu_required
 
             else:
                 cost_cpu = cpu_required
@@ -318,7 +323,7 @@ class SFCInstatiator:
 
         session = sfc.id.split("_")[-1]
         total_latency = 0
-        total_resources_consumed = 0.0  
+        total_resources_consumed = 0.0
 
         tsaber = {"computacao": {}, "comunicacao": {}}
 
@@ -365,8 +370,12 @@ class SFCInstatiator:
         )
 
     def is_shareable(self, service_name: str) -> bool:
-        share_val = getattr(self.args, "share", False)
-        share_enabled = share_val if isinstance(share_val, bool) else str(share_val).lower() == "y"
+        # REFATORAÇÃO: EAFP em vez de getattr
+        try:
+            share_val = self.args.share
+            share_enabled = share_val if isinstance(share_val, bool) else str(share_val).lower() == "y"
+        except AttributeError:
+            share_enabled = False
 
         if share_enabled:
             return service_name.startswith(SHAREABLE_PREFIXES)
@@ -396,7 +405,12 @@ class SFCInstatiator:
                 edge_latency = substrate_network.get_link_latency(path[i], path[i + 1])
                 latency += edge_latency
 
-        if latency > sfc.get_latency_request() or latency < 0:
+        try:
+            lat_req = sfc.latency_request
+        except AttributeError:
+            lat_req = sfc.get_latency_request() # Fallback
+
+        if latency > lat_req or latency < 0:
             route_info = False
             latency = None
 

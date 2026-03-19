@@ -1,12 +1,11 @@
 import copy
-from typing import Any
 
 from loguru import logger
 
-from muar_sfc.core.net_v2 import Net2
-from muar_sfc.core.sfc import SFC
 from muar_sfc.controllers.modules.backup_manager import BackupManager
 from muar_sfc.controllers.modules.sfc_state_tracker import SFCStateTracker
+from muar_sfc.core.net_v2 import Net2
+from muar_sfc.core.sfc import SFC
 
 
 class SFCRecoveryService:
@@ -19,9 +18,9 @@ class SFCRecoveryService:
     """
 
     def __init__(
-        self, 
-        tracker: SFCStateTracker, 
-        backup_manager: BackupManager | None, 
+        self,
+        tracker: SFCStateTracker,
+        backup_manager: BackupManager | None,
         verbose: bool = True
     ):
         # Inversão de Controle: Recebemos o estado e o gerenciador de backup prontos
@@ -63,7 +62,7 @@ class SFCRecoveryService:
         # ==========================================
         backups_list = self.backup_manager.sfcs_backups_instatiated[sfc_obj.id]
         target_backup = None
-        
+
         for backup_entry in backups_list:
             b_vnf_clean = backup_entry["vnf_id"].replace("_b", "")
             if b_vnf_clean == affected_vnf_id:
@@ -124,7 +123,7 @@ class SFCRecoveryService:
             # A) Desaloca fisicamente o backup isolado
             substrate_network.deallocate_microservice(backup_node, backup_sfc_id, backup_vnf_obj)
             substrate_network.detach_vnf_from_route_record(backup_sfc_id, key_egress)
-            
+
             # B) Aloca a VNF original no novo local limpo
             substrate_network.allocate_microservice(sfc_obj, affected_vnf_obj, backup_node)
 
@@ -141,12 +140,12 @@ class SFCRecoveryService:
             new_route_info["src"] = path_ingress
         else:
             new_route_info[prev_vnf.id] = path_ingress
-            
+
         new_route_info[affected_vnf_id] = path_egress
 
         # Atualizando no guardião de estado rastreador (Tracker)
         self.tracker.sfcs_routing_info[sfc_obj.id] = new_route_info
-        
+
         if hasattr(substrate_network, "sfc_route_info"):
             substrate_network.sfc_route_info[sfc_obj.id] = copy.deepcopy(new_route_info)
 

@@ -1,183 +1,110 @@
-Excelente README! Você já fisgou o leitor logo de cara destacando o domínio complexo (SFC, SUMO, DRL) e já "vendeu" a modernidade da arquitetura (uv, src-layout, EAFP). Esse é o tipo de documentação que brilha aos olhos de quem vai avaliar ou contribuir com o seu projeto.
-
-Como estamos "amarrando" a fundação do repositório com o `Pydantic-Settings` e a tipagem estrita do `Pyright` , fiz os ajustes cirúrgicos no seu arquivo para refletir o estado da arte.
-
-Aqui estão as **três principais mudanças** que apliquei no texto abaixo:
-
-1. 
-**Nova Seção de Configuração (Twelve-Factor App):** Adicionei as instruções claras de como o usuário deve criar o arquivo `.env` para rodar a simulação.
-
-
-2. 
-**Atualização da Instalação (`uv sync`):** Como o seu projeto é uma aplicação e já possui o `uv.lock`, a melhor prática não é usar `uv pip install -e .`, mas sim o comando determinístico `uv sync` (ou `uv sync --frozen` para CI/CD), que lê o lockfile e monta o ambiente virtual perfeitamente idêntico.
-
-
-3. 
-**Qualidade Estática:** Adicionei o comando do Pyright  na seção de desenvolvimento.
-
-
-
-Pode copiar o Markdown abaixo e substituir no seu arquivo:
-
----
-
-```markdown
 # MUAR-SFC (Multi-User Service Function Chaining Simulator)
 
-  Um simulador de redes avançado, focado em resiliência, mobilidade e
-  alocação inteligente de Service Function Chains (SFC) para serviços
-  imersivos.
+Um simulador de redes avançado e de alto desempenho, focado em resiliência, mobilidade e alocação adaptativa de Service Function Chains (SFC) para serviços imersivos.
 
-O MUAR-SFC integra infraestrutura de topologia de redes (NetworkX),
-simulação de tráfego urbano realístico (Eclipse SUMO) e algoritmos de
-inteligência artificial de ponta (Deep Reinforcement Learning via
-Stable-Baselines3 e Algoritmos Genéticos via DEAP) para orquestrar e
-recuperar serviços de rede sob falhas e mobilidade.
+O MUAR-SFC integra infraestrutura de topologia de redes (**NetworkX**), simulação de tráfego urbano realístico (**Eclipse SUMO**) e inteligência artificial de ponta (**Deep Reinforcement Learning** via Stable-Baselines3) para orquestrar serviços de rede sob condições severas de falhas e mobilidade.
 
 ---
 
-## ✨ Principais Funcionalidades
+## ✨ Diferenciais de Engenharia
 
--   **Alocação Inteligente (DRL):** Suporte nativo a agentes Proximal Policy
-    Optimization (PPO) e MaskablePPO para alocação adaptativa de
-    recursos.
--   **Gerenciamento de Mobilidade:** Integração robusta com a API TraCI do
-    Eclipse SUMO (https://eclipse.dev/sumo/) para simular o movimento de
-    usuários de ponta a ponta.
--   **Orquestração de Resiliência:** Sistema de Crashers e Backup Managers
-    para simular falhas em servidores/links e avaliar
-    latência/degradação e recuperação de SFCs.
--   **Engenharia de Software de Alto Nível:**
-    -   Arquitetura blindada em `src-layout` evitando colisões e dependências fantasmas.
-    -   Tolerância a falhas idiomática baseada no padrão EAFP (zero bare-excepts mascarados).
-    -   Telemetria e observabilidade centralizada via Logging e manipulação de caminhos orientada a objetos via Pathlib.
-    -   Configuração baseada na metodologia Twelve-Factor App via Pydantic-Settings.
-    -   Tipagem estática determinística garantida pelo Pyright.
+Diferente de simuladores acadêmicos convencionais, o MUAR-SFC foi refatorado seguindo padrões industriais de software:
+
+-   **Performance Atômica:** Lógica de falhas e backups otimizada com complexidade $O(1)$, substituindo varreduras lineares por acessos diretos a conjuntos e dicionários.
+-   **Arquitetura Robusta:** Organizado em `src-layout` para garantir isolamento total e evitar a "ilusão de corretude" no desenvolvimento.
+-   **Resiliência Baseada em EAFP:** Tratamento de erros idiomático (*Easier to Ask for Forgiveness than Permission*), eliminando verificações lentas e silenciamento de bugs críticos.
+-   **Multiplataforma Nativa:** Gerenciamento de caminhos via `Pathlib`, garantindo que o simulador rode sem alterações em Linux, macOS ou Windows.
+-   **Configuração Centralizada:** Baseado na metodologia *Twelve-Factor App* através do `Pydantic-Settings`.
 
 ---
 
 ## 🛠️ Tecnologias e Dependências
 
-O projeto obedece aos padrões declarativos modernos da PEP 621 e é
-gerenciado pelo ecossistema de hiper-velocidade `uv` (escrito em Rust).
-
--   **Python:** >= 3.12
--   **Core:** numpy, scipy, pandas, networkx
--   **Machine Learning:** stable-baselines3, sb3-contrib, tensorboard
--   **Otimização:** deap, shapely
--   **Simulação de Tráfego:** sumo, traci
--   **Qualidade e Linting:** Ruff, Pyright, Pytest
--   **Configuração:** Pydantic-Settings
+-   **Runtime:** Python >= 3.12 (Aproveitando melhorias de performance e tipagem).
+-   **Gerenciador:** `uv` (Hiper-velocidade escrita em Rust).
+-   **IA/ML:** stable-baselines3, sb3-contrib (PPO/MaskablePPO), tensorboard.
+-   **Rede:** networkx, simpy.
+-   **Tráfego:** Eclipse SUMO (TraCI).
+-   **Qualidade:** Ruff (Linting), Pyright (Tipagem Estática).
 
 ---
 
-## 🚀 Instalação (Ambiente Moderno)
+## 🚀 Instalação e Setup
 
-Diga adeus ao arcaico conda e requirements.txt. O projeto utiliza o
-gerenciador oficial `uv` para garantir resolução determinística em milissegundos.
+O projeto utiliza o `uv` para garantir que o seu ambiente seja **exatamente igual** ao dos desenvolvedores.
 
 1. **Instale o uv**
     ```bash
-    # MacOS/Linux
     curl -LsSf [https://astral.sh/uv/install.sh](https://astral.sh/uv/install.sh) | sh
-    
-    # Windows
-    powershell -ExecutionPolicy ByPass -c "irm [https://astral.sh/uv/install.ps1](https://astral.sh/uv/install.ps1) | iex"
     ```
 
-2. **Clone o repositório**
+2. **Prepare o ambiente**
     ```bash
     git clone [https://github.com/seu-usuario/multi-user-sfc.git](https://github.com/seu-usuario/multi-user-sfc.git)
     cd multi-user-sfc
-    ```
-
-3. **Instale as dependências (Sincronização com o Lockfile)**
-    ```bash
     uv sync
     ```
-    *Nota: Este comando cria automaticamente o ambiente virtual (`.venv`) e instala as versões exatas mapeadas no `uv.lock`.*
 
----
-
-## ⚙️ Configurando a Simulação
-
-Todas as configurações do simulador são gerenciadas de forma centralizada e tipada. 
-
-1. Na raiz do projeto, crie uma cópia do arquivo de exemplo de ambiente:
-   ```bash
-   cp .env.example .env
-
-```
-
-2. Abra o arquivo `.env` e ajuste os parâmetros da simulação (algoritmo, número de sessões, topologia, falhas, etc.).
-3. O simulador fará a injeção e validação automática dessas variáveis em tempo de execução.
+3. **Configuração (.env)**
+    Crie o arquivo de variáveis de ambiente:
+    ```bash
+    cp .env.example .env
+    ```
+    *Ajuste algoritmos, níveis de confiabilidade e topologia diretamente no `.env`.*
 
 ---
 
 ## 🖥️ Como Executar
 
-Para garantir que o seu código utilize o interpretador isolado correto sem
-precisar ativar o ambiente manualmente:
+Como o projeto agora é um pacote instalado, você não precisa mais caçar scripts em pastas. Use os comandos registrados:
 
-```bash
-uv run python scripts/main.py
-
-```
+-   **Simulação Única:**
+    ```bash
+    uv run muar-sim
+    ```
+-   **Simulação em Lote (Paralelo):**
+    ```bash
+    uv run muar-sim-paralelo
+    ```
+-   **Execução Sequencial:**
+    ```bash
+    uv run muar-sim-seq
+    ```
 
 ---
 
-## 🏗️ Estrutura do Projeto
+## 🏗️ Estrutura do Repositório
 
 ```text
 multi-user-sfc/
 ├── src/
-│   └── muar_sfc/
-│       ├── algorithms/
-│       ├── controllers/
-│       │   └── modules/
-│       ├── core/           # Configurações centralizadas (Pydantic)
-│       ├── sumo/
-│       └── utils/
-├── scripts/
-│   └── main.py             # Ponto de entrada (Entrypoint)
-├── tests/                  # Suíte de testes Pytest
-├── pyproject.toml          # Manifesto PEP 621
-├── uv.lock                 # Trava determinística de pacotes
-├── .env.example            # Template de configuração
-└── README.md
+│   └── muar_sfc/           # Código-fonte principal (Pacote)
+│       ├── main.py         # Entrypoint da simulação
+│       ├── algorithms/     # REPLIC, DARSPPO, Hephaestus, etc.
+│       ├── controllers/    # Orchestrator, SFCManager, Crasher
+│       ├── core/           # Configurações (Pydantic) e Net_V2
+│       └── utils/          # Helpers de rede e falhas
+├── tests/                  # Testes automatizados (Pytest)
+├── rl_saved_models/        # Modelos de rede neural (.zip)
+├── pyproject.toml          # Definições de CLI e dependências
+├── uv.lock                 # Trava determinística de versões
+└── .env                    # Configurações locais de simulação
 
-```
+🧑‍💻 Desenvolvimento e Qualidade
+Mantenha a integridade do código com as ferramentas integradas:
 
----
+Linting e Estilo: uv run ruff check . --fix
 
-## 🧑‍💻 Desenvolvimento e Qualidade Estática
+Verificação de Tipagem: uv run pyright
 
-Para verificar a qualidade sintática e estilística do código (Ruff):
+Bateria de Testes: uv run pytest
 
-```bash
-uv run ruff check .
+Autores
 
-```
+Hugo Leonardo — hugosantos@ufpa.br
 
-Para aplicar correções automáticas de estilo:
+David Galhego — david.galhego@icen.ufpa.br
 
-```bash
-uv run ruff check . --fix
+Matheus Morais de Brito
 
-```
-
-Para verificar a integridade arquitetural e tipagem estática (Pyright):
-
-```bash
-uv run pyright
-
-```
-
----
-
-**Autores**
-
-* Hugo Leonardo — hugosantos@ufpa.br
-* David Galhego - david.galhego@icen.ufpa.br
-* Matheus Morais de Brito
-* Erick
+Erick

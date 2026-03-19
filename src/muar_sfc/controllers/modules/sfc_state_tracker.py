@@ -4,9 +4,9 @@ from typing import Any, TypedDict
 
 from loguru import logger
 
+from muar_sfc.controllers.sfc_generator import SFCGenerator
 from muar_sfc.core.net_v2 import Net2
 from muar_sfc.core.sfc import SFC
-from muar_sfc.controllers.sfc_generator import SFCGenerator
 
 
 # Contrato estrito para o rastreamento das sessões, garantindo integridade das chaves
@@ -48,7 +48,7 @@ class SFCStateTracker:
             start_time = info.get("timer", 0)
             duration = info.get("duration", 0)
             elapsed_time = current_time - start_time
-            
+
             if elapsed_time >= duration:
                 expired_sessions.append(sfc_list_id)
                 logger.debug(
@@ -117,7 +117,7 @@ class SFCStateTracker:
 
                 if sfc_id in self.sfcs_routing_info:
                     current_sfc_routes = self.sfcs_routing_info[sfc_id]
-                    
+
                     # Substituição otimizada nativa via String (evitando o gargalo da engine Regex)
                     if ma_old_key in current_sfc_routes:
                         ma_new_key = ma_old_key.replace(old_loc, new_loc)
@@ -153,7 +153,7 @@ class SFCStateTracker:
         sfc = sb_net.get_sfc_by_id(sfc_id)
         if not sfc:
             return []
-        
+
         group_id = sfc.dst_node
         if group_id in self.sfcs_tracker:
             return self.sfcs_tracker[group_id]["sfc_list"]

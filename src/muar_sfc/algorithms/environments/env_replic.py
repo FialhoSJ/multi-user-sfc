@@ -34,10 +34,6 @@ CACHE_PENALTY_NORM = 0.3
 class SFC_AllocationEnv(gymnasium.Env):
     """
     Ambiente do Gymnasium para o problema de alocação de Service Function Chains (SFCs).
-
-    Este ambiente simula a alocação de Virtual Network Functions (VNFs) de uma SFC
-    em nós de uma infraestrutura de rede, considerando restrições de CPU, cache,
-    latência e largura de banda.
     """
 
     # =================================================================================
@@ -51,53 +47,41 @@ class SFC_AllocationEnv(gymnasium.Env):
         list_sfc: list[SFC],
         pesos_fatores: dict[str, float] = None,
         reward_config: dict[str, float] = None,
-        reliability_config: dict[str, Any] = None,  # <--- NOVO PARÂMETRO
+        reliability_config: dict[str, Any] = None,
         is_training: bool = True,
     ):
-        """
-        Inicializa o ambiente de alocação de SFC.
-        """
         super().__init__()
 
         if len(list_graph) != len(list_sfc):
             raise ValueError("A lista de grafos deve ter o mesmo tamanho da lista de SFCs.")
 
-        # --- Configurações Básicas ---
         self.valid_nodes = valid_nodes
         self.list_graph = list_graph
         self.list_sfc = list_sfc
         self.is_training = is_training
 
-        # --- Configuração de Pesos e Recompensas ---
         self.pesos_fatores = (
             pesos_fatores
             if pesos_fatores is not None
             else {
-                # 3º Prioridade: Recursos (Baixo impacto, apenas desempate)
                 "cpu": 1,
                 "cache": 1,
-                # 1º Prioridade: Banda (O "Dono" da decisão)
                 "band": 3,
-                # 2º Prioridade: Confiabilidade (O "Guarda-Costas")
-                # O peso precisa ser alto (10 a 12) para compensar o fato de que
-                # a penalidade base (1 - reliability) é um número muito pequeno (0.01 a 0.1).
                 "rel": 6,
-                # Outros (Baixa prioridade)
                 "lat": 3,
                 "mobile": 0.0,
             }
         )
 
-        # --- NOVA CONFIGURAÇÃO DE RECOMPENSAS (MODIFICADO) ---
         self.reward_config = (
             reward_config
             if reward_config is not None
             else {
-                "success_bonus": 40.0,  # Reduzido de 100 para 40
-                "step_reward": 0,  # Recompensa por progresso
-                "invalid_action_penalty": -10.0,  # Penalidade leve
-                "failure_penalty": -40.0,  # Penalidade forte (recurso/banda)
-                "severe_failure_penalty": -50.0,  # Fallback
+                "success_bonus": 40.0,
+                "step_reward": 0,
+                "invalid_action_penalty": -10.0,
+                "failure_penalty": -40.0,
+                "severe_failure_penalty": -50.0,
             }
         )
 
@@ -105,16 +89,14 @@ class SFC_AllocationEnv(gymnasium.Env):
             reliability_config
             if reliability_config
             else {
-                "tiers": {"default": 0.98, "a": 0.95, "b": 0.98, "c": 0.999},  # Base Reliability
-                "stress": {"default": 0.08, "a": 0.15, "b": 0.08, "c": 0.02},  # Alpha Stress
+                "tiers": {"default": 0.98, "a": 0.95, "b": 0.98, "c": 0.999},
+                "stress": {"default": 0.08, "a": 0.15, "b": 0.08, "c": 0.02},
             }
         )
 
-        # --- Inicialização de Snapshots (Training) ---
         if self.is_training:
             self.initial_resource_snapshot = self._initialize_snapshots(self.list_graph)
 
-        # --- Estado do Episódio ---
         self.graph: Graph | None = None
         self.current_sfc: SFC | None = None
         self.current_vnf: VNF | None = None
@@ -123,7 +105,6 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.features = None
         self.forbidden_nodes = []
 
-        # Métricas de uso
         self.ratio_cpu_used = 0
         self.ratio_cache_used = 0
         self.ratio_banda_used = 0
@@ -135,7 +116,6 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.success = False
         self.fail_reason = None
 
-        # --- Definição dos Espaços (Gym) ---
         num_nodes = len(valid_nodes)
         self.action_space = spaces.Discrete(num_nodes)
         self.observation_space = spaces.Dict(
@@ -153,14 +133,10 @@ class SFC_AllocationEnv(gymnasium.Env):
     # =================================================================================
 
     def reset(self, seed=None, options=None):
-        """
-        Reseta o ambiente para o início de um novo episódio.
-        """
         super().reset(seed=seed)
         self.latency_used = 0
         idx = 0
 
-        # Seleção do Cenário (Grafo e SFC)
         if self.is_training:
             idx = np.random.randint(len(self.list_graph))
             self.graph = self.list_graph[idx]
@@ -171,7 +147,6 @@ class SFC_AllocationEnv(gymnasium.Env):
         sfc_sorteada = self.list_sfc[idx]
         self.set_current_sfc(sfc_sorteada)
 
-        # Reset de Variáveis de Controle
         self.success = False
         self.fail_reason = None
         self.allocation_results = {}
@@ -180,7 +155,6 @@ class SFC_AllocationEnv(gymnasium.Env):
         bw_req = self.service_requirements[vnf.id]["out_bw"]
         current_node = self.current_location
 
-        # Atualização de métricas de rede
         self.ratio_cpu_used = get_graph_processing_utilization_simplified(self.graph)
         self.ratio_cache_used = calcular_percentual_cache_total(self.graph)
         self.ratio_banda_used = calcular_percentual_banda_total(self.graph)
@@ -191,22 +165,17 @@ class SFC_AllocationEnv(gymnasium.Env):
         return obs, {}
 
     def step(self, action: int):
-        """
-        Executa um passo no ambiente a partir de uma ação do agente.
-        """
-        # Verificação de segurança: Ação Inválida (MODIFICADO)
-        # Se o agente escolher um nó mascarado, penaliza suavemente.
         self.action_masks()
+
+        # Manteremos o hasattr aqui temporariamente até termos o contrato exato do VNF
         if hasattr(self.current_vnf, "location") and self.current_vnf.location is not None:
             chosen_server = self.current_vnf.location
-        elif self.current_vnf.id == "src_virt":  # Fallback pelo nome
-            # Busca no dicionário se o objeto não tiver o atributo direto
+        elif self.current_vnf.id == "src_virt":
             vnf_data = next(
                 (v for v in self.current_sfc.vnfs_dict if v["name"] == "src_virt"), None
             )
             chosen_server = vnf_data["location"] if vnf_data else self.valid_nodes[action]
         else:
-            # Lógica padrão (Agente decide)
             if action == len(self.valid_nodes) - 1:
                 chosen_server = self.current_sfc.dst_node
             else:
@@ -216,7 +185,6 @@ class SFC_AllocationEnv(gymnasium.Env):
         band_req = self.service_requirements[vnf.id]["out_bw"]
         current_location = self.current_location
 
-        # Calcular caminho e métricas
         path = get_available_shortest_path_fast(
             self.graph, current_location, chosen_server, band_req
         )
@@ -226,40 +194,28 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         total_cost = self._compute_allocation_cost(vnf, chosen_server, path, band_req)
 
-        # 2. Tentar alocar recursos (CPU/cache) no nó escolhido
         if not self.allocate_resources_on_node(chosen_server, self.current_vnf):
             return self._fail_step("resource")
 
-        # 3. Tentar alocar banda no caminho
         if not path or not self.allocate_bandwidth_along_path(path, band_req):
             return self._fail_step("bandwidth")
 
         self.servers_used.append(chosen_server)
 
-        # --- 4. Calcular Recompensa (MODIFICADO) ---
-
-        # Obter confiabilidade do nó escolhido
         node_data = self.graph.nodes[chosen_server]
         reliability = self.get_dynamic_reliability(node_data)
 
-        # Normalizar o custo total (evita gradientes explosivos)
-        # Assumindo que o custo total geralmente fica entre 0 e ~10 dependendo dos pesos
         normalized_cost = total_cost / 5.0
 
-        # Base: Custo normalizado negativo
         reward = -normalized_cost
         reward += self.reward_config["step_reward"]
-
-        # Recompensa baseada na confiabilidade real calculada
         reward += 4.0 * reliability
 
-        # Debug de recompensa (mantido)
         if math.isnan(reward) or math.isinf(reward):
             print(f"--- DEBUG: Recompensa inválida detectada! Valor: {reward} ---")
             print(f"Custo total calculado: {total_cost}")
             assert not (math.isnan(reward) or math.isinf(reward))
 
-        # 5. Atualizar estado para o próximo passo
         self.current_location = chosen_server
         if not self.is_training:
             self.allocation_results[self.current_vnf.id] = {
@@ -270,19 +226,16 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         self.latency_used += calculate_total_latency(self.graph, path, vnf)
 
-        # 6. Verificar conclusão e avançar para a próxima VNF/SFC
         done = False
         if self.current_vnf == self.reverse_vnf_list[-1]:
             done = True
             self.success = True
-            # Adiciona o bônus de sucesso (reduzido para priorizar qualidade)
             reward += self.reward_config["success_bonus"]
             self.current_vnf = None
         else:
             idx = self.reverse_vnf_list.index(self.current_vnf)
             self.current_vnf = self.reverse_vnf_list[idx + 1]
 
-        # 7. Preparar nova observação
         bw_required = (
             self.service_requirements[self.current_vnf.id]["out_bw"] if self.current_vnf else 0
         )
@@ -294,9 +247,6 @@ class SFC_AllocationEnv(gymnasium.Env):
         return obs, reward, done, False, {}
 
     def action_masks(self) -> np.ndarray:
-        """
-        Cria uma máscara de ações válidas para a decisão atual.
-        """
         if self.current_vnf is None:
             return np.zeros(len(self.valid_nodes), dtype=np.int8)
 
@@ -319,12 +269,10 @@ class SFC_AllocationEnv(gymnasium.Env):
     # =================================================================================
 
     def _get_obs(self) -> dict[str, np.ndarray]:
-        """
-        Monta a observação do ambiente de forma estruturada e eficiente usando NumPy.
-        """
-
         primeira_sf = np.zeros(1, dtype=np.float32)
-        self.current_location if not isinstance(self.current_location, str) else "M"
+
+        # REFATORAÇÃO: O código órfão que avaliava "self.current_location if not isinstance..."
+        # sem salvar em nenhuma variável foi completamente limpo.
 
         primeira_sf[0] = (
             1.0
@@ -335,7 +283,6 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         indices_das_features = [0, 1, 2, 3, 4, 5, 7]
         recursos_nodes = self.features[:, indices_das_features].astype(np.float32)
-
         recursos_nodes[:, 4] /= 100
 
         usos_rede = np.array(
@@ -422,29 +369,8 @@ class SFC_AllocationEnv(gymnasium.Env):
             if node_id in self.forbidden_nodes:
                 features[i, 6] = 1
 
-        first_vnf = self.current_sfc.get_previous_vnf(self.current_sfc.get_dst_vnf())
-        first_vnf.get_previous_vnf() if first_vnf else None
-
-        not features[-1, 6]
-
-        # if ((is_1_vnf or is_2_vnf) and valid_node and cache_in_id and self.ratio_cpu_used > 70):
-        #     u = self.current_sfc.dst_node
-        #     v = self.current_sfc.closer_router
-        #     edge = self.graph.edges.get((u, v), {})
-        #     bd_capacity = edge.get('bandwidth_capacity', None)
-        #     if (bd_capacity / bw_required > 4):
-        #         features[:-1, 6] = 1
-
-        # elif ((is_1_vnf) and valid_node and unique_in_id and self.ratio_cpu_used >= 70):
-        #     u = self.current_sfc.dst_node
-        #     v = self.current_sfc.closer_router
-        #     edge = self.graph.edges.get((u, v), {})
-        #     bd_capacity = edge.get('bandwidth_capacity', None)
-        #     if bd_capacity / bw_required > 4:
-        #         features[:-1, 6] = 1
-
-        # else:
-        #     features[-1, 6] = 1
+        # REFATORAÇÃO: Chamadas de função que não salvavam nada na memória e
+        # avaliações booleanas inúteis ("not features[-1, 6]") foram totalmente extirpadas.
         features[-1, 6] = 1
 
         return features
@@ -520,37 +446,29 @@ class SFC_AllocationEnv(gymnasium.Env):
         node_data = self.graph.nodes[server_id]
         factor_weights = self.pesos_fatores
 
-        # --- Verificar reutilização ---
         is_reusable = self.is_reusable_at_node(self.current_sfc, self.graph, server_id, vnf)
 
-        # --- Capacidades ---
         cpu_capacity = node_data.get("cpu_capacity", 1.0) or 1.0
         cache_capacity = node_data.get("cache_capacity", 1.0) or 1.0
 
         cpu_request = vnf.get_cpu_request()
         cache_request = vnf.get_cache_request()
 
-        # --- Custo de CPU e Cache (já normalizados em [0,1]) ---
         cpu_cost = (node_data["cpu_used"] + cpu_request) / cpu_capacity
         cache_cost = (node_data["cache_used"] + cache_request) / cache_capacity
 
-        # --- Penalidade normalizada para não reutilização ---
         if not is_reusable:
             cpu_cost = min(cpu_cost + CPU_PENALTY_NORM, 1.0)
             cache_cost = min(cache_cost + CACHE_PENALTY_NORM, 1.0)
 
-        # --- Banda e Latência (normalizadas) ---
         bw_cost_raw, lat_cost_raw = self.calculate_bw_lat_cost(vnf, server_id, path, bw_required)
 
         lat_cost = min(lat_cost_raw / LAT_MAX, 1.0)
         bw_cost = min(bw_cost_raw / BW_MAX, 1.0)
 
-        # --- Confiabilidade (normalizada em [0,1]) ---
         reliability = self.get_dynamic_reliability(node_data)
-
         reliability_cost = 1.0 - reliability
 
-        # --- Incentivo para nós móveis ---
         incentive_cost = 0.0
         if server_id == self.current_sfc.dst_node:
             network_stress_ratio = max(self.ratio_cpu_used, self.ratio_cache_used) / 100.0
@@ -558,7 +476,6 @@ class SFC_AllocationEnv(gymnasium.Env):
             dynamic_reward = stress_factor**3
             incentive_cost = -dynamic_reward
 
-        # --- Custo total normalizado ---
         total_cost = (
             factor_weights["cpu"] * cpu_cost
             + factor_weights["cache"] * cache_cost
@@ -599,7 +516,6 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.fail_reason = reason
         self.success = False
 
-        # --- Lógica de Falha Diferenciada (MODIFICADO) ---
         if reason == "invalid_action":
             reward = self.reward_config.get("invalid_action_penalty", -20.0)
         elif reason in ["resource", "bandwidth"]:
@@ -631,7 +547,6 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.reverse_vnf_list = self.define_reverse_vnf_list(sfc)
         self.current_vnf = self.reverse_vnf_list[0]
         self.current_location = self.current_sfc.dst_node
-        # self.current_location = getattr(self.current_sfc, 'dst_virt', self.current_sfc.dst_node)
 
         self.servers_used = []
 
@@ -713,22 +628,13 @@ class SFC_AllocationEnv(gymnasium.Env):
             self.reset()
 
     def get_dynamic_reliability(self, node_data: dict) -> float:
-        """
-        Calcula a confiabilidade baseada no Tier do servidor e no Estresse (uso de CPU).
-        """
-        # 1. Identificar capacidade e uso
         cpu_cap = node_data.get("cpu_capacity", 1.0)
-        # Proteção contra divisão por zero
         if cpu_cap <= 0:
             cpu_cap = node_data.get("original_cpu_capacity", 1.0) or 1.0
 
         cpu_used = node_data.get("cpu_used", 0.0)
-
-        # 2. Identificar Tier (Nível)
-        # O Net2 salva isso como 'level_server' (ex: 'a', 'b', 'c')
         server_level = str(node_data.get("level_server", "default")).lower()
 
-        # 3. Buscar parâmetros configurados
         base_r = self.reliability_config["tiers"].get(
             server_level, self.reliability_config["tiers"]["default"]
         )
@@ -736,14 +642,9 @@ class SFC_AllocationEnv(gymnasium.Env):
             server_level, self.reliability_config["stress"]["default"]
         )
 
-        # 4. Cálculo do Estresse
-        utilization = cpu_used / cpu_cap
-        # Garante que não ultrapasse 1.0 no cálculo matemático
-        utilization = min(utilization, 1.0)
-
+        utilization = min(cpu_used / cpu_cap, 1.0)
         stress_penalty = utilization * alpha
 
-        # 5. Confiabilidade Final
         return max(0.0, base_r - stress_penalty)
 
 
@@ -751,15 +652,14 @@ class SFC_AllocationEnv(gymnasium.Env):
 # Funções Auxiliares
 # =================================================================================
 
-
 def calculate_total_latency(graph: Graph, path: list, vnf: VNF):
     total_latency = 0
-
     edge_latency = 0
     for i in range(len(path) - 1):
         u = path[i]
         v = path[i + 1]
         edge_latency += calculate_latency_betwen_nodes(graph, u, v, vnf)
+
     total_latency += edge_latency
 
     last_server = path[-1]

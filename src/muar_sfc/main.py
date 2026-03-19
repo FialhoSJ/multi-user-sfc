@@ -3,10 +3,9 @@ import sys
 import time
 from typing import Any, TypedDict
 
-from loguru import logger 
+from loguru import logger
 
-
-logger.remove() 
+logger.remove()
 logger.add(sys.stderr, format="<cyan>[{file.name}]</cyan> <level>{message}</level>", level="INFO")
 
 from muar_sfc.algorithms.instantiator import AlgorithmInstantiator
@@ -90,8 +89,8 @@ def setup_controller(
 
     network = topology.generate_substrate_network()
     network.set_reliability_params(settings)
-    
-    # Proteção: Caso a biblioteca subjacente ainda exija strings "y"/"n", 
+
+    # Proteção: Caso a biblioteca subjacente ainda exija strings "y"/"n",
     # nós fazemos a conversão aqui, mantendo a tipagem bool limpa no config.py
     share_str = "y" if settings.share else "n"
     network.set_sharing_params(share_str)
@@ -101,7 +100,7 @@ def setup_controller(
     backup_manager = BackupManager(args=settings)
     sfc_manager = SFCManager(settings, backup_manager=backup_manager, alg=alg)
     sfc_manager.alg_name = settings.alg
-    
+
     sfc_instantiator = SFCInstatiator(alg, args=settings)
     fail_manager = Crasher(topology=topology, args=settings)
     mobility_manager = MobilityManager(settings)
@@ -122,7 +121,7 @@ def setup_controller(
         players=settings.n_players,
         flows=settings.n_sessions,
         sfc_name=settings.sfc,
-        verbose=settings.verbose  
+        verbose=settings.verbose
     )
 
     return sbn_controller
@@ -149,7 +148,7 @@ def main() -> None:
 
     sfc_poisson_emitter.start(
         muar_scenario.generate_sfc_session,
-        (None,)  
+        (None,)
     )
 
     simulation_duration = settings.n_sessions * official_rate
@@ -170,7 +169,7 @@ def main() -> None:
     try:
         logger.info("Iniciando a simulação do controlador de rede...")
         sbn_controller.start()
-        
+
         # Mantém a thread principal viva para poder receber o Ctrl+C de forma limpa
         while not sbn_controller.is_stopped:
             time.sleep(1)

@@ -30,7 +30,7 @@ class TelecomPhysics:
         """Calcula a latência de transmissão 5G via modelo de Shannon-Hartley."""
         # Evita log de zero caso a distância seja nula
         dist_segura = max(distancia_m, 1.0)
-        
+
         pl_db = 28.0 + 22 * math.log10(dist_segura) + 20 * math.log10(freq_portadora_hz / 1e9)
         pl_db += random.gauss(0, sigma_shadowing_db)
         ganho = 10 ** (-pl_db / 10)
@@ -41,7 +41,7 @@ class TelecomPhysics:
         snr_linear = max(snr_linear, 10 ** (snr_minimo_db / 10))
 
         taxa_bps = largura_banda_hz * math.log2(1 + snr_linear) * eficiencia_codec
-        
+
         if taxa_bps <= 0:
             return float('inf')
         return (data_bits / taxa_bps) * 1000.0

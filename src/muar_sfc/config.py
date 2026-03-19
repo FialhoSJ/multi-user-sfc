@@ -12,21 +12,21 @@ class SimulationSettings(BaseSettings):
     O Pydantic fará a conversão automática de tipos e validação estrutural nativa.
     """
     model_config = SettingsConfigDict(
-        env_prefix="MUAR_", 
-        env_file=".env", 
-        env_file_encoding="utf-8", 
+        env_prefix="MUAR_",
+        env_file=".env",
+        env_file_encoding="utf-8",
         extra="ignore"
     )
 
-    time: float = 1000.0  
+    time: float = 1000.0
 
     # --- Parâmetros Gerais e de Log ---
     application: str = "muar"
     alg: str = "vegeta"
     sfc_lifetime: int = 120
-    
+
     # REFATORAÇÃO: Uso de booleanos absolutos em vez de strings arcaicas como "y"/"n"
-    verbose: bool = True  
+    verbose: bool = True
 
     # --- Parâmetros de Topologia e Rede ---
     topology: str = "luxembourgv2"
@@ -46,10 +46,10 @@ class SimulationSettings(BaseSettings):
 
     # --- Parâmetros de Confiabilidade e Falhas ---
     backup: bool = False
-    ava: float = 0.99  
+    ava: float = 0.99
     number_of_fails: int = 3
     min_fail_duration: float = 20.0
-    crash_at: list[float] = [60.0, 520.0, 640.0]
+    crash_at: list[float] = [150, 180, 210]
 
     # --- Configuração MICRO (Confiabilidade Base por Nível) ---
     rel_high: float = 0.999
@@ -109,11 +109,11 @@ class SimulationSettings(BaseSettings):
         self.ec_tc_bw = int(self.ia_bw * 0.9 * 0.9 * 0.8)
         self.ec_tc = self.ec_tc_bw * self.cpb
         self.det = self.det_bw * self.cpb
-        
+
         # REFATORAÇÃO LÓGICA: O cálculo de 'ft' foi realocado para o momento correto,
         # impedindo a injeção de 0.0 nas somatórias subsequentes.
         self.ft = self.ft_bw * self.cpb
-        
+
         self.ia_det_ft_bw = int(self.ia_bw + self.det_bw + self.ft_bw)
         self.ia_det_ft = int(self.ia + self.det + self.ft)
         self.total = self.ia + self.det + self.ft + self.ma + self.uni + self.re + self.ec_tc

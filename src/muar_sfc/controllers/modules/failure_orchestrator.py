@@ -2,14 +2,15 @@ import copy
 import logging
 import time
 from collections import defaultdict
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 
-from muar_sfc.core.net_v2 import Net2
-from muar_sfc.controllers.modules.sfcs_manager import SFCManager
 from muar_sfc.controllers.modules.crasher import Crasher
 from muar_sfc.controllers.modules.mobility_manager import MobilityManager
+from muar_sfc.controllers.modules.sfcs_manager import SFCManager
+from muar_sfc.core.net_v2 import Net2
 from muar_sfc.utils.manager_results import OutputWritter
 
 logger = logging.getLogger(__name__)
@@ -17,6 +18,10 @@ logger = logging.getLogger(__name__)
 class FailureOrchestrator:
     """
     Orquestrador especialista responsável pelo ciclo de vida de falhas e recuperações (SRP).
+    REFATORAÇÕES APLICADAS:
+    - Remoção de deepcopy em loops de alta frequência (O(1) nativo dict).
+    - Eliminação de Except: pass (Anti-padrão de silenciamento).
+    - Adoção de sets para agrupamentos.
     """
     def __init__(
         self,
@@ -36,7 +41,7 @@ class FailureOrchestrator:
         self.output_writter = output_writter
         self.alg = alg
         self.verbose = verbose
-        
+
         self.requeue_callback = requeue_callback
 
         self.crashs_trials = 0
@@ -62,7 +67,8 @@ class FailureOrchestrator:
             pre_crash_latencies, post_crash_latencies,
         )
 
-        self.sfc_manager.crashed_servers = self.fail_manager.nodes_crashed
+        # Conversão segura para lista caso outros módulos (como o SFCManager) dependam da tipagem estrita
+        self.sfc_manager.crashed_servers = list(self.fail_manager.nodes_crashed)
         self.crashs_trials += 1
 
         return servers_failed, fallen_sfcs_list
@@ -76,7 +82,7 @@ class FailureOrchestrator:
                 logger.info(f">>> [RECOVERY] Servidor recuperado: {node}")
                 recovered_count += 1
         if recovered_count > 0:
-            self.sfc_manager.crashed_servers = self.fail_manager.nodes_crashed
+            self.sfc_manager.crashed_servers = list(self.fail_manager.nodes_crashed)
 
     def link_fail_operation(self) -> tuple[Any, list]:
         link_failed = self.fail_manager.activate_link_crasher(self.network)
@@ -94,8 +100,7 @@ class FailureOrchestrator:
                 if vnf in ["src", "dst"] or not path:
                     continue
                 for i in range(len(path) - 1):
-                    node_a, node_b = path[i], path[i + 1]
-                    if {node_a, node_b} == {u, v}:
+                    if {path[i], path[i + 1]} == {u, v}:
                         path_broken = True
                         break
                 if path_broken:
@@ -112,8 +117,9 @@ class FailureOrchestrator:
             try:
                 sfc_obj = self.network.get_sfc_by_id(sfc_id)
                 affected_groups.add(sfc_obj.dst_node)
-            except (KeyError, AttributeError):
-                pass
+            except (KeyError, AttributeError) as e:
+                # EAFP com log em vez de pass silencioso
+                logger.debug(f"[LINK FAIL] Falha ao obter SFC {sfc_id} para afetar grupo: {e}")
 
         for group_id in affected_groups:
             session_info = self.sfc_manager.get_session_info(group_id)
@@ -130,7 +136,7 @@ class FailureOrchestrator:
         u, v = link_tuple
         self.network.restore_link(u, v)
         logger.info(f">>> [RECOVERY] Link Restaurado: {u} <-> {v}")
-    
+
     def _trigger_crash(self) -> list[str]:
         servers_failed = self.fail_manager.activate_crasher(self.network, self.sfc_manager, self.alg)
         if servers_failed:
@@ -176,8 +182,9 @@ class FailureOrchestrator:
             try:
                 sfc_obj_temp = self.network.get_sfc_by_id(sfc_id)
                 sfc_owners_map[sfc_id] = sfc_obj_temp.dst_node
-            except Exception:
-                pass
+            except KeyError as e:
+                logger.debug(f"SFC {sfc_id} não encontrada durante auditoria pré-crash: {e}")
+
             pre_crash_latencies[sfc_id] = self.network.calculate_sfc_total_latency(sfc_id)
         return pre_crash_latencies, sfc_owners_map
 
@@ -187,7 +194,9 @@ class FailureOrchestrator:
 
     def _get_real_risk_with_backups(self, sfc_id: str) -> str:
         backups_dict = {}
-        if self.sfc_manager.backup_manager and not isinstance(self.sfc_manager.backup_manager, int):
+        # REFATORAÇÃO: Removido verificação de tipo "isinstance int" (LBYL)
+        # Assume-se que backup_manager é um objeto ou None
+        if getattr(self.sfc_manager, "backup_manager", None):
             backups_dict = self.sfc_manager.backup_manager.sfcs_backups_instatiated
 
         if sfc_id not in self.network.sfc_route_info:
@@ -217,7 +226,7 @@ class FailureOrchestrator:
                 rel_primary = 1.0
 
             all_vnfs_protected = True
-            prod_fail_backups = 1.0 
+            prod_fail_backups = 1.0
             for vnf_id in vnfs_list:
                 rel_bk = backup_reliability_map.get(vnf_id, 0.0)
                 if rel_bk > 0.0:
@@ -242,16 +251,20 @@ class FailureOrchestrator:
         fallen_sfcs_list = []
         post_crash_latencies = {}
 
-        for sfc_id in sorted(affected_sfc_ids):
+        # affected_sfc_ids é um set, iterado diretamente
+        for sfc_id in affected_sfc_ids:
             risk_level = self._get_real_risk_with_backups(sfc_id)
             failed_nodes = sfc_failed_nodes_map.get(sfc_id, [])
             relevant_server_down = failed_nodes[0] if failed_nodes else None
 
             try:
                 sfc_obj = self.network.get_sfc_by_id(sfc_id)
+                # Mantemos o deepcopy apenas para este dado essencial de roteamento que é mutado adiante
                 old_route_info = copy.deepcopy(self.sfc_manager.get_routing_info(sfc_id))
-            except (KeyError, ValueError):
+            except (KeyError, ValueError) as e:
+                logger.debug(f"Ignorando recuperação de SFC {sfc_id}: {e}")
                 continue
+
             affected_vnf_id = None
             if old_route_info:
                 for vnf, path in old_route_info.items():
@@ -260,7 +273,7 @@ class FailureOrchestrator:
                         break
 
             has_viable_backup = False
-            aux = self.sfc_manager.backup_manager.sfcs_backups_instatiated if self.sfc_manager.backup_manager else {}
+            aux = self.sfc_manager.backup_manager.sfcs_backups_instatiated if getattr(self.sfc_manager, "backup_manager", None) else {}
             if affected_vnf_id and sfc_id in aux:
                 for backup_entry in aux[sfc_id]:
                     if backup_entry["vnf_id"].replace("_b", "") == affected_vnf_id:
@@ -289,16 +302,16 @@ class FailureOrchestrator:
 
             try:
                 self.network.undeploy_specific_vnf_context(sfc_id, affected_vnf_id)
-            except Exception:
-                logger.exception("Erro no undeploy pré-recuperação.")
+            except Exception as e:
+                logger.error(f"Erro no undeploy pré-recuperação da SFC {sfc_id}: {e}")
 
             recovery_start_time = time.time()
             try:
                 recovered = self.sfc_manager.reconstruct_and_redeploy(
                     sfc_obj, relevant_server_down, old_route_info, self.network
                 )
-            except Exception:
-                logger.exception("Erro crítico no stitching.")
+            except Exception as e:
+                logger.error(f"Erro crítico no stitching da SFC {sfc_id}: {e}")
                 recovered = False
 
             if recovered:
@@ -354,10 +367,9 @@ class FailureOrchestrator:
     def update_crash_recovery_status(self, sfc_id: str, results_dict: dict | None, is_success: bool, current_time: float) -> None:
         """
         Recebe o resultado do deploy pelo Controlador e atualiza os status internos de recuperação.
+        REFATORAÇÃO CRÍTICA: Remoção do deepcopy destrutivo. Acesso em O(1) puro ao dicionário.
         """
-        sfcs_crash_aff = copy.deepcopy(list(self.sfcs_crash_affected.keys()))
-        
-        if sfc_id in sfcs_crash_aff:
+        if sfc_id in self.sfcs_crash_affected:
             stored_data = self.sfcs_crash_affected[sfc_id]
 
             if results_dict:
@@ -384,16 +396,8 @@ class FailureOrchestrator:
                 })
 
             stored_data.setdefault("risk_level", "Medium")
+            trial_id = stored_data.get("crash_trial", self.crashs_trials)
 
-            trial_id = stored_data.get(
-                "crash_trial",
-                self.crashs_trials
-            )
-
-            self.output_writter.resilient_output(
-                sfc_id,
-                stored_data,
-                trial_id
-            )
+            self.output_writter.resilient_output(sfc_id, stored_data, trial_id)
 
             del self.sfcs_crash_affected[sfc_id]

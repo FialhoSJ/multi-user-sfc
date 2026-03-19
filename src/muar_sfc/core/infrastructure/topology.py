@@ -1,10 +1,11 @@
 import random
+
 import networkx as nx
-from typing import Any
 from loguru import logger
 
 # Assumindo que você criou o enums.py no Passo 1
-from muar_sfc.core.infrastructure.enums import NodeType, NodeLevel
+from muar_sfc.core.infrastructure.enums import NodeLevel, NodeType
+
 
 class TopologyManager:
     """

@@ -1,16 +1,17 @@
 import re
-import networkx as nx
-import numpy as np
-from typing import Any
-from loguru import logger
 from collections import defaultdict
 from contextlib import suppress
+from typing import Any
 
-from muar_sfc.core.infrastructure.enums import NodeType, NodeLevel, SHAREABLE_PREFIXES
-from muar_sfc.core.infrastructure.topology import TopologyManager
-from muar_sfc.core.infrastructure.resource_allocator import ResourceAllocator
-from muar_sfc.core.network_metrics import NetworkMetrics
+import networkx as nx
+import numpy as np
+from loguru import logger
+
+from muar_sfc.core.infrastructure.enums import SHAREABLE_PREFIXES, NodeLevel
 from muar_sfc.core.infrastructure.physics import TelecomPhysics
+from muar_sfc.core.infrastructure.resource_allocator import ResourceAllocator
+from muar_sfc.core.infrastructure.topology import TopologyManager
+from muar_sfc.core.network_metrics import NetworkMetrics
 from muar_sfc.core.vnf import VNF
 
 # =========================================================================
@@ -180,7 +181,7 @@ class Net2:
                     elif isinstance(u, str): self.release_wireless_bandwidth(v, u, ms_name)
                     else: self.release_bandwidth(u, v, ms_name)
         except ValueError:
-            pass 
+            pass
 
     def _remove_sfc_from_registry(self, sfc_id):
         if sfc_id in self.sfc_dict: del self.sfc_dict[sfc_id]
@@ -229,7 +230,7 @@ class Net2:
             ips = self.md_graph.nodes[node]["ips"] if self.is_mobile_node(node) else self.graph.nodes[node]["ips"]
         except KeyError:
             return float('inf')
-            
+
         packet = (vnf.get_income_interface_bandwidth() / 60) * 1e6
         return (packet * 10 * 1000) / ips if ips > 0 else float('inf')
 
@@ -264,7 +265,7 @@ class Net2:
 
             allocated_node = allocation_path[0]
             ips = self.md_graph.nodes[allocated_node]["ips"] if self.is_mobile_node(allocated_node) else self.graph.nodes[allocated_node]["ips"]
-            
+
             packet = (next_vnf.get_income_interface_bandwidth() / 60) * 1e6
             total_latency += (packet * 10 * 1000) / ips if ips > 0 else float('inf')
 
@@ -308,7 +309,7 @@ class Net2:
             sfc_reliability = 1.0
             for primary_node, vnfs_list in node_groups.items():
                 try: r_primary = self.get_node_reliability(primary_node)
-                except (KeyError, AttributeError): r_primary = 1.0 
+                except (KeyError, AttributeError): r_primary = 1.0
 
                 all_vnfs_protected = True
                 prob_backups_fail_combined = 1.0
@@ -331,7 +332,7 @@ class Net2:
             node = self.graph.nodes[node_id]
         except KeyError:
             raise ValueError(f"Nó {node_id} inexistente.")
-            
+
         node["is_active"] = False
         node.setdefault("original_cpu_capacity", node.get("cpu_capacity", 0.0))
         node.setdefault("original_cache_capacity", node.get("cache_capacity", 0.0))
@@ -343,19 +344,19 @@ class Net2:
             node = self.graph.nodes[node_id]
         except KeyError:
             raise ValueError(f"Nó {node_id} inexistente.")
-            
+
         node["is_active"] = True
         node["cpu_capacity"] = cpu_capacity if cpu_capacity is not None else node.get("original_cpu_capacity", 100.0)
         node["cache_capacity"] = cache_capacity if cache_capacity is not None else node.get("original_cache_capacity", 100.0)
         node.pop("original_cpu_capacity", None)
         node.pop("original_cache_capacity", None)
-        
+
     def set_link_down(self, u: str | int, v: str | int) -> None:
         try:
             edge = self.graph.edges[u, v]
         except KeyError:
             raise ValueError(f"Link {u}-{v} inexistente.")
-            
+
         edge.setdefault("original_bw", edge.get("bandwidth_capacity", 1000.0))
         edge.setdefault("original_lat", edge.get("latency", 1.0))
         edge["bandwidth_capacity"] = 0.0
@@ -415,7 +416,7 @@ class Net2:
 
         try: used_cpu, cap_cpu, lvl_cpu, active_cpu = get_part_data(int(base_id))
         except ValueError: used_cpu, cap_cpu, lvl_cpu, active_cpu = get_part_data(base_id)
-            
+
         try: used_gpu, cap_gpu, lvl_gpu, active_gpu = get_part_data(float(gpu_id))
         except ValueError: used_gpu, cap_gpu, lvl_gpu, active_gpu = get_part_data(gpu_id)
 
@@ -428,10 +429,10 @@ class Net2:
         level_key = str(server_level).lower()
         base_r = self.tier_reliability.get(level_key, self.tier_reliability[NodeLevel.DEFAULT.value])
         alpha = self.alpha_stress.get(level_key, self.alpha_stress[NodeLevel.DEFAULT.value])
-        
+
         return max(0.0, base_r - ((used_cpu + used_gpu) / total_capacity) * alpha)
-    
-    
+
+
     # =========================================================================
     # ALGORITMOS DE CAMINHO MÍNIMO E ROTEAMENTO
     # =========================================================================
@@ -463,7 +464,7 @@ class Net2:
     # =========================================================================
     # 5. GETTERS (EAFP Aplicado) E MÉTODOS AUXILIARES
     # =========================================================================
-    
+
     def get_link_bandwidth_used(self, node1, node2):
         try:
             return self.graph.edges[node1, node2]["bandwidth_used"]
@@ -554,8 +555,8 @@ class Net2:
         valid_view = nx.subgraph_view(self.graph, filter_edge=filter_edge)
         try: return nx.dijkstra_path(valid_view, source, target, weight="latency")
         except (nx.NetworkXNoPath, nx.NodeNotFound): return None
-        
-        
+
+
     # --- MÉTODOS AUXILIARES DE ORQUESTRAÇÃO E ESTADO ---
 
     def get_shareable_sfs(self):
@@ -681,10 +682,10 @@ class Net2:
 
     def _is_gpu_node(self, node_id):
         return str(node_id).endswith(".1")
-    
+
     def update(self):
         pass
-    
+
     def get_mobile_cpu_utilization_percentage(self):
         cap = sum(d.get("cpu_capacity", 0.0) for n, d in self.md_graph.nodes(data=True) if not self._is_gpu_node(n))
         return (self.metrics.mobile_cpu_used / cap) * 100 if cap > 0 else 0.0
@@ -696,7 +697,7 @@ class Net2:
     def get_mobile_cache_utilization_percentage(self):
         cap = sum(d.get("cache_capacity", 0.0) for n, d in self.md_graph.nodes(data=True))
         return (self.metrics.mobile_cache_used / cap) * 100 if cap > 0 else 0.0
-    
+
     def get_total_system_processing_utilization_rate(self):
         total_processing_used = self.get_cpu_total_used() + self.get_gpu_total_used()
         total_processing_capacity = (

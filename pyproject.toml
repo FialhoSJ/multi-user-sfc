@@ -17,7 +17,7 @@ dependencies = [
     "matplotlib",
     "numpy",
     "simpy",
-    "sumo", # Nota: se for o simulador de tráfego Eclipse SUMO, geralmente usa-se 'sumolib' e 'traci' no PyPI
+    "sumo", 
     "scipy",
     "shapely",
     "deap",
@@ -27,13 +27,18 @@ dependencies = [
     "sb3-contrib>=2.7.1",
     "traci>=1.26.0",
     "pydantic-settings>=2.13.1",
-    "loguru", # Adicionado para observabilidade e logs estruturados
+    "loguru",
 ]
+
+# --- NOVA SEÇÃO: PONTOS DE ENTRADA DO SISTEMA (CLI) ---
+[project.scripts]
+muar-sim = "muar_sfc.main:main"
+muar-sim-paralelo = "muar_sfc.parallel_runner:main"
+muar-sim-seq = "muar_sfc.sequential_runner:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/muar_sfc"]
 
-# Centralize todas as ferramentas de desenvolvimento aqui
 [dependency-groups]
 dev = [
     "ipykernel",
@@ -42,29 +47,26 @@ dev = [
     "ruff>=0.15.5",
 ]
 
-# Configurações centralizadas de ferramentas
 [tool.ruff]
 extend-exclude = ["*.ipynb"]
 line-length = 99
 target-version = "py312"
 
 [tool.ruff.lint]
-# Ativando as regras sêniores de engenharia
 select = [
     "E",   # pycodestyle errors
     "W",   # pycodestyle warnings
     "F",   # pyflakes
     "I",   # isort (ordenação de imports)
-    "B",   # flake8-bugbear (bugs comuns e problemas de design)
-    "UP",  # pyupgrade (força sintaxe moderna do Python 3.12)
-    "SIM", # flake8-simplify (simplifica lógicas redundantes)
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade 
+    "SIM", # flake8-simplify
 ]
 
 [tool.pytest.ini_options]
 minversion = "7.0"
 testpaths = ["tests"]
 
-# --- Configuração do Pyright ajustada para Tipagem Gradual ---
 [tool.pyright]
 include = ["src"]
 exclude = [
@@ -74,12 +76,7 @@ exclude = [
     ".git",
     "tests"
 ]
-# Reduzindo para 'basic' para focar em erros de sintaxe e tipagens já declaradas, 
-# sem exigir "Type Completeness" do projeto legado todo.
 typeCheckingMode = "basic"
-
-# Desligando os alertas específicos de inferência dinâmica ("Unknown") 
-# para silenciar o ruído nos módulos que ainda não foram refatorados.
 reportMissingTypeStubs = false
 reportUnknownMemberType = false
 reportUnknownParameterType = false

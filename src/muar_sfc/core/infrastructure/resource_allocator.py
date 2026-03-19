@@ -1,11 +1,11 @@
 import re
 from typing import Any
-from loguru import logger
 
-from muar_sfc.core.vnf import VNF
+from muar_sfc.core.infrastructure.enums import SHAREABLE_PREFIXES
 from muar_sfc.core.infrastructure.topology import TopologyManager
 from muar_sfc.core.network_metrics import NetworkMetrics
-from muar_sfc.core.infrastructure.enums import SHAREABLE_PREFIXES
+from muar_sfc.core.vnf import VNF
+
 
 def extrair_sessao(s: str) -> str | None:
     match = re.search(r"p\d+_(\d+)(?:_|$)", s)
@@ -34,7 +34,7 @@ class ResourceAllocator:
         session = getattr(sfc, "session_id", extrair_sessao(sfc_id) or sfc_id.split("_")[-1])
 
         node = self.topology.get_node(node_id)
-        
+
         if not node.get("is_active", True):
             raise ValueError(f"Falha crítica: nó {node_id} inativo para alocação.")
 
@@ -66,7 +66,7 @@ class ResourceAllocator:
 
         clean_current_id = service_id.replace("_b", "")
         compatible_instance_found = False
-        
+
         if self._is_shareable(service_id) or self._is_shareable(clean_current_id):
             for existing_id, existing_session in node.get("services", {}):
                 if existing_id.replace("_b", "") == clean_current_id and existing_session == session:
@@ -83,7 +83,7 @@ class ResourceAllocator:
             services_dict[service_key]["copys"] += 1
 
             if not self._is_shareable(service_id):
-                if (node["cpu_used"] + cpu_required > node["cpu_capacity"] or 
+                if (node["cpu_used"] + cpu_required > node["cpu_capacity"] or
                     node["cache_used"] + cache_required > node["cache_capacity"]):
                     services_dict[service_key]["copys"] -= 1
                     node["sfcs_list"].remove(sfc_id)
@@ -94,7 +94,7 @@ class ResourceAllocator:
                 else: self.metrics.total_cpu_saved += cpu_required
                 self.metrics.total_cache_saved += cache_required
                 self.metrics.shared_vnfs_count += 1
-        
+
         else:
             cost_cpu = 0 if compatible_instance_found else cpu_required
             cost_cache = 0 if compatible_instance_found else cache_required
@@ -105,7 +105,7 @@ class ResourceAllocator:
                 self.metrics.total_cache_saved += cache_required
                 self.metrics.shared_vnfs_count += 1
 
-            if (node["cpu_used"] + cost_cpu > node["cpu_capacity"] or 
+            if (node["cpu_used"] + cost_cpu > node["cpu_capacity"] or
                 node["cache_used"] + cost_cache > node["cache_capacity"]):
                 if sfc_id in node["sfcs_list"]:
                     node["sfcs_list"].remove(sfc_id)
@@ -119,7 +119,7 @@ class ResourceAllocator:
 
     def allocate_bandwidth(self, node1: str | int, node2: str | int, bw_required: float, ms_name: str, is_backup: bool = False) -> None:
         edge = self.topology.get_edge(node1, node2)
-        
+
         current_reserved = edge.get("bandwidth_reserved", 0.0)
         total_committed = edge.get("bandwidth_used", 0.0) + current_reserved
 
@@ -145,7 +145,7 @@ class ResourceAllocator:
     def allocate_wireless_bandwidth(self, node1: str | int, node2: str | int, bw_required: float, ms_name: str) -> None:
         router = self.topology.get_node(node1)
         w_services = router.setdefault("w_services", {})
-        
+
         if ms_name in w_services:
             w_services[ms_name]["copys"] += 1
             router["w_channel_used"] += bw_required
@@ -156,13 +156,13 @@ class ResourceAllocator:
             w_services[ms_name] = {"copys": 1, "bw_used": bw_required}
             router["w_channel_used"] = router.get("w_channel_used", 0.0) + bw_required
             self.metrics.total_bandwidth_used += bw_required
-            
+
     def deallocate_microservice(self, node_id: str | int, sfc_id: str, vnf: VNF) -> None:
         try:
             node = self.topology.get_node(node_id)
         except ValueError:
-            return 
-            
+            return
+
         service_id = vnf.id
         session_id = extrair_sessao(sfc_id)
         service_key = (service_id, session_id)
@@ -174,7 +174,7 @@ class ResourceAllocator:
         cache_req = vnf.get_cache_request()
         is_gpu_node = self._is_gpu_node(node_id)
         is_mobile = node.get("type") == "mobile_device"
-        
+
         service_info = node["services"][service_key]
         service_info["copys"] -= 1
         remove_physical_instance = service_info["copys"] <= 0
@@ -255,10 +255,10 @@ class ResourceAllocator:
             router = self.topology.get_node(node1)
         except ValueError:
             return
-            
+
         services = router.get("w_services", {})
         if ms_name not in services:
-            return 
+            return
 
         services[ms_name]["copys"] -= 1
         bw_to_release = services[ms_name]["bw_used"]

@@ -4,10 +4,10 @@ from typing import Any
 
 from loguru import logger
 
-from muar_sfc.core.net_v2 import Net2
-from muar_sfc.core.sfc import SFC
 from muar_sfc.controllers.modules.backup_manager import BackupManager
 from muar_sfc.controllers.modules.sfc_state_tracker import SFCStateTracker
+from muar_sfc.core.net_v2 import Net2
+from muar_sfc.core.sfc import SFC
 
 
 class SFCDeployer:
@@ -74,7 +74,7 @@ class SFCDeployer:
                 try:
                     # Remove o rastro físico
                     substrate_network.undeploy_sfc(sfc_id)
-                    
+
                     # Remove o rastro lógico via abordagem EAFP
                     self.tracker.sfcs_routing_info.pop(sfc_id, None)
 
@@ -139,7 +139,7 @@ class SFCDeployer:
                     substrate_network.undeploy_sfc(z_id)
                 except Exception:
                     logger.exception(f"[GC] Erro crítico ao limpar zumbi {z_id} da infraestrutura.")
-                    
+
     def safe_network_removal(self, sfc_id: str, substrate_network: Net2) -> None:
         """
         Remove com segurança uma SFC da infraestrutura física (SRP).

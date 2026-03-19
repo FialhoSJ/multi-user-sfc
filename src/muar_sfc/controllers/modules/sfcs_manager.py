@@ -1,14 +1,15 @@
 from typing import Any
+
 from loguru import logger
 
-from muar_sfc.core.net_v2 import Net2
-from muar_sfc.core.sfc import SFC
 from muar_sfc.controllers.modules.backup_manager import BackupManager
+from muar_sfc.controllers.modules.sfc_deployer import SFCDeployer
+from muar_sfc.controllers.modules.sfc_recovery_service import SFCRecoveryService
 
 # Importando nossos novos sub-módulos refatorados
 from muar_sfc.controllers.modules.sfc_state_tracker import SFCStateTracker
-from muar_sfc.controllers.modules.sfc_deployer import SFCDeployer
-from muar_sfc.controllers.modules.sfc_recovery_service import SFCRecoveryService
+from muar_sfc.core.net_v2 import Net2
+from muar_sfc.core.sfc import SFC
 
 
 class SFCManager:
@@ -26,10 +27,10 @@ class SFCManager:
 
         # 1. Instancia o guardião do estado
         self.tracker = SFCStateTracker()
-        
+
         # 2. Instancia o serviço de deploy (Injetando o estado nele)
         self.deployer = SFCDeployer(self.tracker, self.verbose)
-        
+
         # 3. Instancia o serviço de recuperação de falhas
         self.recovery_service = SFCRecoveryService(
             self.tracker, self.backup_manager, self.verbose
@@ -89,32 +90,32 @@ class SFCManager:
 
     def deploy_failed(self, sfc: SFC) -> None:
         if self.verbose: logger.warning(f"Deploy FAILED: {sfc.id}")
-        
+
     def cleanup_network_resources(self, substrate_network: Net2, current_time: float) -> None:
         """Remove instâncias expiradas e lixo da rede física orquestrando os serviços."""
-        
+
         # 1. Limpa sessões expiradas
         expired_sessions = self.get_expired_sessions(current_time)
         for session_id in expired_sessions:
             logger.debug(f"[DESALOCAÇÃO] Iniciando limpeza da sessão expirada: {session_id}")
             sfc_ids = self.cleanup_session_state(session_id)
-            
+
             for sfc_id in sfc_ids:
                 # DELEGAÇÃO PURA: O Deployer remove a SFC primária
                 self.deployer.safe_network_removal(sfc_id, substrate_network)
-        
+
         # 2. Limpa Backups (se ativado)
         if self.backup_manager:
             obsolete_backups = self.backup_manager.identify_obsolete_backups()
             for backup_id in obsolete_backups:
                 # DELEGAÇÃO PURA: O Deployer remove o Backup
                 self.deployer.safe_network_removal(backup_id, substrate_network)
-    
+
     def is_session_active(self, session_id: str) -> bool:
         """Verifica de forma segura se uma sessão (SFC) já está ativa na rede."""
         return session_id in self.tracker.sfcs_tracker
-    
-    
+
+
     # ==========================================
     # Delegação: Contratos de Estado (Leitura Segura)
     # ==========================================

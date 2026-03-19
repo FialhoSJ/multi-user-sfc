@@ -616,8 +616,8 @@ class OutputWritter:
         # ... (código anterior) ...
         # Agora o próprio OutputWritter (self) imprime o painel, passando a rede como argumento!
         self.print_telemetry_dashboard(substrate_network, success)
-        
-        
+
+
     # =========================================================================
     # PAINÉIS DE TELEMETRIA (Movidos da classe Net2 para o OutputWritter - SRP)
     # =========================================================================
@@ -639,7 +639,7 @@ class OutputWritter:
 
         cpu_save = (network.metrics.total_cpu_saved / network.metrics.total_cpu_requested * 100) if network.metrics.total_cpu_requested > 0 else 0.0
         gpu_save = (network.metrics.total_gpu_saved / network.metrics.total_gpu_requested * 100) if network.metrics.total_gpu_requested > 0 else 0.0
-        
+
         cache_cap = network.total_cache_capacity if hasattr(network, 'total_cache_capacity') and network.total_cache_capacity > 0 else 1.0
         cache_util = ((network.metrics.total_cache_used + network.metrics.mobile_cache_used) / cache_cap * 100)
         cache_save = (network.metrics.total_cache_saved / network.metrics.total_cache_requested * 100) if network.metrics.total_cache_requested > 0 else 0.0
@@ -651,7 +651,7 @@ class OutputWritter:
         bw_cap = network.total_bandwidth_capacity if hasattr(network, 'total_bandwidth_capacity') and network.total_bandwidth_capacity > 0 else 1.0
         bw_util = (network.metrics.total_bandwidth_used * 1.0 / bw_cap * 100)
 
-        import numpy as np # Certifique-se de que o numpy está importado no topo deste ficheiro
+        import numpy as np  # Certifique-se de que o numpy está importado no topo deste ficheiro
         media_porc = np.mean(success_arr) * 100 if len(success_arr) > 0 else 0.0
 
         band_failure_str = f"│ ◦ Band Failure  : {failure_band}%\n" if failure_band is not None else ""

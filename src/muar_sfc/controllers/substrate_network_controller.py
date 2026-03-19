@@ -1,4 +1,3 @@
-import copy
 import random
 import sys
 import threading
@@ -10,13 +9,13 @@ from loguru import logger
 
 from muar_sfc.controllers.modules.backup_manager import BackupManager
 from muar_sfc.controllers.modules.crasher import Crasher
+from muar_sfc.controllers.modules.failure_orchestrator import FailureOrchestrator
 from muar_sfc.controllers.modules.mobility_manager import MobilityManager
 from muar_sfc.controllers.modules.sfcs_instatiator import SFCInstatiator
 from muar_sfc.controllers.modules.sfcs_manager import SFCManager
 from muar_sfc.controllers.sfc_queue import SFCQueue
 from muar_sfc.core.net_v2 import Net2
 from muar_sfc.utils.manager_results import OutputWritter
-from muar_sfc.controllers.modules.failure_orchestrator import FailureOrchestrator
 from muar_sfc.utils.network_utils import EnergyCalculator
 
 
@@ -36,7 +35,7 @@ class SubstrateNetworkController:
         mobility_manager: MobilityManager | None = None,
         players: int = 6,
         flows: int = 0,
-        sfc_name: bool = True,  
+        sfc_name: bool = True,
         verbose: bool = False
     ):
         self.substrate_network = substrate_network
@@ -48,11 +47,11 @@ class SubstrateNetworkController:
         self.backup_manager = backup_manager
         self.mobility_manager = mobility_manager
         self.energy_calculator = energy_calculator or EnergyCalculator()
-        
+
         self.alg = alg
         self.players = players
         self.flows = flows
-        self.sfc = sfc_name 
+        self.sfc = sfc_name
         self.verbose = verbose
         self.is_stopped = True
         self.start_time = 0.0
@@ -122,7 +121,7 @@ class SubstrateNetworkController:
             self.handle_mobility()
             self.handle_backups()
             self.handle_fails()
-            
+
             processed_sfcs = self.submit_sfcs()
             if self.check_simulation_end(processed_sfcs):
                 self.stop()
@@ -263,11 +262,11 @@ class SubstrateNetworkController:
             return
 
         session_id = sfc_list[0].dst_node
-        
+
         new_sfcs, remaining_dur = self.sfc_manager.rebuild_sfcs_for_requeue(
             sfc_list, changed_location, new_location
         )
-        
+
         if remaining_dur <= 1.0:
             if self.verbose:
                 logger.info(f"[Queue] Sessão {session_id} expirou durante falha. Cancelando re-deploy.")
@@ -298,8 +297,8 @@ class SubstrateNetworkController:
                 self.timer_qeue_sfcs = []
 
     def check_mobility(self, interval: int = 5) -> None:
-        if self.sfc_manager.tracker.sfcs_tracker:  
-            sfcs_moved, new_locations = self.mobility_manager.check_all_vehicles_position_changes()            
+        if self.sfc_manager.tracker.sfcs_tracker:
+            sfcs_moved, new_locations = self.mobility_manager.check_all_vehicles_position_changes()
             for sfc_list, new_location in zip(sfcs_moved, new_locations, strict=False):
                 obj_sfc_list = []
                 valid_move = True
@@ -339,26 +338,26 @@ class SubstrateNetworkController:
     def handle_resources_cleanup(self) -> None:
         """Delega a desalocação de recursos físicos ao SFCManager."""
         current_time = time.time()
-        
+
         self.sfc_manager.cleanup_network_resources(self.substrate_network, current_time)
-        
+
         if self.iteration_counter % 10 == 0:
             self.sfc_manager.run_garbage_collection(self.substrate_network)
 
     # Indentação corrigida a partir daqui
     def _force_remove_sfc_and_backups(self, sfc_id: str) -> None:
         bm = self.sfc_manager.backup_manager
-        
+
         if bm and sfc_id in bm.sfcs_backups_instatiated:
             backups_list = list(bm.sfcs_backups_instatiated[sfc_id])
             for backup_entry in backups_list:
                 self._safe_undeploy_backup(backup_entry["sfc_backup_id"])
-                
+
         try:
             self.substrate_network.undeploy_sfc(sfc_id)
         except Exception as e:
             logger.error(f"[FALHA DE DESALOCAÇÃO] Erro CRÍTICO ao remover SFC {sfc_id} da infraestrutura física.")
-            logger.exception(e)  
+            logger.exception(e)
 
     def _safe_undeploy_backup(self, backup_id: str) -> None:
         try:
@@ -366,7 +365,7 @@ class SubstrateNetworkController:
         except Exception as e:
             logger.error(f"[FALHA DE DESALOCAÇÃO] Erro CRÍTICO ao remover backup {backup_id} da infraestrutura física.")
             logger.exception(e)
-            
+
         if self.sfc_manager.backup_manager:
             self.sfc_manager.backup_manager.cleanup_internal_state(backup_id)
 
