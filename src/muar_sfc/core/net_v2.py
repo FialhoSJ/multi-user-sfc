@@ -141,34 +141,34 @@ class Net2:
         return True
 
     def undeploy_sfc(self, sfc_id):
-        if sfc_id not in self.sfc_dict:
-            return
+            if sfc_id not in self.sfc_dict:
+                return
 
-        try:
-            sfc = self.sfc_dict[sfc_id]
-            route_info = self.sfc_route_info.get(sfc_id, {})
+            try:
+                sfc = self.sfc_dict[sfc_id]
+                route_info = self.sfc_route_info.get(sfc_id, {})
 
-            for ms_name, path in list(route_info.items()):
-                if ms_name in ["src", "dst"] or "virt" in ms_name or not path:
-                    continue
+                for ms_name, path in list(route_info.items()):
+                    if ms_name in ["src", "dst"] or "virt" in ms_name or not path:
+                        continue
 
-                node_allocated = path[0]
-                node_exists = (node_allocated in self.graph) or (node_allocated in self.md_graph)
+                    node_allocated = path[0]
+                    node_exists = (node_allocated in self.graph) or (node_allocated in self.md_graph)
 
-                if node_exists:
-                    try:
+                    if node_exists:
+                        # FAIL-FAST: Erros de desalocação não são ignorados.
                         vnf = sfc.get_vnf_by_id(ms_name)
                         self.deallocate_microservice(node_allocated, sfc_id, vnf)
-                    except Exception as e:
-                        if self.verbose: logger.warning(f"Falha parcial ao desalocar VNF: {e}")
 
-                if len(path) > 1:
-                    self._safe_release_bandwidth(path, ms_name)
+                    if len(path) > 1:
+                        self._safe_release_bandwidth(path, ms_name)
 
-        except Exception as critical_error:
-            if self.verbose: logger.error(f"Erro crítico durante undeploy de {sfc_id}: {critical_error}")
-        finally:
-            self._remove_sfc_from_registry(sfc_id)
+            except (KeyError, ValueError) as critical_error:
+                if self.verbose: 
+                    logger.error(f"Erro crítico (corrupção de grafo) durante undeploy de {sfc_id}: {critical_error}")
+                raise RuntimeError(f"O grafo físico dessincronizou ao tentar remover {sfc_id}.") from critical_error
+            finally:
+                self._remove_sfc_from_registry(sfc_id)
 
     def _safe_release_bandwidth(self, path, ms_name):
         try:
@@ -192,34 +192,35 @@ class Net2:
         self.metrics.total_bandwidth_used = max(0.0, self.metrics.total_bandwidth_used)
 
     def undeploy_specific_vnf_context(self, sfc_id, vnf_id_to_remove):
-        if sfc_id not in self.sfc_dict or not self.sfc_route_info.get(sfc_id):
-            return False
+            if sfc_id not in self.sfc_dict or not self.sfc_route_info.get(sfc_id):
+                return False
 
-        sfc = self.sfc_dict[sfc_id]
-        route_info = self.sfc_route_info[sfc_id]
-        vnf_target = sfc.get_vnf_by_id(vnf_id_to_remove)
-        if not vnf_target: return False
+            sfc = self.sfc_dict[sfc_id]
+            route_info = self.sfc_route_info[sfc_id]
+            vnf_target = sfc.get_vnf_by_id(vnf_id_to_remove)
+            if not vnf_target: return False
 
-        vnf_prev = sfc.get_previous_vnf(vnf_target)
+            vnf_prev = sfc.get_previous_vnf(vnf_target)
 
-        if vnf_id_to_remove in route_info:
-            path = route_info[vnf_id_to_remove]
-            if path:
-                with suppress(ValueError):
+            if vnf_id_to_remove in route_info:
+                path = route_info[vnf_id_to_remove]
+                if path:
+                    # FAIL-FAST: Sem a supressão cega. Se der erro no recurso físico, alertamos.
                     self.deallocate_microservice(path[0], sfc_id, vnf_target)
-                if len(path) > 1:
-                    self._safe_release_bandwidth(path, vnf_id_to_remove)
+                    
+                    if len(path) > 1:
+                        self._safe_release_bandwidth(path, vnf_id_to_remove)
 
-            del route_info[vnf_id_to_remove]
+                del route_info[vnf_id_to_remove]
 
-            if vnf_prev and vnf_prev.id != "src" and vnf_prev.id in route_info:
-                path_prev = route_info[vnf_prev.id]
-                if len(path_prev) > 1:
-                    self._safe_release_bandwidth(path_prev, vnf_prev.id)
-                if path_prev:
-                    route_info[vnf_prev.id] = [path_prev[0]]
+                if vnf_prev and vnf_prev.id != "src" and vnf_prev.id in route_info:
+                    path_prev = route_info[vnf_prev.id]
+                    if len(path_prev) > 1:
+                        self._safe_release_bandwidth(path_prev, vnf_prev.id)
+                    if path_prev:
+                        route_info[vnf_prev.id] = [path_prev[0]]
 
-        return True
+            return True
 
     # =========================================================================
     # 3. FÍSICA E CÁLCULO DE LATÊNCIA

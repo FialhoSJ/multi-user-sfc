@@ -1,11 +1,10 @@
-import copy
-import logging
 import time
 from collections import defaultdict
 from collections.abc import Callable
 from typing import Any
 
 import numpy as np
+from loguru import logger
 
 from muar_sfc.controllers.modules.crasher import Crasher
 from muar_sfc.controllers.modules.mobility_manager import MobilityManager
@@ -13,15 +12,10 @@ from muar_sfc.controllers.modules.sfcs_manager import SFCManager
 from muar_sfc.core.net_v2 import Net2
 from muar_sfc.utils.manager_results import OutputWritter
 
-logger = logging.getLogger(__name__)
 
 class FailureOrchestrator:
     """
     Orquestrador especialista responsável pelo ciclo de vida de falhas e recuperações (SRP).
-    REFATORAÇÕES APLICADAS:
-    - Remoção de deepcopy em loops de alta frequência (O(1) nativo dict).
-    - Eliminação de Except: pass (Anti-padrão de silenciamento).
-    - Adoção de sets para agrupamentos.
     """
     def __init__(
         self,
@@ -67,7 +61,6 @@ class FailureOrchestrator:
             pre_crash_latencies, post_crash_latencies,
         )
 
-        # Conversão segura para lista caso outros módulos (como o SFCManager) dependam da tipagem estrita
         self.sfc_manager.crashed_servers = list(self.fail_manager.nodes_crashed)
         self.crashs_trials += 1
 
@@ -117,8 +110,7 @@ class FailureOrchestrator:
             try:
                 sfc_obj = self.network.get_sfc_by_id(sfc_id)
                 affected_groups.add(sfc_obj.dst_node)
-            except (KeyError, AttributeError) as e:
-                # EAFP com log em vez de pass silencioso
+            except KeyError as e:
                 logger.debug(f"[LINK FAIL] Falha ao obter SFC {sfc_id} para afetar grupo: {e}")
 
         for group_id in affected_groups:
@@ -193,17 +185,18 @@ class FailureOrchestrator:
             self.network.set_node_down(server)
 
     def _get_real_risk_with_backups(self, sfc_id: str) -> str:
-        backups_dict = {}
-        # REFATORAÇÃO: Removido verificação de tipo "isinstance int" (LBYL)
-        # Assume-se que backup_manager é um objeto ou None
-        if getattr(self.sfc_manager, "backup_manager", None):
+        # EAFP: Resgate de backups
+        try:
             backups_dict = self.sfc_manager.backup_manager.sfcs_backups_instatiated
+        except AttributeError:
+            backups_dict = {}
 
         if sfc_id not in self.network.sfc_route_info:
             return "Medium"
 
         route_info = self.network.sfc_route_info[sfc_id]
         backup_reliability_map = {}
+        
         if sfc_id in backups_dict:
             for b in backups_dict[sfc_id]:
                 vnf_id = b.get("vnf_id")
@@ -251,7 +244,6 @@ class FailureOrchestrator:
         fallen_sfcs_list = []
         post_crash_latencies = {}
 
-        # affected_sfc_ids é um set, iterado diretamente
         for sfc_id in affected_sfc_ids:
             risk_level = self._get_real_risk_with_backups(sfc_id)
             failed_nodes = sfc_failed_nodes_map.get(sfc_id, [])
@@ -259,8 +251,10 @@ class FailureOrchestrator:
 
             try:
                 sfc_obj = self.network.get_sfc_by_id(sfc_id)
-                # Mantemos o deepcopy apenas para este dado essencial de roteamento que é mutado adiante
-                old_route_info = copy.deepcopy(self.sfc_manager.get_routing_info(sfc_id))
+                # Extirpação do copy.deepcopy. Recriamos a camada superficial (shallow copy) 
+                # O(N) das listas iterativamente, o que é infinitamente mais leve no motor C do interpretador.
+                base_route_info = self.sfc_manager.get_routing_info(sfc_id)
+                old_route_info = {k: list(v) for k, v in base_route_info.items()}
             except (KeyError, ValueError) as e:
                 logger.debug(f"Ignorando recuperação de SFC {sfc_id}: {e}")
                 continue
@@ -273,7 +267,13 @@ class FailureOrchestrator:
                         break
 
             has_viable_backup = False
-            aux = self.sfc_manager.backup_manager.sfcs_backups_instatiated if getattr(self.sfc_manager, "backup_manager", None) else {}
+            
+            # EAFP estrito para o instanciamento do backup_manager
+            try:
+                aux = self.sfc_manager.backup_manager.sfcs_backups_instatiated
+            except AttributeError:
+                aux = {}
+                
             if affected_vnf_id and sfc_id in aux:
                 for backup_entry in aux[sfc_id]:
                     if backup_entry["vnf_id"].replace("_b", "") == affected_vnf_id:
@@ -300,18 +300,22 @@ class FailureOrchestrator:
                             fallen_sfcs_list.extend(sfc_list_tracker)
                 continue
 
+            # Fail-Fast: Se ocorrer um erro durante o undeploy, quebramos o ciclo em vez de mascarar
             try:
                 self.network.undeploy_specific_vnf_context(sfc_id, affected_vnf_id)
-            except Exception as e:
-                logger.error(f"Erro no undeploy pré-recuperação da SFC {sfc_id}: {e}")
+            except (KeyError, RuntimeError) as e:
+                logger.error(f"Erro CRÍTICO no undeploy pré-recuperação da SFC {sfc_id}: {e}")
+                raise RuntimeError(f"Corrupção de grafo ao remover VNF {affected_vnf_id} da SFC {sfc_id}") from e
 
             recovery_start_time = time.time()
+            
+            # Captura de anomalias lógicas durante a reconstrução
             try:
                 recovered = self.sfc_manager.reconstruct_and_redeploy(
                     sfc_obj, relevant_server_down, old_route_info, self.network
                 )
-            except Exception as e:
-                logger.error(f"Erro crítico no stitching da SFC {sfc_id}: {e}")
+            except (KeyError, ValueError, RuntimeError) as e:
+                logger.error(f"Falha na tentativa de stitching da SFC {sfc_id}: {e}")
                 recovered = False
 
             if recovered:
@@ -365,10 +369,6 @@ class FailureOrchestrator:
         )
 
     def update_crash_recovery_status(self, sfc_id: str, results_dict: dict | None, is_success: bool, current_time: float) -> None:
-        """
-        Recebe o resultado do deploy pelo Controlador e atualiza os status internos de recuperação.
-        REFATORAÇÃO CRÍTICA: Remoção do deepcopy destrutivo. Acesso em O(1) puro ao dicionário.
-        """
         if sfc_id in self.sfcs_crash_affected:
             stored_data = self.sfcs_crash_affected[sfc_id]
 

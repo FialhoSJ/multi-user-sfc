@@ -177,7 +177,7 @@ class SFCInstatiator:
 
         if self.verbose:
             sfc_names = ", ".join([s.id for s in sfc_list])
-            logger.info(f"Algoritmo '{self.alg.name}' processou o lote [{sfc_names}] no tempo total de {round(total_elapsed_ms, 3)} ms.")
+            logger.info(f"Alg '{self.alg.name}' processou o lote [{sfc_names}] no tempo de {round(total_elapsed_ms, 3)} ms. {search_success}")
 
             status_msg = []
             if approved_sfcs:

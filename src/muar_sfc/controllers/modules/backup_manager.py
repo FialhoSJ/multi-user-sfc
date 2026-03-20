@@ -1,4 +1,3 @@
-import copy
 import logging
 import random
 import time
@@ -11,65 +10,48 @@ from muar_sfc.controllers.sfc_generator import SFCGenerator
 from muar_sfc.core.net_v2 import Net2
 from muar_sfc.core.sfc import SFC
 
-# Configuração de Logger Local
 logger = logging.getLogger(__name__)
 
 
 class BackupManager:
-    """
-    Gerencia o ciclo de vida lógico e as estratégias de criação de backups.
-
-    Responsabilidades:
-    1. Definir estratégias de alocação (Greedy, RL, Seletiva).
-    2. Identificar backups obsoletos para coleta de lixo.
-    3. Manter o registro lógico de quais backups pertencem a quais SFCs.
-    """
-
     def __init__(self, args):
-        # Mapeia: ID da SFC Original -> Lista de metadados dos backups
         self.sfcs_backups_instatiated: dict[str, list[dict[str, Any]]] = {}
-
-        # Mapeia: ID do Backup -> ID da SFC Original
         self.backups_sfc_instantiated: dict[str, str] = {}
-
-        # Lista de backups que estão ativos (assumiram o lugar do primário)
         self.backups_activated: list[str] = []
 
-        valid_backup_algs = ["REPLICMASKABLEPPO", "ga", "vegeta"]
-        is_target_alg = args.alg in valid_backup_algs
-        user_wants_backup = (args.backup == "y") and (args.ava != "1.0")
+        valid_backup_algs = ["replic", "ga", "vegeta"]
+        
+        
+        try:
+            is_target_alg = args.alg in valid_backup_algs
+            user_wants_backup = (args.backup == "y") and (args.ava != "1.0")
+            self.alg = args.alg
+        except AttributeError:
+            is_target_alg = False
+            user_wants_backup = False
+            self.alg = "none"
 
         self.backup_activated = user_wants_backup and is_target_alg
-        self.alg = args.alg
 
         if user_wants_backup and not is_target_alg:
-            logger.info(f"Backup proativo desativado. '{args.alg}' não suporta essa estratégia.")
+            logger.info(f"Backup proativo desativado. '{self.alg}' não suporta essa estratégia.")
 
         self.standard_reduction_factor = 1.0
 
-    # ==========================================
-    # Lifecycle & State Management
-    # ==========================================
-
     def identify_obsolete_backups(self) -> list[str]:
-        """Identifica backups para remoção probabilística (coleta de lixo)."""
         backups_to_remove = []
-
         if self.alg not in ["vegeta", "ga"]:
             return []
 
         for backup_id in list(self.backups_sfc_instantiated.keys()):
             if backup_id in self.backups_activated:
                 continue
-
-            # Estratégia probabilística: 70% de chance de limpar backups ociosos
             if random.random() < 0.7:
                 backups_to_remove.append(backup_id)
 
         return backups_to_remove
 
     def cleanup_internal_state(self, backup_id: str) -> None:
-        """Remove registros lógicos de um backup pós-remoção física."""
         original_sfc = self.backups_sfc_instantiated.get(backup_id)
 
         if original_sfc and original_sfc in self.sfcs_backups_instatiated:
@@ -90,7 +72,6 @@ class BackupManager:
     def register_backup_deployment(
         self, original_sfc_id: str, backup_sfc_id: str, vnf_id: str, route_info: dict
     ) -> None:
-        """Registra um novo backup implantado com sucesso."""
         if original_sfc_id not in self.sfcs_backups_instatiated:
             self.sfcs_backups_instatiated[original_sfc_id] = []
 
@@ -99,12 +80,7 @@ class BackupManager:
         )
         self.backups_sfc_instantiated[backup_sfc_id] = original_sfc_id
 
-    # ==========================================
-    # Creation Strategies
-    # ==========================================
-
     def create_backups(self, network: Net2, agent_ref: Any = None) -> tuple[list[Any], str]:
-        """Orquestra a criação de backups respeitando o tempo de vida da sessão."""
         if not self.backup_activated:
             return [], "none"
 
@@ -120,11 +96,23 @@ class BackupManager:
         sfc_lifecycle_map = {}
 
         for sfc_id, sfc in network.sfc_dict.items():
-            if getattr(sfc, "is_backup", False) or "backup" in sfc_id:
-                continue
+            try:
+                if sfc.is_backup or "backup" in sfc_id:
+                    continue
+            except AttributeError:
+                if "backup" in sfc_id:
+                    continue
 
-            start_t = getattr(sfc, "arrival_time", current_time)
-            total_duration = getattr(sfc, "duration", 100)
+            try:
+                start_t = sfc.arrival_time
+            except AttributeError:
+                start_t = current_time
+
+            try:
+                total_duration = sfc.duration
+            except AttributeError:
+                total_duration = 100.0
+
             elapsed = current_time - start_t
             remaining_time = total_duration - elapsed
 
@@ -154,36 +142,39 @@ class BackupManager:
         return backups_mount, strategy_name
 
     def _commit_backup_state(self, backups_groups: list[list[Any]]) -> None:
-        """Registra internamente os backups recém-criados."""
         if not backups_groups:
             return
 
         for group in backups_groups:
             for backup_sfc in group:
-                original_id = getattr(backup_sfc, "original_sfc_id", None)
-                target_vnf = getattr(backup_sfc, "target_vnf_id", None)
-                route_info = getattr(backup_sfc, "pre_calculated_route", None)
+                try:
+                    original_id = backup_sfc.original_sfc_id
+                    target_vnf = backup_sfc.target_vnf_id
+                except AttributeError:
+                    continue
+                
+                try:
+                    route_info = backup_sfc.pre_calculated_route
+                except AttributeError:
+                    route_info = {}
 
                 if original_id and target_vnf:
-                    final_route = route_info if route_info else {}
                     self.register_backup_deployment(
                         original_sfc_id=original_id,
                         backup_sfc_id=backup_sfc.id,
                         vnf_id=target_vnf,
-                        route_info=final_route,
+                        route_info=route_info,
                     )
 
     def _calc_virtual_reliability(
         self, network: Net2, sfc_id: str, pending_backups_sfcs: list[Any]
     ) -> tuple[float, list[dict]]:
-        """Calcula a confiabilidade efetiva agrupando VNFs por nó físico."""
         if sfc_id not in network.sfc_route_info:
             return 0.0, []
 
         route_info = network.sfc_route_info[sfc_id]
         backup_reliability_map = {}
 
-        # Mapeia Backups Instanciados
         if sfc_id in self.sfcs_backups_instatiated:
             for b in self.sfcs_backups_instatiated[sfc_id]:
                 vnf_id = b.get("vnf_id")
@@ -195,11 +186,18 @@ class BackupManager:
                     node_id = bk_node_list[0]
                     backup_reliability_map[vnf_id] = network.get_node_reliability(node_id)
 
-        # Mapeia Backups Pendentes
         for mini_sfc in pending_backups_sfcs:
-            target_vnf = getattr(mini_sfc, "target_vnf_id", None)
+            try:
+                target_vnf = mini_sfc.target_vnf_id
+            except AttributeError:
+                continue
+
             if target_vnf and target_vnf not in backup_reliability_map:
-                route = getattr(mini_sfc, "pre_calculated_route", {})
+                try:
+                    route = mini_sfc.pre_calculated_route
+                except AttributeError:
+                    route = {}
+
                 bk_key = f"{target_vnf}_b"
                 if route and bk_key in route and route[bk_key]:
                     node_id = route[bk_key][0]
@@ -247,13 +245,28 @@ class BackupManager:
     def rl_based_strategy(
         self, network: Net2, sfc_id_duration: dict, agent: Any
     ) -> list[list[Any]]:
-        """Estratégia baseada em RL com Shadow State para planejamento em lote."""
         from muar_sfc.algorithms.environments.env_replic import SFC_AllocationEnv
 
         backups_mount = []
         target_reliability = 0.96
         MAX_BACKUPS_PER_SFC = 4
-        simulation_graph = copy.deepcopy(network.graph)
+        
+        # OTIMIZAÇÃO: Cópia isolada das chaves vitais de estado, sem clonar referências reais e sem deepcopy.
+        simulation_graph = nx.Graph()
+        for node, data in network.graph.nodes(data=True):
+            simulation_graph.add_node(
+                node, 
+                cpu_used=data.get("cpu_used", 0), 
+                cpu_capacity=data.get("cpu_capacity", 0), 
+                type=data.get("type")
+            )
+        for u, v, data in network.graph.edges(data=True):
+            simulation_graph.add_edge(
+                u, v, 
+                bandwidth_used=data.get("bandwidth_used", 0), 
+                bandwidth_capacity=data.get("bandwidth_capacity", 0)
+            )
+
         sorted_sfcs = sorted(list(sfc_id_duration.keys()))
 
         for sfc_id in sorted_sfcs:
@@ -284,7 +297,13 @@ class BackupManager:
                 if not mini_sfc:
                     break
 
-                graph_for_env = copy.deepcopy(simulation_graph)
+                # OTIMIZAÇÃO: Cópia isolada rasa por iteração (livre de ponteiros indesejados)
+                graph_for_env = nx.Graph()
+                for node, data in simulation_graph.nodes(data=True):
+                    graph_for_env.add_node(node, **data.copy())
+                for u, v, data in simulation_graph.edges(data=True):
+                    graph_for_env.add_edge(u, v, **data.copy())
+
                 self._enrich_graph_with_mobility(graph_for_env, network, mini_sfc)
 
                 valid_types = ["server", "mobile_device"]
@@ -302,7 +321,6 @@ class BackupManager:
                     is_training=False,
                 )
 
-                # Lógica de Forbidden Nodes
                 primary_nodes_used = set()
                 original_route_info = network.sfc_route_info.get(sfc_id, {})
                 for vnf_p, path_p in original_route_info.items():
@@ -310,15 +328,16 @@ class BackupManager:
                         primary_nodes_used.add(path_p[0])
 
                 for pending_bk in pending_sfcs_this_cycle:
-                    if hasattr(pending_bk, "pre_calculated_route"):
+                    try:
                         for b_path in pending_bk.pre_calculated_route.values():
                             if b_path:
                                 primary_nodes_used.add(b_path[0])
+                    except AttributeError:
+                        continue
 
                 forbidden = []
                 for node in primary_nodes_used:
                     forbidden.append(node)
-                    # Tratamento de tipos numéricos mistos (int/float)
                     if isinstance(node, float):
                         forbidden.append(int(node))
                     elif isinstance(node, int):
@@ -349,7 +368,6 @@ class BackupManager:
         return backups_mount
 
     def _apply_virtual_reservation(self, graph: Any, sfc: SFC, route_info: dict) -> None:
-        """Aplica a redução de recursos no grafo de simulação (Shadow State)."""
         for vnf_name, path in route_info.items():
             if vnf_name in ["src", "dst"] or "virt" in vnf_name or not path:
                 continue
@@ -372,9 +390,12 @@ class BackupManager:
                         )
 
     def _enrich_graph_with_mobility(self, graph, network, mini_sfc):
-        """Adiciona contexto de mobilidade ao grafo de simulação."""
-        mobile_node_id = getattr(mini_sfc, "mobile_node", None)
-        closer_router_id = getattr(mini_sfc, "closer_router", None)
+        try:
+            mobile_node_id = mini_sfc.mobile_node
+            closer_router_id = mini_sfc.closer_router
+        except AttributeError:
+            mobile_node_id = None
+            closer_router_id = None
 
         if mobile_node_id and mobile_node_id in network.md_graph and mobile_node_id not in graph:
             graph.add_node(mobile_node_id, **network.md_graph.nodes[mobile_node_id])
@@ -393,7 +414,6 @@ class BackupManager:
                 )
 
     def greedy_strategy(self, network: Net2, sfc_id_duration: dict) -> list[list[Any]]:
-        """Estratégia gulosa aleatória para criação de backups."""
         backups_mount = []
         sfcs_id = list(sfc_id_duration.keys())
         random.shuffle(sfcs_id)
@@ -427,6 +447,11 @@ class BackupManager:
                 new_info["name"] = info["name"] + "_b"
                 new_vnfs_dict.append(new_info)
 
+            try:
+                lat_req = sfc.latency_request
+            except AttributeError:
+                lat_req = 10
+
             player_dict = {
                 "name": f"{parts[0]}_{parts[1]}_backup_{parts[2]}_{parts[3]}",
                 "vnf_list": new_vnfs_dict,
@@ -434,7 +459,7 @@ class BackupManager:
                 "src_node": sfc.src.substrate_node,
                 "dst_node": sfc.dst.substrate_node,
                 "duration": rem,
-                "latency": getattr(sfc, "latency_request", 10),
+                "latency": lat_req,
             }
 
             new_sfc = SFCGenerator(player_dict).generate()
@@ -447,7 +472,6 @@ class BackupManager:
     def seletive_strategy(
         self, network: Net2, sfc_id_duration: dict, threshold: float = 0
     ) -> list[list[Any]]:
-        """Estratégia seletiva baseada em confiabilidade e snapshots de recursos."""
         backups_mount = []
         nodes_fail_p = network.get_servers_reliability_dict()
         nodes_candidates = {n: r for n, r in nodes_fail_p.items() if r > threshold}
@@ -475,7 +499,7 @@ class BackupManager:
                 return (
                     edge["bandwidth_capacity"]
                     - edge["bandwidth_used"]
-                    - link_usage[tuple(sorted((u, v)))]
+                    - link_usage[frozenset((u, v))]
                 ) >= bw
 
             try:
@@ -524,37 +548,44 @@ class BackupManager:
                 if not target_server:
                     continue
 
-                dst_n, src_n, lat_req = self.escolher_src_dst(
-                    sfc_rf, v_id, getattr(sfc, "latency_request", 10)
+                try:
+                    lat_req = sfc.latency_request
+                except AttributeError:
+                    lat_req = 10
+
+                dst_n, src_n, lat_req_adj = self.escolher_src_dst(
+                    sfc_rf, v_id, lat_req
                 )
-                if lat_req is None or lat_req < 0:
+                if lat_req_adj is None or lat_req_adj < 0:
                     continue
 
                 p_in = get_path(src_n, target_server, bw_req)
                 if not p_in:
                     continue
 
-                # Commit temporário de banda
                 for u, v in zip(p_in[:-1], p_in[1:], strict=False):
-                    link_usage[tuple(sorted((u, v)))] += bw_req
+                    link_usage[frozenset((u, v))] += bw_req
 
                 p_out = get_path(target_server, dst_n, bw_req)
                 if not p_out:
                     for u, v in zip(p_in[:-1], p_in[1:], strict=False):
-                        link_usage[tuple(sorted((u, v)))] -= bw_req
+                        link_usage[frozenset((u, v))] -= bw_req
                     continue
 
                 for u, v in zip(p_out[:-1], p_out[1:], strict=False):
-                    link_usage[tuple(sorted((u, v)))] += bw_req
+                    link_usage[frozenset((u, v))] += bw_req
 
                 node_resources[target_server]["cpu"] -= cpu_req
                 node_resources[target_server]["cache"] -= cache_req
 
-                # Separa os componentes do sfc_id para organizar melhor o dicionário
                 s_parts = sfc_id.split("_")
                 p0, p1, p2, p3 = s_parts[0], s_parts[1], s_parts[2], s_parts[3]
-
                 new_sfc_name = f"{p0}_{p1}_backup_{v_id}_{p2}_{p3}"
+
+                try:
+                    closer_router = sfc.closer_router
+                except AttributeError:
+                    closer_router = None
 
                 new_sfc = SFCGenerator(
                     {
@@ -601,8 +632,8 @@ class BackupManager:
                             - (time.time() - sfc_id_duration[sfc_id]["timer"])
                             + 10,
                         ),
-                        "latency": lat_req,
-                        "closer_router": getattr(sfc, "closer_router", None),
+                        "latency": lat_req_adj,
+                        "closer_router": closer_router,
                     }
                 ).generate()
 
@@ -660,6 +691,26 @@ class BackupManager:
             else network.sfc_route_info[original_sfc.id][n_v.id][0]
         )
 
+        try:
+            arr_time = original_sfc.arrival_time
+        except AttributeError:
+            arr_time = time.time()
+            
+        try:
+            lat_req = original_sfc.latency_request
+        except AttributeError:
+            lat_req = 10
+            
+        try:
+            closer_r = original_sfc.closer_router
+        except AttributeError:
+            closer_r = None
+            
+        try:
+            mobile_n = original_sfc.dst_node
+        except AttributeError:
+            mobile_n = None
+
         mini_sfc = SFCGenerator(
             {
                 "name": f"{original_sfc.id}_backup_{vnf_to_replicate_id}",
@@ -698,15 +749,10 @@ class BackupManager:
                 "bandwidth": original_sfc.input_throughput,
                 "src_node": p_n,
                 "dst_node": n_n,
-                "duration": max(
-                    10,
-                    original_sfc.duration
-                    - (time.time() - getattr(original_sfc, "arrival_time", time.time()))
-                    + 10,
-                ),
-                "latency": getattr(original_sfc, "latency_request", 10),
-                "closer_router": getattr(original_sfc, "closer_router", None),
-                "mobile_node": getattr(original_sfc, "dst_node", None),
+                "duration": max(10, original_sfc.duration - (time.time() - arr_time) + 10),
+                "latency": lat_req,
+                "closer_router": closer_r,
+                "mobile_node": mobile_n,
             }
         ).generate()
 
@@ -714,9 +760,11 @@ class BackupManager:
         mini_sfc.is_backup = True
         mini_sfc.target_vnf_id = vnf_to_replicate_id
 
-        mini_sfc.session_id = getattr(
-            original_sfc, "session_id", original_sfc.id.split("_")[-1]
-        )
+        try:
+            mini_sfc.session_id = original_sfc.session_id
+        except AttributeError:
+            mini_sfc.session_id = original_sfc.id.split("_")[-1]
+            
         mini_sfc.src_virt = p_n
         mini_sfc.dst_virt = n_n
 

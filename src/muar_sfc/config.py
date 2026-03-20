@@ -22,7 +22,7 @@ class SimulationSettings(BaseSettings):
 
     # --- Parâmetros Gerais e de Log ---
     application: str = "muar"
-    alg: str = "vegeta"
+    alg: str = "replic"
     sfc_lifetime: int = 120
 
     # REFATORAÇÃO: Uso de booleanos absolutos em vez de strings arcaicas como "y"/"n"
@@ -45,11 +45,11 @@ class SimulationSettings(BaseSettings):
     allow_delay: bool = False
 
     # --- Parâmetros de Confiabilidade e Falhas ---
-    backup: bool = False
+    backup: bool = True
     ava: float = 0.99
     number_of_fails: int = 3
     min_fail_duration: float = 20.0
-    crash_at: list[float] = [150, 180, 210]
+    crash_at: list[float] = [60,90,120]
 
     # --- Configuração MICRO (Confiabilidade Base por Nível) ---
     rel_high: float = 0.999

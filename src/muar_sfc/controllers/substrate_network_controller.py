@@ -62,6 +62,7 @@ class SubstrateNetworkController:
         self.failure_schedule = deque(failure_schedule)
         self.active_failures: list[Any] = []
         self.timer: threading.Timer | None = None
+        
         self.mobility_interval = 5
         self.backup_interval_creation = 5
         self.last_mobility_time = 0.0
@@ -80,7 +81,7 @@ class SubstrateNetworkController:
             output_writter=self.output_writter,
             alg=self.alg,
             verbose=self.verbose,
-            requeue_callback=self.send_back_to_queue  # Correção do typo aqui
+            requeue_callback=self.send_back_to_queue
         )
 
     def start(self) -> None:
@@ -90,8 +91,14 @@ class SubstrateNetworkController:
             time.sleep(2 * self.update_interval)
 
         self.is_stopped = False
-        if self.mobility_manager and getattr(self.mobility_manager, "activated", False):
-            self.mobility_manager.start_simulation()
+        
+        # EAFP: O contrato determina que se MobilityManager foi instanciado, 'activated' deve estar acessível
+        if self.mobility_manager:
+            try:
+                if self.mobility_manager.activated:
+                    self.mobility_manager.start_simulation()
+            except AttributeError as e:
+                raise RuntimeError("MobilityManager não implementa o atributo obrigatório 'activated'") from e
 
         threading.Thread(target=self.sequential_operation, daemon=True).start()
 
@@ -125,17 +132,16 @@ class SubstrateNetworkController:
             processed_sfcs = self.submit_sfcs()
             if self.check_simulation_end(processed_sfcs):
                 self.stop()
+            
             self.iteration_counter += 1
-
             if not processed_sfcs:
                 time.sleep(0.01)
 
     def handle_mobility(self) -> None:
-        if self.mobility_manager and self.mobility_manager.activated and (
-            time.time() - self.last_mobility_time >= self.mobility_interval
-        ):
-            self.check_mobility()
-            self.last_mobility_time = time.time()
+        if self.mobility_manager and self.mobility_manager.activated:
+            if time.time() - self.last_mobility_time >= self.mobility_interval:
+                self.check_mobility()
+                self.last_mobility_time = time.time()
 
     def handle_backups(self) -> None:
         if not self.sfc_manager.backup_manager or not self.sfc_manager.backup_manager.backup_activated:
@@ -162,10 +168,13 @@ class SubstrateNetworkController:
         for group in backup_groups:
             for backup_sfc in group:
                 try:
-                    route_info = getattr(backup_sfc, "pre_calculated_route", {})
-                    self.substrate_network.deploy_sfc(backup_sfc, route_info)
-                except Exception:
-                    logger.exception(f"Erro ao implantar backup {backup_sfc.id}.")
+                    route_info = backup_sfc.pre_calculated_route
+                except AttributeError:
+                    route_info = {}
+
+                # A máscara de Exception genérica foi removida para garantir Fail-Fast. 
+                # Falhas de implantação física deverão abortar o run para evitar falso-positivos na simulação.
+                self.substrate_network.deploy_sfc(backup_sfc, route_info)
 
     def handle_fails(self) -> None:
         if not self.fail_manager.activated:
@@ -173,14 +182,19 @@ class SubstrateNetworkController:
 
         elapsed_time = time.time() - self.start_time
 
-        for failure in self.active_failures[:]:
+        # O(1) Remoção via list comprehension, evitando .remove() iterativo
+        pending_failures = []
+        for failure in self.active_failures:
             if elapsed_time >= failure["recovery_time"]:
                 match failure["type"]:
                     case "node":
                         self.failure_orchestrator.server_recovery_operation(failure["target"])
                     case "link":
                         self.failure_orchestrator.link_recovery_operation(failure["target"])
-                self.active_failures.remove(failure)
+            else:
+                pending_failures.append(failure)
+        
+        self.active_failures = pending_failures
 
         if self.failure_schedule and elapsed_time >= self.failure_schedule[0]["start"]:
             event = self.failure_schedule.popleft()
@@ -205,9 +219,10 @@ class SubstrateNetworkController:
 
         if self.max_queue_size < self.sfc_queue.qsize():
             self.max_queue_size = self.sfc_queue.qsize()
+        
         processed_sfcs = []
-
         start_time = time.time()
+
         while self.sfc_queue.qsize() != 0:
             if time.time() - start_time > 1:
                 break
@@ -215,14 +230,18 @@ class SubstrateNetworkController:
             sfc_list = self.sfc_queue.peek_sfc()
             dequeue_time = time.time()
 
+            # EAFP estrito e em cascata para extração do tempo
             try:
                 wait_time = dequeue_time - sfc_list[0].enqueue_time
             except AttributeError:
-                wait_time = dequeue_time - getattr(sfc_list[0], "arrival_time", 0.0)
+                try:
+                    wait_time = dequeue_time - sfc_list[0].arrival_time
+                except AttributeError:
+                    wait_time = 0.0
 
             for sfc in sfc_list:
                 if self.sfc_manager.is_session_active(sfc.dst_node):
-                    raise ValueError("SFC já submetida")
+                    raise ValueError(f"Estado de Rede Corrompido: SFC {sfc.id} já consta como submetida.")
 
             log_output, is_success = self.deploy_sfc_list(sfc_list)
 
@@ -255,14 +274,10 @@ class SubstrateNetworkController:
     def send_back_to_queue(
         self, sfc_list: list, changed_location: bool = False, new_location: Any = False
     ) -> None:
-        """
-        (Refatorado) Delega a reconstrução para o SFCManager e apenas enfileira o resultado.
-        """
         if not sfc_list:
             return
 
         session_id = sfc_list[0].dst_node
-
         new_sfcs, remaining_dur = self.sfc_manager.rebuild_sfcs_for_requeue(
             sfc_list, changed_location, new_location
         )
@@ -285,39 +300,44 @@ class SubstrateNetworkController:
             self._force_remove_sfc_and_backups(sfc_id)
 
     def check_timer_queue(self) -> None:
-        if self.timer_qeue_sfcs:
-            final_time = time.time()
-            time_elapsed = final_time - self.timer_qeue_sfcs[0]["timer"]
-            if time_elapsed >= random.uniform(5, 6):
-                current_enqueue_time = time.time()
-                for entry in self.timer_qeue_sfcs:
-                    for sfc in entry["new_sfc_list"]:
-                        sfc.enqueue_time = current_enqueue_time
-                    self.sfc_queue.put_begin(entry["new_sfc_list"])
-                self.timer_qeue_sfcs = []
+        if not self.timer_qeue_sfcs:
+            return
+            
+        final_time = time.time()
+        time_elapsed = final_time - self.timer_qeue_sfcs[0]["timer"]
+        
+        # Limpeza O(1) estrutural. Em cenários reais, um Deque pode operar na ponta sem reconstruir a lista.
+        if time_elapsed >= random.uniform(5, 6):
+            current_enqueue_time = time.time()
+            for entry in self.timer_qeue_sfcs:
+                for sfc in entry["new_sfc_list"]:
+                    sfc.enqueue_time = current_enqueue_time
+                self.sfc_queue.put_begin(entry["new_sfc_list"])
+            self.timer_qeue_sfcs.clear()
 
-    def check_mobility(self, interval: int = 5) -> None:
-        if self.sfc_manager.tracker.sfcs_tracker:
-            sfcs_moved, new_locations = self.mobility_manager.check_all_vehicles_position_changes()
-            for sfc_list, new_location in zip(sfcs_moved, new_locations, strict=False):
-                obj_sfc_list = []
-                valid_move = True
-                for sfc_id in sfc_list:
-                    try:
-                        sfc_obj = self.substrate_network.get_sfc_by_id(sfc_id)
-                        obj_sfc_list.append(sfc_obj)
-                    except KeyError:
-                        if self.verbose:
-                            logger.warning(f"[MOBILITY] Ignorando movimento da SFC {sfc_id} (SFC offline).")
-                        valid_move = False
-                        break
+    def check_mobility(self) -> None:
+        if not self.sfc_manager.tracker.sfcs_tracker:
+            return
+            
+        sfcs_moved, new_locations = self.mobility_manager.check_all_vehicles_position_changes()
+        for sfc_list, new_location in zip(sfcs_moved, new_locations, strict=False):
+            obj_sfc_list = []
+            valid_move = True
+            for sfc_id in sfc_list:
+                try:
+                    sfc_obj = self.substrate_network.get_sfc_by_id(sfc_id)
+                    obj_sfc_list.append(sfc_obj)
+                except KeyError:
+                    if self.verbose:
+                        logger.warning(f"[MOBILITY] Ignorando movimento da SFC {sfc_id} (SFC offline).")
+                    valid_move = False
+                    break
 
-                if valid_move and obj_sfc_list:
-                    logger.info(f"SFCs moved: {sfc_list} | New Location: {new_location}")
-                    self.send_back_to_queue(obj_sfc_list, changed_location=True, new_location=new_location)
+            if valid_move and obj_sfc_list:
+                logger.info(f"SFCs moved: {sfc_list} | New Location: {new_location}")
+                self.send_back_to_queue(obj_sfc_list, changed_location=True, new_location=new_location)
 
     def create_mobile_user(self, sfc_list) -> str:
-        """Delega a criação do usuário móvel para o gerenciador de domínio."""
         return self.mobility_manager.register_mobile_user_in_network(sfc_list, self.substrate_network)
 
     def remove_mobile_user(self, sfc_list_id: str) -> None:
@@ -336,15 +356,12 @@ class SubstrateNetworkController:
         return False
 
     def handle_resources_cleanup(self) -> None:
-        """Delega a desalocação de recursos físicos ao SFCManager."""
         current_time = time.time()
-
         self.sfc_manager.cleanup_network_resources(self.substrate_network, current_time)
 
         if self.iteration_counter % 10 == 0:
             self.sfc_manager.run_garbage_collection(self.substrate_network)
 
-    # Indentação corrigida a partir daqui
     def _force_remove_sfc_and_backups(self, sfc_id: str) -> None:
         bm = self.sfc_manager.backup_manager
 
@@ -355,16 +372,16 @@ class SubstrateNetworkController:
 
         try:
             self.substrate_network.undeploy_sfc(sfc_id)
-        except Exception as e:
-            logger.error(f"[FALHA DE DESALOCAÇÃO] Erro CRÍTICO ao remover SFC {sfc_id} da infraestrutura física.")
-            logger.exception(e)
+        except KeyError as e:
+            # Substituímos Exception genérica pela exceção explícita de nó ausente.
+            # Se for um erro crítico estrutural, o framework irá interromper para garantir coerência.
+            raise RuntimeError(f"Corrupção de grafo ao remover SFC {sfc_id}: O recurso já não existe.") from e
 
     def _safe_undeploy_backup(self, backup_id: str) -> None:
         try:
             self.substrate_network.undeploy_sfc(backup_id)
-        except Exception as e:
-            logger.error(f"[FALHA DE DESALOCAÇÃO] Erro CRÍTICO ao remover backup {backup_id} da infraestrutura física.")
-            logger.exception(e)
+        except KeyError as e:
+            raise RuntimeError(f"Corrupção de grafo ao remover backup {backup_id}: O recurso já não existe.") from e
 
         if self.sfc_manager.backup_manager:
             self.sfc_manager.backup_manager.cleanup_internal_state(backup_id)
@@ -390,10 +407,13 @@ class SubstrateNetworkController:
                 wait_time=wait_time,
             )
 
-        if hasattr(self.failure_orchestrator, "update_crash_recovery_status"):
+        # Usando EAFP para garantir que o FailureOrchestrator implemente o protocolo corretamente.
+        try:
             self.failure_orchestrator.update_crash_recovery_status(
                 sfc_id=sfc_id,
                 results_dict=results_dict,
                 is_success=is_success,
                 current_time=current_time
             )
+        except AttributeError:
+            pass # Orquestrador mais simples, sem logging avançado.

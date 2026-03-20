@@ -1,39 +1,55 @@
 import random
-
+from loguru import logger
 from muar_sfc.core.net_v2 import Net2
 
 
 class Crasher:
     """
-    Gerencia a simulação de falhas.
-    MODIFICAÇÃO: Uso de conjuntos (set) para complexidade O(1) e remoção de verificações redundantes.
+    Gerencia a simulação de falhas aplicando paradigmas modernos (O(1), EAFP e Fail-Fast).
     """
 
     def __init__(self, topology, args, interval=200, time=30):
-        self.activated = float(args.ava) != 1.0 or float(args.link_ava) != 1.0
-        self.ec_servers = topology.get_topology_info()["ec_servers"]
+        # EAFP puro: Tentamos converter, assumimos os padrões se os atributos faltarem
+        try:
+            self.activated = float(args.ava) != 1.0 or float(args.link_ava) != 1.0
+        except (AttributeError, ValueError, TypeError):
+            self.activated = False
 
-        # --- REFATORAÇÃO: Set para acesso e remoção instantânea O(1) ---
+        try:
+            self.fail_target = args.fail_target
+        except AttributeError:
+            self.fail_target = "all"
+
+        try:
+            # Proteção O(1) de acesso: transformando a topologia num conjunto instantâneo
+            self.ec_servers = set(topology.get_topology_info()["ec_servers"])
+        except (KeyError, TypeError):
+            self.ec_servers = set()
+
         self.nodes_crashed = set()
         self.links_crashed_history = set()
-
         self.simulation_step = 1.0
-        self.fail_target = args.fail_target
 
     def calculate_node_probabilities(self, network: Net2) -> dict:
         physical_servers = {}
 
         for node in network.graph.nodes():
-            node_data = network.graph.nodes[node]
-            if "server" not in str(node_data.get("type", "")):
+            # EAFP no lugar de .get()
+            try:
+                node_type = str(network.graph.nodes[node]["type"])
+                if "server" not in node_type:
+                    continue
+            except KeyError:
                 continue
 
             node_str = str(node)
             base_id = node_str.split(".1")[0]
 
-            if base_id not in physical_servers:
-                physical_servers[base_id] = []
-            physical_servers[base_id].append(node)
+            # EAFP na inserção de chaves
+            try:
+                physical_servers[base_id].append(node)
+            except KeyError:
+                physical_servers[base_id] = [node]
 
         aggregated_probs = {}
 
@@ -53,7 +69,6 @@ class Crasher:
         if not self.activated:
             return []
 
-        # REFATORAÇÃO: Acesso EAFP direto, sem 'getattr' LBYL defasado
         user_target = self.fail_target
         server_groups = self.calculate_node_probabilities(network)
 
@@ -61,19 +76,28 @@ class Crasher:
         weights = []
 
         for base_id, info in server_groups.items():
+            # O(1) graças à conversão do self.ec_servers em conjunto na inicialização
             is_valid = any(m in self.ec_servers for m in info["members"])
 
-            # Validação instantânea O(1) graças ao uso do 'set'
             is_active = base_id not in self.nodes_crashed and all(
                 m not in self.nodes_crashed for m in info["members"]
             )
 
             if is_valid and is_active:
                 reliability = info["reliability"]
-                should_include = False
-
-                if user_target == "all" or user_target == "high_risk" and reliability < 0.8666 or user_target == "med_risk" and 0.8666 <= reliability <= 0.9333 or user_target == "low_risk" and reliability > 0.9333:
-                    should_include = True
+                
+                # Structural Pattern Matching (Otimização do Python 3.10+)
+                match user_target:
+                    case "all":
+                        should_include = True
+                    case "high_risk" if reliability < 0.8666:
+                        should_include = True
+                    case "med_risk" if 0.8666 <= reliability <= 0.9333:
+                        should_include = True
+                    case "low_risk" if reliability > 0.9333:
+                        should_include = True
+                    case _:
+                        should_include = False
 
                 if not should_include:
                     continue
@@ -90,18 +114,22 @@ class Crasher:
 
             for node in nodes_affected:
                 if node not in self.nodes_crashed:
-                    self.nodes_crashed.add(node) # REFATORAÇÃO: O(1) Adição limpa
-                    print(f"Node {node} CRASHED! Reliability: {confiabilidade_atual:.3f}")
+                    self.nodes_crashed.add(node)
+                    # Adequação visual da rastreabilidade aos padrões do repositório
+                    logger.error(f"[FALHA INJETADA] Nó {node} CRASHED! Confiabilidade Original: {confiabilidade_atual:.3f}")
 
         return nodes_affected
 
     def recover_specific_node(self, network, node_id) -> bool:
-        """Recupera um nó específico solicitado pelo Controller."""
-        if node_id in self.nodes_crashed:
+        """Recupera um nó específico solicitado pelo Controller com EAFP estrito."""
+        try:
+            # Tenta remover diretamente. Se falhar, é KeyError
+            self.nodes_crashed.remove(node_id)
             network.restore_node(node_id)
-            self.nodes_crashed.remove(node_id) # REFATORAÇÃO: Remoção O(1) instantânea
             return True
-        return False
+        except KeyError:
+            return False
 
     def activate_link_crasher(self, network):
-        return None, None
+        # Correção da anomalia de retorno (None, None -> None explícito)
+        return None

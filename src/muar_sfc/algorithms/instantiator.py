@@ -75,14 +75,16 @@ class AlgorithmInstantiator:
 
             if "DQN" in type:
                 alg = hephaestus("DQN")
-        elif "REPLIC" in type:
-            if "MASKABLEPPO" in type:
-                alg = REPLIC("MASKABLEPPO")
-            elif "PPO" in type:
-                alg = REPLIC("PPO")
-
+        elif "replic" in type:
             if "DQN" in type:
                 alg = REPLIC("DQN")
+            elif "PPO" in type:
+                alg = REPLIC("PPO")
+            else:
+                alg = REPLIC("MASKABLEPPO")
+            
+
+            
 
         else:
             raise ValueError("algorithm not found")

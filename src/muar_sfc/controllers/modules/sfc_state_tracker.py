@@ -1,4 +1,3 @@
-import copy
 import time
 from typing import Any, TypedDict
 
@@ -9,7 +8,6 @@ from muar_sfc.core.net_v2 import Net2
 from muar_sfc.core.sfc import SFC
 
 
-# Contrato estrito para o rastreamento das sessões, garantindo integridade das chaves
 class SessionInfo(TypedDict):
     sfc_list: list[SFC]
     solution: dict
@@ -18,31 +16,15 @@ class SessionInfo(TypedDict):
 
 
 class SFCStateTracker:
-    """
-    Guardião do estado lógico das Service Function Chains (SFCs).
-    
-    Responsabilidade Única (SRP): Rastrear as sessões, contabilizar tempo de 
-    expiração e manter os dicionários de roteamento e metadados sincronizados,
-    isolando o estado da lógica de alocação física ou recuperação de desastres.
-    """
-
     def __init__(self):
-        # State Trackers Centrais
         self.sfcs_tracker: dict[str, SessionInfo] = {}
         self.sfcs_routing_info: dict[str, dict] = {}
         self.sfc_id_duration: dict[str, dict] = {}
-
-        # Listas auxiliares de estado
         self.crashed_servers: list[str] = []
         self.risk_servers: list[str] = []
-
-        # Contador global
         self.counter = 0
 
     def get_expired_sessions(self, current_time: float) -> list[str]:
-        """
-        Identifica sessões cujo tempo de vida expirou comparado ao limite instanciado.
-        """
         expired_sessions = []
         for sfc_list_id, info in self.sfcs_tracker.items():
             start_time = info.get("timer", 0)
@@ -59,18 +41,12 @@ class SFCStateTracker:
         return expired_sessions
 
     def cleanup_session_state(self, sfc_list_id: str) -> list[str]:
-        """
-        Remove o rastreamento lógico de uma sessão via EAFP, eliminando checagens
-        condicionais duplas e retornando as SFCs individuais.
-        """
-        # Abordagem EAFP: tenta remover e captura de forma segura se não existir
         sfc_group = self.sfcs_tracker.pop(sfc_list_id, None)
         if not sfc_group:
             return []
 
         individual_sfc_ids = [sfc.id for sfc in sfc_group["sfc_list"]]
 
-        # Limpeza do dicionário de rotas associadas a cada SFC limpa
         for sfc_id in individual_sfc_ids:
             self.sfcs_routing_info.pop(sfc_id, None)
 
@@ -79,10 +55,6 @@ class SFCStateTracker:
     def rebuild_sfcs_for_requeue(
         self, sfc_list: list[SFC], changed_location: bool, new_location: Any
     ) -> tuple[list[SFC], float]:
-        """
-        Reconstrói uma lista de SFCs para re-enfileiramento baseando-se no
-        tempo restante de vida rastreado na sessão original.
-        """
         if not sfc_list:
             return [], 0.0
 
@@ -105,11 +77,13 @@ class SFCStateTracker:
 
         for sfc in sfc_list:
             sfc_id = sfc.id
-            location = new_location if changed_location else sfc.closer_router
-            new_vnfs_list_dict = copy.deepcopy(sfc.vnfs_dict)
+            location = new_location if changed_location else getattr(sfc, "closer_router", None)
+            
+            # OTIMIZAÇÃO: Cópia rasa super rápida nativa em C, evitando o deepcopy custoso
+            new_vnfs_list_dict = [vnf.copy() for vnf in sfc.vnfs_dict]
 
             if changed_location and "cache" in sfc_id:
-                old_loc = str(sfc.closer_router)
+                old_loc = str(getattr(sfc, "closer_router", ""))
                 new_loc = str(new_location)
 
                 ma_old_key = f"MA_region_{old_loc}"
@@ -118,7 +92,6 @@ class SFCStateTracker:
                 if sfc_id in self.sfcs_routing_info:
                     current_sfc_routes = self.sfcs_routing_info[sfc_id]
 
-                    # Substituição otimizada nativa via String (evitando o gargalo da engine Regex)
                     if ma_old_key in current_sfc_routes:
                         ma_new_key = ma_old_key.replace(old_loc, new_loc)
                         new_vnfs_list_dict[1]["name"] = ma_new_key
@@ -132,14 +105,13 @@ class SFCStateTracker:
                 "vnf_list": new_vnfs_list_dict,
                 "bandwidth": sfc.input_throughput,
                 "src_node": sfc.src.substrate_node,
-                "dst_node": sfc.dst_node,
+                "dst_node": getattr(sfc, "dst_node", None),
                 "duration": remaining_duration,
                 "closer_router": location,
-                "latency": sfc.latency_request,
+                "latency": getattr(sfc, "latency_request", 10),
             }
             new_sfc_list_dicts.append(new_sfc_dict)
 
-        # Regeração usando o construtor da camada de domínio
         new_sfcs_objects = [SFCGenerator(d).generate() for d in new_sfc_list_dicts]
 
         current_enqueue_time = time.time()
@@ -149,28 +121,23 @@ class SFCStateTracker:
         return new_sfcs_objects, remaining_duration
 
     def get_sfc_list(self, sfc_id: str, sb_net: Net2) -> list[SFC]:
-        """Recupera a lista lógica de SFCs de uma sessão a partir de um ID isolado."""
-        sfc = sb_net.get_sfc_by_id(sfc_id)
-        if not sfc:
+        try:
+            sfc = sb_net.get_sfc_by_id(sfc_id)
+        except ValueError:
             return []
 
-        group_id = sfc.dst_node
-        if group_id in self.sfcs_tracker:
+        group_id = getattr(sfc, "dst_node", None)
+        if group_id and group_id in self.sfcs_tracker:
             return self.sfcs_tracker[group_id]["sfc_list"]
         return []
 
     def get_running_players_sessions(self) -> tuple[int, int, int]:
-        """
-        Calcula as estatísticas sobre sessões ativas com base nas chaves registradas.
-        Usado extensamente para logs operacionais.
-        """
         running_sfcs = self.sfcs_tracker
         players = set()
         sessions = set(running_sfcs.keys())
 
-        # Extração heurística do player ID (Ex: sfc_list_p1_10 -> p1)
         for group_id in running_sfcs.keys():
-            parts = group_id.split("_")
+            parts = str(group_id).split("_")
             for p in parts:
                 if p.startswith("p") and p[1:].isdigit():
                     players.add(p)
