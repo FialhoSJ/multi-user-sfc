@@ -15,7 +15,7 @@ class PoissonEmitter:
         self.timer: threading.Timer | None = None
 
     def start(self, func, *args):
-        logger.info("[PoissonEmitter] Gerador de emissão iniciado.")
+        logger.info("Gerador de emissão iniciado.")
         self.is_stop = False
         self.callback = func
         
@@ -38,7 +38,7 @@ class PoissonEmitter:
             
         self.is_output = False
         interval = np.random.poisson(self.lam)
-        logger.debug(f"[PoissonEmitter] Intervalo calculado: {interval}s")
+        logger.debug(f"Intervalo calculado: {interval}s")
         
         self.timer = threading.Timer(interval, self.run)
         self.timer.daemon = True  # Blindagem contra vazamento de threads
@@ -61,6 +61,6 @@ class PoissonEmitter:
         try:
             self.timer.cancel()
         except AttributeError:
-            logger.warning("[PoissonEmitter] Tentativa de parada sem um timer instanciado.")
+            logger.warning("Tentativa de parada sem um timer instanciado.")
             
-        logger.info("[PoissonEmitter] Gerador de emissão finalizado de forma limpa.")
+        logger.info("Gerador de emissão finalizado de forma limpa.")

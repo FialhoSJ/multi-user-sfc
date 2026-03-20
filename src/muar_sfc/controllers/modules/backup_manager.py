@@ -24,7 +24,7 @@ class BackupManager:
         
         try:
             is_target_alg = args.alg in valid_backup_algs
-            user_wants_backup = (args.backup == "y") and (args.ava != "1.0")
+            user_wants_backup = args.backup and (args.ava != "1.0")
             self.alg = args.alg
         except AttributeError:
             is_target_alg = False
@@ -128,7 +128,7 @@ class BackupManager:
         backups_mount = []
         strategy_name = "greedy"
 
-        if self.alg == "REPLICMASKABLEPPO" and agent_ref is not None:
+        if self.alg == "replic" and agent_ref is not None:
             backups_mount = self.rl_based_strategy(network, sfc_lifecycle_map, agent_ref)
             strategy_name = "rl_based"
         elif self.alg in ["vegeta", "ga"]:
@@ -251,28 +251,20 @@ class BackupManager:
         target_reliability = 0.96
         MAX_BACKUPS_PER_SFC = 4
         
-        # OTIMIZAÇÃO: Cópia isolada das chaves vitais de estado, sem clonar referências reais e sem deepcopy.
+        # OTIMIZAÇÃO O(1): Cópia isolada rasa de TODOS os atributos (incluindo cache e ips).
+        # Resolve o KeyError do RL sem acionar o gargalo do deepcopy.
         simulation_graph = nx.Graph()
         for node, data in network.graph.nodes(data=True):
-            simulation_graph.add_node(
-                node, 
-                cpu_used=data.get("cpu_used", 0), 
-                cpu_capacity=data.get("cpu_capacity", 0), 
-                type=data.get("type")
-            )
+            simulation_graph.add_node(node, **data.copy())
+            
         for u, v, data in network.graph.edges(data=True):
-            simulation_graph.add_edge(
-                u, v, 
-                bandwidth_used=data.get("bandwidth_used", 0), 
-                bandwidth_capacity=data.get("bandwidth_capacity", 0)
-            )
+            simulation_graph.add_edge(u, v, **data.copy())
 
         sorted_sfcs = sorted(list(sfc_id_duration.keys()))
 
         for sfc_id in sorted_sfcs:
             if "backup" in sfc_id or sfc_id not in network.sfc_dict:
                 continue
-
             sfc = network.get_sfc_by_id(sfc_id)
             pending_sfcs_this_cycle = []
             loop_safety_counter = 0

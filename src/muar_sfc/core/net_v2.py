@@ -712,3 +712,29 @@ class Net2:
         if self.total_cache_capacity == 0:
             return 0.0
         return self.metrics.total_cache_used / self.total_cache_capacity
+    
+    def get_network_only_processing_utilization(self) -> float:
+        """
+        Calcula a taxa de utilização (0.0 a 1.0) do processamento (CPU + GPU)
+        exclusivamente da infraestrutura de rede (servidores físicos), 
+        ignorando os dispositivos móveis.
+        """
+        # Extração em tempo linear e segura (usando o EAFP nativo com .get)
+        cap_cpu = sum(
+            d.get("original_cpu_capacity", d.get("cpu_capacity", 0.0)) 
+            for n, d in self.graph.nodes(data=True) if not self._is_gpu_node(n)
+        )
+        cap_gpu = sum(
+            d.get("original_cpu_capacity", d.get("cpu_capacity", 0.0)) 
+            for n, d in self.graph.nodes(data=True) if self._is_gpu_node(n)
+        )
+
+        total_network_capacity = cap_cpu + cap_gpu
+
+        # Fail-Fast matemático: previne ZeroDivisionError caso o grafo esteja vazio
+        if total_network_capacity <= 0:
+            return 0.0
+
+        total_network_used = self.metrics.total_cpu_used + self.metrics.total_gpu_used
+        
+        return total_network_used / total_network_capacity

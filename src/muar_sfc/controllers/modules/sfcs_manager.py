@@ -101,15 +101,27 @@ class SFCManager:
             sfc_ids = self.cleanup_session_state(session_id)
 
             for sfc_id in sfc_ids:
+                # ---> CORREÇÃO VITAL: Exterminar os backups Zumbis antes da SFC primária sumir <---
+                if self.backup_manager and sfc_id in self.backup_manager.sfcs_backups_instatiated:
+                    backups_list = list(self.backup_manager.sfcs_backups_instatiated[sfc_id])
+                    for backup_entry in backups_list:
+                        bkp_id = backup_entry["sfc_backup_id"]
+                        
+                        # Removemos o backup fisicamente da rede
+                        self.deployer.safe_network_removal(bkp_id, substrate_network)
+                        # Limpamos a existência dele do registro lógico
+                        self.backup_manager.cleanup_internal_state(bkp_id)
+
                 # DELEGAÇÃO PURA: O Deployer remove a SFC primária
                 self.deployer.safe_network_removal(sfc_id, substrate_network)
 
-        # 2. Limpa Backups (se ativado)
+        # 2. Limpa Backups probabilísticos obsoletos (se a estratégia GA/Vegeta estiver ativada)
         if self.backup_manager:
             obsolete_backups = self.backup_manager.identify_obsolete_backups()
             for backup_id in obsolete_backups:
-                # DELEGAÇÃO PURA: O Deployer remove o Backup
                 self.deployer.safe_network_removal(backup_id, substrate_network)
+                # Garante que o estado interno do manager também esqueça o backup
+                self.backup_manager.cleanup_internal_state(backup_id)
 
     def is_session_active(self, session_id: str) -> bool:
         """Verifica de forma segura se uma sessão (SFC) já está ativa na rede."""

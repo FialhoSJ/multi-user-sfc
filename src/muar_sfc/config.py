@@ -35,7 +35,7 @@ class SimulationSettings(BaseSettings):
 
     # --- Parâmetros de Entrada Obrigatórios e Tráfego ---
     n_sessions: int = 50
-    n_players: int = 6
+    n_players: int = 4
 
     # --- Parâmetros SFC ---
     allow_md_host: bool = True
