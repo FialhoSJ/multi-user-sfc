@@ -238,109 +238,109 @@ class FailureOrchestrator:
         else: return "Low"
 
     def _recover_sfcs(
-        self, affected_sfc_ids: set, sfc_failed_nodes_map: dict,
-        pre_crash_latencies: dict, sfc_owners_map: dict,
-    ) -> tuple[list, dict]:
-        fallen_sfcs_list = []
-        post_crash_latencies = {}
-
-        for sfc_id in affected_sfc_ids:
-            risk_level = self._get_real_risk_with_backups(sfc_id)
-            failed_nodes = sfc_failed_nodes_map.get(sfc_id, [])
-            relevant_server_down = failed_nodes[0] if failed_nodes else None
-
-            try:
-                sfc_obj = self.network.get_sfc_by_id(sfc_id)
-                # Extirpação do copy.deepcopy. Recriamos a camada superficial (shallow copy) 
-                # O(N) das listas iterativamente, o que é infinitamente mais leve no motor C do interpretador.
-                base_route_info = self.sfc_manager.get_routing_info(sfc_id)
-                old_route_info = {k: list(v) for k, v in base_route_info.items()}
-            except (KeyError, ValueError) as e:
-                logger.debug(f"Ignorando recuperação de SFC {sfc_id}: {e}")
-                continue
-
-            affected_vnf_id = None
-            if old_route_info:
-                for vnf, path in old_route_info.items():
-                    if (vnf not in ["src", "dst"] and "virt" not in vnf) and path and path[0] == relevant_server_down:
-                        affected_vnf_id = vnf
-                        break
-
-            has_viable_backup = False
+            self, affected_sfc_ids: set, sfc_failed_nodes_map: dict,
+            pre_crash_latencies: dict, sfc_owners_map: dict,
+        ) -> tuple[list, dict]:
+            fallen_sfcs_list = []
+            post_crash_latencies = {}
             
-            # EAFP estrito para o instanciamento do backup_manager
-            try:
-                aux = self.sfc_manager.backup_manager.sfcs_backups_instatiated
-            except AttributeError:
-                aux = {}
+            if affected_sfc_ids:
+                logger.warning(f">>> [IMPACTO] {len(affected_sfc_ids)} serviços (SFCs) foram atingidos pela queda!")
+
+            for sfc_id in affected_sfc_ids:
+                risk_level = self._get_real_risk_with_backups(sfc_id)
+                failed_nodes = sfc_failed_nodes_map.get(sfc_id, [])
+                relevant_server_down = failed_nodes[0] if failed_nodes else None
+
+                try:
+                    sfc_obj = self.network.get_sfc_by_id(sfc_id)
+                    base_route_info = self.sfc_manager.get_routing_info(sfc_id)
+                    old_route_info = {k: list(v) for k, v in base_route_info.items()}
+                except (KeyError, ValueError) as e:
+                    logger.debug(f"Ignorando recuperação de SFC {sfc_id}: {e}")
+                    continue
+
+                affected_vnf_id = None
+                if old_route_info:
+                    for vnf, path in old_route_info.items():
+                        if (vnf not in ["src", "dst"] and "virt" not in vnf) and path and path[0] == relevant_server_down:
+                            affected_vnf_id = vnf
+                            break
+
+                has_viable_backup = False
+                try:
+                    aux = self.sfc_manager.backup_manager.sfcs_backups_instatiated
+                except AttributeError:
+                    aux = {}
+                    
+                if affected_vnf_id and sfc_id in aux:
+                    for backup_entry in aux[sfc_id]:
+                        if backup_entry["vnf_id"].replace("_b", "") == affected_vnf_id:
+                            has_viable_backup = True
+                            break
+
+                if not has_viable_backup:
+                    if self.verbose and "backup" not in sfc_id:
+                        logger.warning(f" ⚠️ [FALHA/FILA] SFC {sfc_id} perdeu a VNF '{affected_vnf_id}' e NÃO possuía backup. Enviando para re-deploy...")
+                    
+                    self.sfcs_crash_affected[sfc_id] = {
+                        "fall_time": time.time(), "old_latency": pre_crash_latencies.get(sfc_id, 0),
+                        "resource_info": 0, "backup_success": False, "crash_trial": self.crashs_trials,
+                        "recover_success": False, "risk_level": risk_level, "final_status": "Processing",
+                    }
+                    tracker_id = sfc_owners_map.get(sfc_id)
+                    if tracker_id:
+                        session_info = self.sfc_manager.get_session_info(tracker_id)
+                        if session_info:
+                            if self.mobility_manager:
+                                self.mobility_manager.mark_vehicle_as_redeploying(tracker_id)
+                            sfc_list_tracker = session_info.get("sfc_list", [])
+                            if sfc_list_tracker:
+                                self.requeue_callback(sfc_list_tracker, changed_location=False)
+                                fallen_sfcs_list.extend(sfc_list_tracker)
+                    continue
+
+                try:
+                    self.network.undeploy_specific_vnf_context(sfc_id, affected_vnf_id)
+                except (KeyError, RuntimeError) as e:
+                    logger.error(f"Erro CRÍTICO no undeploy pré-recuperação da SFC {sfc_id}: {e}")
+                    raise RuntimeError(f"Corrupção de grafo ao remover VNF {affected_vnf_id} da SFC {sfc_id}") from e
+
+                recovery_start_time = time.time()
                 
-            if affected_vnf_id and sfc_id in aux:
-                for backup_entry in aux[sfc_id]:
-                    if backup_entry["vnf_id"].replace("_b", "") == affected_vnf_id:
-                        has_viable_backup = True
-                        break
+                try:
+                    recovered = self.sfc_manager.reconstruct_and_redeploy(
+                        sfc_obj, relevant_server_down, old_route_info, self.network
+                    )
+                except (KeyError, ValueError, RuntimeError) as e:
+                    logger.error(f"Falha na tentativa de stitching da SFC {sfc_id}: {e}")
+                    recovered = False
 
-            if not has_viable_backup:
-                if self.verbose and "backup" not in sfc_id:
-                    logger.warning(f"⚠️ [FAIL-FAST] SFC {sfc_id} perdeu VNF {affected_vnf_id} sem backup. Fila.")
-                self.sfcs_crash_affected[sfc_id] = {
-                    "fall_time": time.time(), "old_latency": pre_crash_latencies.get(sfc_id, 0),
-                    "resource_info": 0, "backup_success": False, "crash_trial": self.crashs_trials,
-                    "recover_success": False, "risk_level": risk_level, "final_status": "Processing",
-                }
-                tracker_id = sfc_owners_map.get(sfc_id)
-                if tracker_id:
-                    session_info = self.sfc_manager.get_session_info(tracker_id)
-                    if session_info:
-                        if self.mobility_manager:
-                            self.mobility_manager.mark_vehicle_as_redeploying(tracker_id)
-                        sfc_list_tracker = session_info.get("sfc_list", [])
-                        if sfc_list_tracker:
-                            self.requeue_callback(sfc_list_tracker, changed_location=False)
-                            fallen_sfcs_list.extend(sfc_list_tracker)
-                continue
+                if recovered:
+                    logger.success(f" ✔️ [RECUPERADO] SFC {sfc_id} salva quase instantaneamente via backup da VNF '{affected_vnf_id}'!")
+                    new_lat = self.network.calculate_sfc_total_latency(sfc_id)
+                    post_crash_latencies[sfc_id] = new_lat
+                    old_lat = pre_crash_latencies.get(sfc_id, 0)
+                    info_log = {
+                        "crash_trial": self.crashs_trials, "recover_success": True, "backup_success": True,
+                        "backup_efficient": "Yes", "latency_before": old_lat, "latency_after": new_lat,
+                        "latency_diff": new_lat - old_lat, "time_to_recover": time.time() - recovery_start_time,
+                        "vnf_id": affected_vnf_id, "latency_degrad": new_lat - old_lat, "resource_degrad": 0,
+                        "risk_level": risk_level, "final_status": "Fast Recover",
+                    }
+                    self.output_writter.resilient_output(sfc_id, info_log, self.crashs_trials)
+                else:
+                    logger.warning(f" ⚠️ [FALHA/FILA] SFC {sfc_id} possuía backup, mas a costura de rede falhou. Re-enfileirando...")
+                    self.sfcs_crash_affected[sfc_id] = {
+                        "fall_time": time.time(), "old_latency": pre_crash_latencies.get(sfc_id, 0),
+                        "resource_info": 0, "backup_success": False, "crash_trial": self.crashs_trials,
+                        "recover_success": False, "risk_level": risk_level, "final_status": "Processing",
+                    }
+                    tracker_id = sfc_owners_map.get(sfc_id)
+                    if tracker_id:
+                        self._requeue_session(tracker_id, fallen_sfcs_list)
 
-            # Fail-Fast: Se ocorrer um erro durante o undeploy, quebramos o ciclo em vez de mascarar
-            try:
-                self.network.undeploy_specific_vnf_context(sfc_id, affected_vnf_id)
-            except (KeyError, RuntimeError) as e:
-                logger.error(f"Erro CRÍTICO no undeploy pré-recuperação da SFC {sfc_id}: {e}")
-                raise RuntimeError(f"Corrupção de grafo ao remover VNF {affected_vnf_id} da SFC {sfc_id}") from e
-
-            recovery_start_time = time.time()
-            
-            # Captura de anomalias lógicas durante a reconstrução
-            try:
-                recovered = self.sfc_manager.reconstruct_and_redeploy(
-                    sfc_obj, relevant_server_down, old_route_info, self.network
-                )
-            except (KeyError, ValueError, RuntimeError) as e:
-                logger.error(f"Falha na tentativa de stitching da SFC {sfc_id}: {e}")
-                recovered = False
-
-            if recovered:
-                new_lat = self.network.calculate_sfc_total_latency(sfc_id)
-                post_crash_latencies[sfc_id] = new_lat
-                old_lat = pre_crash_latencies.get(sfc_id, 0)
-                info_log = {
-                    "crash_trial": self.crashs_trials, "recover_success": True, "backup_success": True,
-                    "backup_efficient": "Yes", "latency_before": old_lat, "latency_after": new_lat,
-                    "latency_diff": new_lat - old_lat, "time_to_recover": time.time() - recovery_start_time,
-                    "vnf_id": affected_vnf_id, "latency_degrad": new_lat - old_lat, "resource_degrad": 0,
-                    "risk_level": risk_level, "final_status": "Fast Recover",
-                }
-                self.output_writter.resilient_output(sfc_id, info_log, self.crashs_trials)
-            else:
-                self.sfcs_crash_affected[sfc_id] = {
-                    "fall_time": time.time(), "old_latency": pre_crash_latencies.get(sfc_id, 0),
-                    "resource_info": 0, "backup_success": False, "crash_trial": self.crashs_trials,
-                    "recover_success": False, "risk_level": risk_level, "final_status": "Processing",
-                }
-                tracker_id = sfc_owners_map.get(sfc_id)
-                if tracker_id:
-                    self._requeue_session(tracker_id, fallen_sfcs_list)
-
-        return fallen_sfcs_list, post_crash_latencies
+            return fallen_sfcs_list, post_crash_latencies
 
     def _requeue_session(self, tracker_id: str, fallen_list: list) -> None:
         session_info = self.sfc_manager.get_session_info(tracker_id)
@@ -369,35 +369,38 @@ class FailureOrchestrator:
         )
 
     def update_crash_recovery_status(self, sfc_id: str, results_dict: dict | None, is_success: bool, current_time: float) -> None:
-        if sfc_id in self.sfcs_crash_affected:
-            stored_data = self.sfcs_crash_affected[sfc_id]
+            if sfc_id in self.sfcs_crash_affected:
+                stored_data = self.sfcs_crash_affected[sfc_id]
 
-            if results_dict:
-                stored_data["recover_success"] = is_success
+                if results_dict:
+                    stored_data["recover_success"] = is_success
 
-                if is_success:
-                    latency_diff = results_dict["latency"] - stored_data["old_latency"]
+                    if is_success:
+                        logger.info(f" 🔄 [SLOW RECOVER] SFC {sfc_id} re-implantada fisicamente com sucesso após fila.")
+                        latency_diff = results_dict["latency"] - stored_data["old_latency"]
 
-                    stored_data.update({
-                        "latency_before": stored_data["old_latency"],
-                        "latency_after": results_dict["latency"],
-                        "latency_diff": latency_diff,
-                        "latency_degrad": latency_diff,
-                        "resource_degrad": stored_data["resource_info"] - results_dict.get("resource_info", 0),
-                        "time_to_recover": current_time - stored_data["fall_time"],
-                        "final_status": "Slow Recover",
-                    })
+                        stored_data.update({
+                            "latency_before": stored_data["old_latency"],
+                            "latency_after": results_dict["latency"],
+                            "latency_diff": latency_diff,
+                            "latency_degrad": latency_diff,
+                            "resource_degrad": stored_data["resource_info"] - results_dict.get("resource_info", 0),
+                            "time_to_recover": current_time - stored_data["fall_time"],
+                            "final_status": "Slow Recover",
+                        })
+                    else:
+                        logger.error(f" ❌ [FATALIDADE] SFC {sfc_id} falhou ao ser re-implantada. Recursos esgotados.")
+                        stored_data["final_status"] = "Failed"
                 else:
-                    stored_data["final_status"] = "Failed"
-            else:
-                stored_data.update({
-                    "recover_success": False,
-                    "final_status": "Failed"
-                })
+                    logger.error(f" ❌ [FATALIDADE] SFC {sfc_id} falhou de forma crítica (sem dados de rota).")
+                    stored_data.update({
+                        "recover_success": False,
+                        "final_status": "Failed"
+                    })
 
-            stored_data.setdefault("risk_level", "Medium")
-            trial_id = stored_data.get("crash_trial", self.crashs_trials)
+                stored_data.setdefault("risk_level", "Medium")
+                trial_id = stored_data.get("crash_trial", self.crashs_trials)
 
-            self.output_writter.resilient_output(sfc_id, stored_data, trial_id)
+                self.output_writter.resilient_output(sfc_id, stored_data, trial_id)
 
-            del self.sfcs_crash_affected[sfc_id]
+                del self.sfcs_crash_affected[sfc_id]

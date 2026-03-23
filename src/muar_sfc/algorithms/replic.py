@@ -11,11 +11,9 @@ from muar_sfc.algorithms.environments.env_replic import SFC_AllocationEnv
 from muar_sfc.config import ROOT_DIR
 from muar_sfc.core.sfc import SFC
 
-# --- REFATORAÇÃO: Logging orientado a objetos multiplataforma ---
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-# Garante ativamente que o diretório de logs exista na raiz estrutural antes de alocar
 log_dir = ROOT_DIR / "logs"
 log_dir.mkdir(parents=True, exist_ok=True)
 log_file = log_dir / "REPLIC.log"
@@ -26,10 +24,9 @@ formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(messag
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 
-# Constants
 IS_TRAINING = 0
 VERBOSE = False
-os.environ["CUDA_VISIBLE_DEVICES"] = ""  # Desabilita o uso da GPU
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 
 @contextlib.contextmanager
@@ -45,13 +42,10 @@ def suppress_output():
 
 
 class REPLIC:
-    def __init__(self, model_name):
-        self.model_name = model_name.upper()
-
-        # --- REFATORAÇÃO: O descarte do os.path ---
-        # A biblioteca pathlib atua de modo multiplataforma com o operador matriz '/'
+    def __init__(self, model_name: str):
+        self.model_name = str(model_name).upper()
         self.model_path = ROOT_DIR / "rl_saved_models" / f"{self.model_name}_REPLIC_allocation_model.zip"
-        self.name = f"REPLIC{model_name}"
+        self.name = f"REPLIC{self.model_name}"
 
         self.model = self._load_model()
 
@@ -76,47 +70,42 @@ class REPLIC:
         self.boot_factor = 0
 
     def _load_model(self):
-        """Carrega o modelo de RL do arquivo explorando as propriedades nativas do pathlib."""
-
-        # Validação limpa e atômica nativa do Path
-        if not self.model_path.exists():
-            logger.error(f"Arquivo do modelo não encontrado: {self.model_path}")
-            raise FileNotFoundError(f"Arquivo do modelo não encontrado: {self.model_path}")
-
+        """Carrega o modelo via EAFP e Pattern Matching moderno."""
         logger.info(f"Carregando modelo de: {self.model_path}")
-
-        # Ferramentas C externas (Stable Baselines) ainda requerem strings literais no loader
         path_str = str(self.model_path)
 
-        if self.model_name == "MASKABLEPPO":
-            return MaskablePPO.load(path_str, device="cpu")
-        elif self.model_name == "PPO":
-            return PPO.load(path_str, device="cpu")
-        elif self.model_name == "DQN":
-            return DQN.load(path_str, device="cpu")
-        else:
-            raise ValueError(
-                f"Nome do modelo inválido: '{self.model_name}'. Use 'PPO', 'MaskablePPO' ou 'DQN'."
-            )
+        try:
+            match self.model_name:
+                case "MASKABLEPPO":
+                    return MaskablePPO.load(path_str, device="cpu")
+                case "PPO":
+                    return PPO.load(path_str, device="cpu")
+                case "DQN":
+                    return DQN.load(path_str, device="cpu")
+                case _:
+                    raise ValueError(f"Nome do modelo inválido: '{self.model_name}'. Use 'PPO', 'MaskablePPO' ou 'DQN'.")
+        except OSError as e:
+            logger.error(f"Falha ao carregar o arquivo do modelo no caminho {self.model_path}: {e}")
+            raise FileNotFoundError(f"Arquivo do modelo não encontrado ou corrompido: {self.model_path}") from e
 
     def clear_all(self):
-        self.substrate_network = None
+        self.graph = None
         self.sfc = None
         self.node_info = {}
         self.route_info = {}
         self.latency = None
-        self.src_substrate_node = None
         self.single_source_minimum_latency_path = None
 
     def install_substrate_network(self, graph, shareable_sfs=None):
-        if shareable_sfs is None:
-            shareable_sfs = []
         self.graph = graph
+        
+        # Acesso O(1) usando os atributos nativos do dict do NetworkX
         self.valid_nodes = [
-            node for node in self.graph.nodes() if self.graph.nodes[node]["type"] != "router"
+            node for node, data in self.graph.nodes(data=True) if data.get("type") != "router"
         ]
 
-        if getattr(self, "precomputed_paths", None) is None or not self.precomputed_paths:
+        # Fim do getattr() redundante. Verifica-se diretamente o dicionário declarado no __init__
+        if not self.precomputed_paths:
             self.precomputed_paths = dict(nx.all_pairs_dijkstra_path(self.graph, weight="weight"))
 
     def install_SFC(self, sfc: SFC):
@@ -124,32 +113,28 @@ class REPLIC:
         self.route_info = {}
         self.node_info = {}
         self.latency = None
-        is_backup = "backup" in sfc.id
-        self.is_backup = is_backup
+        self.is_backup = "backup" in sfc.id
 
         self.latency_request = sfc.get_latency_request()
         self.min_latency = 0
 
-        service_requirements = {}
-        services = []
-        sfs_dict = sfc.vnfs_dict
+        self.services = []
+        self.service_requirements = {}
 
-        for item in sfs_dict:
+        # O(1) Inserção de dados
+        for item in sfc.vnfs_dict:
             nome = item["name"]
-            services.append(nome)
-            service_requirements[nome] = {
+            self.services.append(nome)
+            self.service_requirements[nome] = {
                 "CPU": item["CPU"],
                 "cache": item["cache"],
                 "out_bw": item["out_bw"],
                 "in_bw": item["in_bw"],
             }
 
-        if not is_backup:
-            services.append("dst")
-            service_requirements["dst"] = {"CPU": 0, "cache": 0, "out_bw": 0, "in_bw": 0}
-
-        self.service_requirements = service_requirements
-        self.services = services
+        if not self.is_backup:
+            self.services.append("dst")
+            self.service_requirements["dst"] = {"CPU": 0, "cache": 0, "out_bw": 0, "in_bw": 0}
 
         return self.sfc
 
@@ -163,27 +148,41 @@ class REPLIC:
         return self.fail_reason
 
     def handle_failure(self):
-        self.route_info = False
+        self.route_info = {}
         self.latency = None
 
     def check_solution(self):
-        if not isinstance(self.latency, (int, float)) or not self.route_info:
+        if self.latency is None or not self.route_info:
             return False
 
-        min_hops = 2
-        if len(self.route_info) < min_hops:
+        if len(self.route_info) < 2:
             return False
 
-        prev_path_end = None
+        # Como a rota do agente RL é construída de trás para frente (dst -> src), 
+        # a validação de continuidade também ocorre no sentido inverso.
+        next_hop_start = None
+        next_sf = None
+        
         for sf, path in self.route_info.items():
             if sf == "dst":
                 continue
 
-            if prev_path_end and path[-1] != prev_path_end:
-                logger.warning(f"Inconsistência entre {prev_sf} e {sf}: {prev_path_end} != {path[0]}")
-                return False
-            prev_path_end = path[0]
-            prev_sf = sf
+            # Se já temos uma VNF processada, o FIM da VNF atual (path[-1]) 
+            # tem que bater no INÍCIO da VNF processada anteriormente (next_hop_start)
+            if next_hop_start is not None and path:
+                if path[-1] != next_hop_start:
+                    logger.warning(
+                        f"Inconsistência de rota: O fim de '{sf}' (Nó {path[-1]}) "
+                        f"não se conecta ao início de '{next_sf}' (Nó {next_hop_start})."
+                    )
+                    return False
+                
+            if path:
+                # Salva o início desta VNF para validar contra a cauda da VNF da próxima iteração
+                next_hop_start = path[0]
+                
+            next_sf = sf
+            
         return True
 
     def set_costs(self, costs_parameters):
@@ -191,7 +190,7 @@ class REPLIC:
 
     def start_algorithm(self, env: SFC_AllocationEnv, args=None):
         if not self.valid_nodes or not self.sfc or not self.graph:
-            self.fail_reason = "Erro: Rede ou SFC não foram instalados..."
+            self.fail_reason = "Erro: Rede ou SFC não foram instalados."
             logger.error(self.fail_reason)
             self.handle_failure()
             return False
@@ -202,7 +201,7 @@ class REPLIC:
         env._set_list_graph_sfcs([self.graph], [self.sfc])
 
         if args:
-            reliability_config = {
+            env.reliability_config = {
                 "tiers": {
                     "default": getattr(args, "rel_normal", 0.99),
                     "a": getattr(args, "rel_low", 0.95),
@@ -216,26 +215,20 @@ class REPLIC:
                     "c": getattr(args, "stress_high", 0.02),
                 },
             }
-            env.reliability_config = reliability_config
 
         with suppress_output():
             self.model.set_env(env)
 
         self.algorithm(env)
 
+        # Fail-Fast restaurado: se checar a solução der um erro sistêmico no ID, o script quebrará de forma alta e clara
         if self.check_solution():
-            # REFATORAÇÃO: Morte ao pass silencioso
-            try:
-                if "backup" not in self.sfc.id:
-                    logger.info("Finished algorithm, success")
-                return True
-            except Exception as e:
-                logger.error(f"Erro ao computar sucesso da alocação de rede: {e}")
-                self.handle_failure()
-                return False
+            if not self.is_backup:
+                logger.info("Finished algorithm, success")
+            return True
         else:
             self.handle_failure()
-            if "backup" not in self.sfc.id:
+            if not self.is_backup:
                 logger.info(f"End algorithm, failed: {self.fail_reason}")
             return False
 
@@ -249,8 +242,8 @@ class REPLIC:
         env.is_training = False
 
         env.allocation_results["dst"] = {"allocated_server": dst, "path": [], "cost": 0}
-
         done = False
+        
         while not done:
             if self.model_name == "MASKABLEPPO":
                 action_masks = env.action_masks()
@@ -266,18 +259,16 @@ class REPLIC:
             return {}, None
 
         route_info = {}
-
         for key, value in env.allocation_results.items():
-            if value["path"]:
-                route_info[key] = list(reversed(value["path"]))
-            else:
-                route_info[key] = []
+            route_info[key] = list(reversed(value["path"])) if value["path"] else []
 
         total_latency = env.latency_used
 
-        if "backup" not in self.sfc.id:
+        if not self.is_backup:
             if route_info:
-                first_vnf_key = list(route_info.keys())[-1]
+                # O(1): Resgate do último elemento sem converter dicionário em lista
+                first_vnf_key = next(reversed(route_info))
+                
                 if route_info[first_vnf_key]:
                     src_node_network = route_info[first_vnf_key][0]
                 else:
@@ -297,9 +288,9 @@ class REPLIC:
 
     def evaluate_result(self, latency, route_info):
         if self.fail_reason in ["resource", "latency", "bandwidth"]:
-            self.route_info = False
-            self.latency = None
+            self.handle_failure()
             return False
+            
         self.latency = latency
         self.route_info = route_info
         return True
