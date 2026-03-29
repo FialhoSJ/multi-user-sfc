@@ -369,38 +369,38 @@ class FailureOrchestrator:
         )
 
     def update_crash_recovery_status(self, sfc_id: str, results_dict: dict | None, is_success: bool, current_time: float) -> None:
-            if sfc_id in self.sfcs_crash_affected:
-                stored_data = self.sfcs_crash_affected[sfc_id]
+        if sfc_id in self.sfcs_crash_affected:
+            stored_data = self.sfcs_crash_affected[sfc_id]
 
-                if results_dict:
-                    stored_data["recover_success"] = is_success
+            if results_dict:
+                stored_data["recover_success"] = is_success
 
-                    if is_success:
-                        logger.info(f" 🔄 [SLOW RECOVER] SFC {sfc_id} re-implantada fisicamente com sucesso após fila.")
-                        latency_diff = results_dict["latency"] - stored_data["old_latency"]
+                if is_success:
+                    logger.info(f" 🔄 [SLOW RECOVER] SFC {sfc_id} re-implantada fisicamente com sucesso após fila.")
+                    latency_diff = results_dict["latency"] - stored_data["old_latency"]
 
-                        stored_data.update({
-                            "latency_before": stored_data["old_latency"],
-                            "latency_after": results_dict["latency"],
-                            "latency_diff": latency_diff,
-                            "latency_degrad": latency_diff,
-                            "resource_degrad": stored_data["resource_info"] - results_dict.get("resource_info", 0),
-                            "time_to_recover": current_time - stored_data["fall_time"],
-                            "final_status": "Slow Recover",
-                        })
-                    else:
-                        logger.error(f" ❌ [FATALIDADE] SFC {sfc_id} falhou ao ser re-implantada. Recursos esgotados.")
-                        stored_data["final_status"] = "Failed"
-                else:
-                    logger.error(f" ❌ [FATALIDADE] SFC {sfc_id} falhou de forma crítica (sem dados de rota).")
                     stored_data.update({
-                        "recover_success": False,
-                        "final_status": "Failed"
+                        "latency_before": stored_data["old_latency"],
+                        "latency_after": results_dict["latency"],
+                        "latency_diff": latency_diff,
+                        "latency_degrad": latency_diff,
+                        "resource_degrad": stored_data["resource_info"] - results_dict.get("resource_info", 0),
+                        "time_to_recover": current_time - stored_data["fall_time"],
+                        "final_status": "Slow Recover",
                     })
+                else:
+                    logger.error(f" ❌ [FATALIDADE] SFC {sfc_id} falhou ao ser re-implantada. Recursos esgotados.")
+                    stored_data["final_status"] = "Failed"
+            else:
+                logger.error(f" ❌ [FATALIDADE] SFC {sfc_id} falhou de forma crítica (sem dados de rota).")
+                stored_data.update({
+                    "recover_success": False,
+                    "final_status": "Failed"
+                })
 
-                stored_data.setdefault("risk_level", "Medium")
-                trial_id = stored_data.get("crash_trial", self.crashs_trials)
+            stored_data.setdefault("risk_level", "Medium")
+            trial_id = stored_data.get("crash_trial", self.crashs_trials)
 
-                self.output_writter.resilient_output(sfc_id, stored_data, trial_id)
+            self.output_writter.resilient_output(sfc_id, stored_data, trial_id)
 
-                del self.sfcs_crash_affected[sfc_id]
+            del self.sfcs_crash_affected[sfc_id]

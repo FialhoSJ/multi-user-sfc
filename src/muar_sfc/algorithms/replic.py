@@ -26,7 +26,8 @@ logger.addHandler(file_handler)
 
 IS_TRAINING = 0
 VERBOSE = False
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
+# EAFP: O padrão TF/Torch para forçar CPU exige "-1" explícito.
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
 
 @contextlib.contextmanager
@@ -104,7 +105,6 @@ class REPLIC:
             node for node, data in self.graph.nodes(data=True) if data.get("type") != "router"
         ]
 
-        # Fim do getattr() redundante. Verifica-se diretamente o dicionário declarado no __init__
         if not self.precomputed_paths:
             self.precomputed_paths = dict(nx.all_pairs_dijkstra_path(self.graph, weight="weight"))
 
@@ -158,8 +158,6 @@ class REPLIC:
         if len(self.route_info) < 2:
             return False
 
-        # Como a rota do agente RL é construída de trás para frente (dst -> src), 
-        # a validação de continuidade também ocorre no sentido inverso.
         next_hop_start = None
         next_sf = None
         
@@ -167,8 +165,6 @@ class REPLIC:
             if sf == "dst":
                 continue
 
-            # Se já temos uma VNF processada, o FIM da VNF atual (path[-1]) 
-            # tem que bater no INÍCIO da VNF processada anteriormente (next_hop_start)
             if next_hop_start is not None and path:
                 if path[-1] != next_hop_start:
                     logger.warning(
@@ -178,7 +174,6 @@ class REPLIC:
                     return False
                 
             if path:
-                # Salva o início desta VNF para validar contra a cauda da VNF da próxima iteração
                 next_hop_start = path[0]
                 
             next_sf = sf
@@ -221,7 +216,6 @@ class REPLIC:
 
         self.algorithm(env)
 
-        # Fail-Fast restaurado: se checar a solução der um erro sistêmico no ID, o script quebrará de forma alta e clara
         if self.check_solution():
             if not self.is_backup:
                 logger.info("Finished algorithm, success")
@@ -245,11 +239,12 @@ class REPLIC:
         done = False
         
         while not done:
+            # CORREÇÃO VITAL: Imposição do deterministic=True para exterminar escolhas estocásticas
             if self.model_name == "MASKABLEPPO":
                 action_masks = env.action_masks()
-                action, _ = self.model.predict(obs, action_masks=action_masks, deterministic=False)
+                action, _ = self.model.predict(obs, action_masks=action_masks, deterministic=True)
             else:
-                action, _ = self.model.predict(obs, deterministic=False)
+                action, _ = self.model.predict(obs, deterministic=True)
 
             obs, _, terminated, truncated, _ = env.step(action)
             done = terminated or truncated

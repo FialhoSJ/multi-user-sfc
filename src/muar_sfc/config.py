@@ -49,7 +49,7 @@ class SimulationSettings(BaseSettings):
     ava: float = 0.99
     number_of_fails: int = 3
     min_fail_duration: float = 20.0
-    crash_at: list[float] = [60,90,120]
+    crash_at: list[float] = [125,155,185]  # Exemplo de tempos fixos para falhas (em segundos)
 
     # --- Configuração MICRO (Confiabilidade Base por Nível) ---
     rel_high: float = 0.999

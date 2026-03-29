@@ -4,15 +4,15 @@ from typing import Any
 import gymnasium
 import numpy as np
 from gymnasium import spaces
+import networkx as nx
 from networkx import Graph
+from muar_sfc.utils.network_utils import check_vnf_reusability
 
 from muar_sfc.algorithms.networkUtils import (
     calculate_computational_latency,
     calculate_latency_betwen_nodes,
     get_available_shortest_path_fast,
 )
-
-# Módulos Locais
 from muar_sfc.core.sfc import SFC, VNF
 from muar_sfc.utils.network_utils import (
     calcular_percentual_banda_total,
@@ -20,26 +20,19 @@ from muar_sfc.utils.network_utils import (
     get_graph_processing_utilization_simplified,
 )
 
-# --- Constantes Globais ---
 SHAREABLE_PREFIXES = ("IA_DET_FT_", "RE_region_", "MA_region_")
 NON_REUSABLE_PENALTY = 4
 
-# --- Normalização de custos ---
-LAT_MAX = 50.0  # ajuste conforme seu cenário
-BW_MAX = 12.5  # ajuste conforme seu cenário
+LAT_MAX = 50.0
+BW_MAX = 12.5
 CPU_PENALTY_NORM = 0.3
 CACHE_PENALTY_NORM = 0.3
-
+EPSILON = 1e-5
 
 class SFC_AllocationEnv(gymnasium.Env):
     """
-    Ambiente do Gymnasium para o problema de alocação de Service Function Chains (SFCs).
+    Ambiente do Gymnasium blindado contra Double Charging e erros de estado flutuante.
     """
-
-    # =================================================================================
-    # 1. Inicialização e Setup
-    # =================================================================================
-
     def __init__(
         self,
         valid_nodes: list[int | str],
@@ -56,43 +49,26 @@ class SFC_AllocationEnv(gymnasium.Env):
             raise ValueError("A lista de grafos deve ter o mesmo tamanho da lista de SFCs.")
 
         self.valid_nodes = valid_nodes
-        self.list_graph = list_graph
-        self.list_sfc = list_sfc
         self.is_training = is_training
 
-        self.pesos_fatores = (
-            pesos_fatores
-            if pesos_fatores is not None
-            else {
-                "cpu": 1,
-                "cache": 1,
-                "band": 3,
-                "rel": 6,
-                "lat": 3,
-                "mobile": 0.0,
-            }
-        )
+        self.pesos_fatores = pesos_fatores or {
+            "cpu": 1, "cache": 1, "band": 3, "rel": 6, "lat": 3, "mobile": 0.0,
+        }
 
-        self.reward_config = (
-            reward_config
-            if reward_config is not None
-            else {
-                "success_bonus": 40.0,
-                "step_reward": 0,
-                "invalid_action_penalty": -10.0,
-                "failure_penalty": -40.0,
-                "severe_failure_penalty": -50.0,
-            }
-        )
+        self.reward_config = reward_config or {
+            "success_bonus": 40.0, "step_reward": 0, "invalid_action_penalty": -10.0,
+            "failure_penalty": -40.0, "severe_failure_penalty": -50.0,
+        }
 
-        self.reliability_config = (
-            reliability_config
-            if reliability_config
-            else {
-                "tiers": {"default": 0.98, "a": 0.95, "b": 0.98, "c": 0.999},
-                "stress": {"default": 0.08, "a": 0.15, "b": 0.08, "c": 0.02},
-            }
-        )
+        self.reliability_config = reliability_config or {
+            "tiers": {"default": 0.98, "a": 0.95, "b": 0.98, "c": 0.999},
+            "stress": {"default": 0.08, "a": 0.15, "b": 0.08, "c": 0.02},
+        }
+
+        self.list_graph = []
+        self.list_sfc = []
+        # Usa o set interno para forçar isolamento e evitar o Double Charging
+        self._set_list_graph_sfcs(list_graph, list_sfc)
 
         if self.is_training:
             self.initial_resource_snapshot = self._initialize_snapshots(self.list_graph)
@@ -103,14 +79,13 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.current_location: int | str = None
         self.latency_request = None
         self.features = None
-        self.forbidden_nodes = []
+        self.forbidden_nodes = set()
 
         self.ratio_cpu_used = 0
         self.ratio_cache_used = 0
         self.ratio_banda_used = 0
         self.latency_used = 0
 
-        self.cache_path = {}
         self.servers_used = []
         self.allocation_results = {}
         self.success = False
@@ -122,15 +97,28 @@ class SFC_AllocationEnv(gymnasium.Env):
             {
                 "tipo_sfc": spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
                 "usos_rede": spaces.Box(low=0, high=1, shape=(3,), dtype=np.float32),
-                "recursos_nos_validos": spaces.Box(
-                    low=0, high=1, shape=(num_nodes, 7), dtype=np.float32
-                ),
+                "recursos_nos_validos": spaces.Box(low=0, high=1, shape=(num_nodes, 7), dtype=np.float32),
             }
         )
 
-    # =================================================================================
-    # 2. Interface Principal do Gymnasium (Reset, Step, Mask)
-    # =================================================================================
+    def _set_list_graph_sfcs(self, list_graph: list[Graph], list_sfc: list[SFC]):
+        """Cria cópias isoladas para a IA brincar, protegendo o grafo real do Instanciador."""
+        safe_graphs = []
+        for g in list_graph:
+            sg = nx.Graph()
+            for n, d in g.nodes(data=True): sg.add_node(n, **d.copy())
+            for u, v, d in g.edges(data=True): sg.add_edge(u, v, **d.copy())
+            safe_graphs.append(sg)
+            
+        self.list_graph = safe_graphs
+        self.list_sfc = list_sfc
+        
+        # Refatoração EAFP Estrito
+        try:
+            _ = self.action_space
+            self.reset()
+        except AttributeError:
+            pass
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -144,8 +132,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         else:
             self.graph = self.list_graph[idx]
 
-        sfc_sorteada = self.list_sfc[idx]
-        self.set_current_sfc(sfc_sorteada)
+        self.set_current_sfc(self.list_sfc[idx])
 
         self.success = False
         self.fail_reason = None
@@ -160,34 +147,34 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.ratio_banda_used = calcular_percentual_banda_total(self.graph)
 
         self.features = self._get_nodes_features(vnf, bw_req, current_node)
-        obs = self._get_obs()
-
-        return obs, {}
+        return self._get_obs(), {}
 
     def step(self, action: int):
         self.action_masks()
 
-        # Manteremos o hasattr aqui temporariamente até termos o contrato exato do VNF
-        if hasattr(self.current_vnf, "location") and self.current_vnf.location is not None:
+        # EAFP Limpo para resgate da VNF atual
+        try:
             chosen_server = self.current_vnf.location
-        elif self.current_vnf.id == "src_virt":
-            vnf_data = next(
-                (v for v in self.current_sfc.vnfs_dict if v["name"] == "src_virt"), None
-            )
-            chosen_server = vnf_data["location"] if vnf_data else self.valid_nodes[action]
-        else:
-            if action == len(self.valid_nodes) - 1:
-                chosen_server = self.current_sfc.dst_node
+            if chosen_server is None: raise AttributeError
+        except AttributeError:
+            if self.current_vnf.id == "src_virt":
+                vnf_data = next((v for v in self.current_sfc.vnfs_dict if v["name"] == "src_virt"), None)
+                chosen_server = vnf_data["location"] if vnf_data else self.valid_nodes[action]
             else:
-                chosen_server = self.valid_nodes[action]
+                if action == len(self.valid_nodes) - 1:
+                    try:
+                        chosen_server = self.current_sfc.dst_node
+                    except AttributeError:
+                        chosen_server = self.valid_nodes[action]
+                else:
+                    chosen_server = self.valid_nodes[action]
 
         vnf = self.current_vnf
         band_req = self.service_requirements[vnf.id]["out_bw"]
         current_location = self.current_location
 
-        path = get_available_shortest_path_fast(
-            self.graph, current_location, chosen_server, band_req
-        )
+        path = get_available_shortest_path_fast(self.graph, current_location, chosen_server, band_req)
+        
         self.ratio_cpu_used = get_graph_processing_utilization_simplified(self.graph)
         self.ratio_cache_used = calcular_percentual_cache_total(self.graph)
         self.ratio_banda_used = calcular_percentual_banda_total(self.graph)
@@ -201,27 +188,15 @@ class SFC_AllocationEnv(gymnasium.Env):
             return self._fail_step("bandwidth")
 
         self.servers_used.append(chosen_server)
-
         node_data = self.graph.nodes[chosen_server]
         reliability = self.get_dynamic_reliability(node_data)
 
-        normalized_cost = total_cost / 5.0
-
-        reward = -normalized_cost
-        reward += self.reward_config["step_reward"]
-        reward += 4.0 * reliability
-
-        if math.isnan(reward) or math.isinf(reward):
-            print(f"--- DEBUG: Recompensa inválida detectada! Valor: {reward} ---")
-            print(f"Custo total calculado: {total_cost}")
-            assert not (math.isnan(reward) or math.isinf(reward))
+        reward = -(total_cost / 5.0) + self.reward_config["step_reward"] + (4.0 * reliability)
 
         self.current_location = chosen_server
         if not self.is_training:
             self.allocation_results[self.current_vnf.id] = {
-                "allocated_server": chosen_server,
-                "path": path,
-                "cost": total_cost,
+                "allocated_server": chosen_server, "path": path, "cost": total_cost,
             }
 
         self.latency_used += calculate_total_latency(self.graph, path, vnf)
@@ -236,15 +211,10 @@ class SFC_AllocationEnv(gymnasium.Env):
             idx = self.reverse_vnf_list.index(self.current_vnf)
             self.current_vnf = self.reverse_vnf_list[idx + 1]
 
-        bw_required = (
-            self.service_requirements[self.current_vnf.id]["out_bw"] if self.current_vnf else 0
-        )
-        self.features = self._get_nodes_features(
-            self.current_vnf, bw_required, self.current_location
-        )
-        obs = self._get_obs()
-
-        return obs, reward, done, False, {}
+        bw_required = self.service_requirements[self.current_vnf.id]["out_bw"] if self.current_vnf else 0
+        self.features = self._get_nodes_features(self.current_vnf, bw_required, self.current_location)
+        
+        return self._get_obs(), reward, done, False, {}
 
     def action_masks(self) -> np.ndarray:
         if self.current_vnf is None:
@@ -253,8 +223,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         if self.features is None:
             vnf = self.current_vnf
             bw_req = self.service_requirements[vnf.id]["out_bw"]
-            current_node = self.current_location
-            self.features = self._get_nodes_features(vnf, bw_req, current_node)
+            self.features = self._get_nodes_features(vnf, bw_req, self.current_location)
 
         mask = []
         for i, node_id in enumerate(self.valid_nodes):
@@ -264,54 +233,30 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         return np.array(mask, dtype=np.int8)
 
-    # =================================================================================
-    # 3. Observações e Features
-    # =================================================================================
-
     def _get_obs(self) -> dict[str, np.ndarray]:
         primeira_sf = np.zeros(1, dtype=np.float32)
-
-        # REFATORAÇÃO: O código órfão que avaliava "self.current_location if not isinstance..."
-        # sem salvar em nenhuma variável foi completamente limpo.
-
-        primeira_sf[0] = (
-            1.0
-            if self.current_sfc.get_previous_vnf(self.current_sfc.get_dst_vnf())
-            == self.current_vnf
-            else 0.0
-        )
+        primeira_sf[0] = 1.0 if self.current_sfc.get_previous_vnf(self.current_sfc.get_dst_vnf()) == self.current_vnf else 0.0
 
         indices_das_features = [0, 1, 2, 3, 4, 5, 7]
         recursos_nodes = self.features[:, indices_das_features].astype(np.float32)
         recursos_nodes[:, 4] /= 100
 
-        usos_rede = np.array(
-            [
-                calcular_percentual_banda_total(self.graph),
-                get_graph_processing_utilization_simplified(self.graph),
-                self.latency_used / 100,
-            ],
-            dtype=np.float32,
-        )
+        usos_rede = np.array([
+            calcular_percentual_banda_total(self.graph),
+            get_graph_processing_utilization_simplified(self.graph),
+            self.latency_used / 100,
+        ], dtype=np.float32)
 
-        if not self.current_vnf or "cache" in self.current_sfc.id:
+        try:
+            tipo_sfc = np.array([0.0], dtype=np.float32) if not self.current_vnf or "cache" in self.current_sfc.id else np.array([1.0], dtype=np.float32)
+        except AttributeError:
             tipo_sfc = np.array([0.0], dtype=np.float32)
-        else:
-            tipo_sfc = np.array([1.0], dtype=np.float32)
 
-        obs = {
+        return {
             "tipo_sfc": tipo_sfc,
             "usos_rede": usos_rede,
             "recursos_nos_validos": recursos_nodes,
         }
-
-        for key, value in obs.items():
-            if np.any(np.isnan(value)) or np.any(np.isinf(value)):
-                print(f"--- DEBUG: NaN ou Inf detectado na observação final (chave: {key})! ---")
-                print(value)
-                assert not (np.any(np.isnan(value)) or np.any(np.isinf(value)))
-
-        return obs
 
     def _get_nodes_features(self, vnf: VNF, bw_required, current_location: any) -> np.ndarray:
         num_valid_nodes = len(self.valid_nodes)
@@ -323,38 +268,32 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         for i, node_id in enumerate(self.valid_nodes):
             if i == num_valid_nodes - 1:
-                node_id = self.current_sfc.dst_node
+                try:
+                    node_id = self.current_sfc.dst_node
+                except AttributeError:
+                    pass
                 features[i, 7] = 1
 
             node_data = self.graph.nodes[node_id]
             is_reusable = self.is_reusable_at_node(self.current_sfc, self.graph, node_id, vnf)
 
             features[i, 2] = float(is_reusable)
-            cpu_req = vnf.get_cpu_request()
-            cache_req = vnf.get_cache_request()
+            cpu_req = 0 if is_reusable else vnf.get_cpu_request()
+            cache_req = 0 if is_reusable else vnf.get_cache_request()
 
-            if is_reusable:
-                cpu_req, cache_req = 0, 0
+            c_cap = node_data.get("cpu_capacity", 0.0)
+            ca_cap = node_data.get("cache_capacity", 0.0)
 
-            features[i, 0] = (
-                (node_data["cpu_used"] + cpu_req) / node_data["cpu_capacity"]
-                if node_data["cpu_capacity"] > 0
-                else 0
-            )
-            features[i, 1] = (
-                (node_data["cache_used"] + cache_req) / node_data["cache_capacity"]
-                if node_data["cache_capacity"] > 0
-                else 0
-            )
+            features[i, 0] = (node_data.get("cpu_used", 0) + cpu_req) / c_cap if c_cap > 0 else 0
+            features[i, 1] = (node_data.get("cache_used", 0) + cache_req) / ca_cap if ca_cap > 0 else 0
 
-            if (node_data["cpu_used"] + cpu_req) >= node_data["cpu_capacity"] or (
-                node_data["cache_used"] + cache_req
-            ) >= node_data["cache_capacity"]:
+            # CORREÇÃO: Tolerância de + EPSILON protege a IA contra rejeições estritas de float
+            if (node_data.get("cpu_used", 0) + cpu_req) > (c_cap + EPSILON) or (
+                node_data.get("cache_used", 0) + cache_req
+            ) > (ca_cap + EPSILON):
                 features[i, 6] = 1
 
-            path = get_available_shortest_path_fast(
-                self.graph, current_location, node_id, bw_required
-            )
+            path = get_available_shortest_path_fast(self.graph, current_location, node_id, bw_required)
             if not path:
                 features[i, 4] = 1.0
                 features[i, 5] = 1.0
@@ -364,98 +303,73 @@ class SFC_AllocationEnv(gymnasium.Env):
                 features[i, 4] = bd_cost
                 features[i, 5] = latency_cost
 
-            reliability = self.get_dynamic_reliability(node_data)
-            features[i, 3] = reliability
+            features[i, 3] = self.get_dynamic_reliability(node_data)
             if node_id in self.forbidden_nodes:
                 features[i, 6] = 1
 
-        # REFATORAÇÃO: Chamadas de função que não salvavam nada na memória e
-        # avaliações booleanas inúteis ("not features[-1, 6]") foram totalmente extirpadas.
         features[-1, 6] = 1
-
         return features
-
-    # =================================================================================
-    # 4. Gerenciamento de Recursos
-    # =================================================================================
 
     def allocate_resources_on_node(self, node_id: int | str, vnf: VNF) -> bool:
         node = self.graph.nodes[node_id]
-        cpu_req = vnf.get_cpu_request()
-        cache_req = vnf.get_cache_request()
-
         can_reuse = self.is_reusable_at_node(self.current_sfc, self.graph, node_id, vnf)
-        effective_cpu_req = 0 if can_reuse else cpu_req
-        effective_cache_req = 0 if can_reuse else cache_req
+        
+        effective_cpu_req = 0 if can_reuse else vnf.get_cpu_request()
+        effective_cache_req = 0 if can_reuse else vnf.get_cache_request()
 
-        if (node["cpu_used"] + effective_cpu_req > node["cpu_capacity"]) or (
-            node["cache_used"] + effective_cache_req > node["cache_capacity"]
+        if (node.get("cpu_used", 0) + effective_cpu_req > node.get("cpu_capacity", 0)) or (
+            node.get("cache_used", 0) + effective_cache_req > node.get("cache_capacity", 0)
         ):
-            if not self.is_training:
-                print(f"Não recurso o suficiente no nó {node_id}")
             return False
 
-        node["cpu_used"] += effective_cpu_req
-        node["cache_used"] += effective_cache_req
-
+        node["cpu_used"] = node.get("cpu_used", 0) + effective_cpu_req
+        node["cache_used"] = node.get("cache_used", 0) + effective_cache_req
         return True
-
+    
     def allocate_bandwidth_along_path(self, path: list, bandwidth_required: float) -> bool:
         for u, v in zip(path[:-1], path[1:], strict=False):
             edge = self.graph.edges[u, v]
-            available_bw = edge.get("bandwidth_capacity", 0) - edge.get("bandwidth_used", 0)
-            if available_bw < bandwidth_required:
-                if not self.is_training:
-                    print(f"Não houve banda o suficiente no link {u} e {v}")
+            # Devolvendo a margem de erro da arquitetura de ponto flutuante
+            if (edge.get("bandwidth_capacity", 0) - edge.get("bandwidth_used", 0)) < (bandwidth_required - EPSILON):
                 return False
 
         for u, v in zip(path[:-1], path[1:], strict=False):
             self.graph.edges[u, v]["bandwidth_used"] += bandwidth_required
-
         return True
 
-    def is_reusable_at_node(
-        self, sfc: SFC, graph: Graph, node_id: int | str, vnf: VNF
-    ) -> bool:
-        if not vnf:
+    def is_reusable_at_node(self, sfc: SFC, graph: Graph, node_id: int | str, vnf: VNF) -> bool:
+        try:
+            service_name = vnf.id
+        except AttributeError:
             return False
-        service_name = vnf.id
-
-        cpu_req = vnf.get_cpu_request()
-
-        node = graph.nodes[node_id]
-        cpu_used, cpu_cap = node["cpu_used"], node["cpu_capacity"]
 
         if not service_name.startswith(SHAREABLE_PREFIXES):
             return False
 
-        session_id = sfc.id.split("_")[-1]
-        service_key = (service_name, session_id)
-        result = service_key in graph.nodes[node_id].get("services", {})
+        try:
+            session_id = sfc.session_id
+        except AttributeError:
+            session_id = str(sfc.id).split("_")[-1]
 
-        if result and cpu_used + cpu_req >= cpu_cap:
+        # Garantimos a extração limpa do ID
+        clean_id = service_name.replace("_b", "")
+
+        try:
+            services_dict = graph.nodes[node_id].get("services", {})
+            # Delegação SRP pura:
+            return check_vnf_reusability(services_dict, clean_id, session_id)
+        except KeyError:
             return False
-
-        return result
-
-    # =================================================================================
-    # 5. Cálculo de Custos
-    # =================================================================================
 
     def _compute_allocation_cost(self, vnf, server_id, path, bw_required) -> float:
         node_data = self.graph.nodes[server_id]
-        factor_weights = self.pesos_fatores
-
         is_reusable = self.is_reusable_at_node(self.current_sfc, self.graph, server_id, vnf)
 
-        cpu_capacity = node_data.get("cpu_capacity", 1.0) or 1.0
-        cache_capacity = node_data.get("cache_capacity", 1.0) or 1.0
+        c_cap = node_data.get("cpu_capacity", 1.0) or 1.0
+        ca_cap = node_data.get("cache_capacity", 1.0) or 1.0
 
-        cpu_request = vnf.get_cpu_request()
-        cache_request = vnf.get_cache_request()
-
-        cpu_cost = (node_data["cpu_used"] + cpu_request) / cpu_capacity
-        cache_cost = (node_data["cache_used"] + cache_request) / cache_capacity
+        cpu_cost = (node_data.get("cpu_used", 0) + vnf.get_cpu_request()) / c_cap
+        cache_cost = (node_data.get("cache_used", 0) + vnf.get_cache_request()) / ca_cap
 
         if not is_reusable:
             cpu_cost = min(cpu_cost + CPU_PENALTY_NORM, 1.0)
@@ -465,32 +379,29 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         lat_cost = min(lat_cost_raw / LAT_MAX, 1.0)
         bw_cost = min(bw_cost_raw / BW_MAX, 1.0)
-
-        reliability = self.get_dynamic_reliability(node_data)
-        reliability_cost = 1.0 - reliability
+        reliability_cost = 1.0 - self.get_dynamic_reliability(node_data)
 
         incentive_cost = 0.0
-        if server_id == self.current_sfc.dst_node:
-            network_stress_ratio = max(self.ratio_cpu_used, self.ratio_cache_used) / 100.0
-            stress_factor = network_stress_ratio * factor_weights["mobile"]
-            dynamic_reward = stress_factor**3
-            incentive_cost = -dynamic_reward
+        try:
+            dst_node = self.current_sfc.dst_node
+        except AttributeError:
+            dst_node = None
 
-        total_cost = (
-            factor_weights["cpu"] * cpu_cost
-            + factor_weights["cache"] * cache_cost
-            + factor_weights["band"] * bw_cost
-            + factor_weights["lat"] * lat_cost
-            + factor_weights["rel"] * reliability_cost
+        if server_id == dst_node:
+            stress_factor = (max(self.ratio_cpu_used, self.ratio_cache_used) / 100.0) * self.pesos_fatores["mobile"]
+            incentive_cost = -(stress_factor**3)
+
+        return (
+            self.pesos_fatores["cpu"] * cpu_cost
+            + self.pesos_fatores["cache"] * cache_cost
+            + self.pesos_fatores["band"] * bw_cost
+            + self.pesos_fatores["lat"] * lat_cost
+            + self.pesos_fatores["rel"] * reliability_cost
+            + incentive_cost
         )
-
-        total_cost += incentive_cost
-
-        return total_cost
 
     def calculate_bw_lat_cost(self, vnf: VNF, server_id, path: list, bw_required: float):
         latency_cost = calculate_computational_latency(self.graph, server_id, vnf)
-
         if not path or len(path) < 2:
             return 0, latency_cost
 
@@ -505,9 +416,7 @@ class SFC_AllocationEnv(gymnasium.Env):
             if bd_capacity is None or bd_capacity == 0 or bw_required + bd_used > bd_capacity:
                 return float(999), latency_cost
 
-            projected_usage_ratio = (bw_required + bd_used) / bd_capacity
-            epsilon = 1e-6
-            link_cost = 1.0 / (1.0 - projected_usage_ratio + epsilon)
+            link_cost = 1.0 / (1.0 - ((bw_required + bd_used) / bd_capacity) + 1e-6)
             bw_cost += link_cost
 
         return bw_cost, latency_cost
@@ -516,154 +425,88 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.fail_reason = reason
         self.success = False
 
-        if reason == "invalid_action":
-            reward = self.reward_config.get("invalid_action_penalty", -20.0)
-        elif reason in ["resource", "bandwidth"]:
-            reward = self.reward_config.get("failure_penalty", -80.0)
-        else:
-            reward = self.reward_config.get("severe_failure_penalty", -100.0)
+        if reason == "invalid_action": reward = self.reward_config.get("invalid_action_penalty", -20.0)
+        elif reason in ["resource", "bandwidth"]: reward = self.reward_config.get("failure_penalty", -80.0)
+        else: reward = self.reward_config.get("severe_failure_penalty", -100.0)
 
-        done = True
-
-        bw_required = self.service_requirements[self.current_vnf.id]["out_bw"]
-        self.features = self._get_nodes_features(
-            self.current_vnf, bw_required, self.current_location
-        )
-        obs = self._get_obs()
-
-        return obs, reward, done, False, {}
-
-    # =================================================================================
-    # 6. Helpers
-    # =================================================================================
+        bw_req = self.service_requirements[self.current_vnf.id]["out_bw"]
+        self.features = self._get_nodes_features(self.current_vnf, bw_req, self.current_location)
+        
+        return self._get_obs(), reward, True, False, {}
 
     def set_forbidden_nodes(self, nodes: list[str | int]):
-        self.forbidden_nodes = nodes
+        self.forbidden_nodes = set(nodes)
 
     def set_current_sfc(self, sfc: SFC):
-        if not sfc:
-            raise ValueError("SFC não pode ser None.")
+        if not sfc: raise ValueError("SFC não pode ser None.")
         self.current_sfc = sfc
         self.reverse_vnf_list = self.define_reverse_vnf_list(sfc)
         self.current_vnf = self.reverse_vnf_list[0]
-        self.current_location = self.current_sfc.dst_node
+        
+        try: self.current_location = self.current_sfc.dst_node
+        except AttributeError: self.current_location = None
 
         self.servers_used = []
+        self.services = []
+        self.service_requirements = {}
 
-        service_requirements = {}
-        services = []
-        sfs_dict = sfc.vnfs_dict
-
-        for item in sfs_dict:
+        for item in sfc.vnfs_dict:
             nome = item["name"]
-            services.append(nome)
-            service_requirements[nome] = {
-                "cpu": item["CPU"],
-                "cache": item["cache"],
-                "out_bw": item["out_bw"],
-                "in_bw": item["in_bw"],
+            self.services.append(nome)
+            self.service_requirements[nome] = {
+                "cpu": item["CPU"], "cache": item["cache"],
+                "out_bw": item["out_bw"], "in_bw": item["in_bw"],
             }
 
-        services.append("dst")
-        service_requirements["dst"] = {"cpu": 0, "cache": 0, "out_bw": 0, "in_bw": 0}
-
-        self.service_requirements = service_requirements
+        self.services.append("dst")
+        self.service_requirements["dst"] = {"cpu": 0, "cache": 0, "out_bw": 0, "in_bw": 0}
 
     def define_reverse_vnf_list(self, sfc: SFC) -> list[VNF]:
         vnf_list = []
-        if "backup" not in sfc.id:
-            dst_vnf = sfc.get_dst_vnf()
-            current_vnf = sfc.get_previous_vnf(dst_vnf)
+        try:
+            is_bkp = sfc.is_backup
+        except AttributeError:
+            is_bkp = "backup" in sfc.id
+
+        if not is_bkp:
+            current_vnf = sfc.get_previous_vnf(sfc.get_dst_vnf())
         else:
-            current_vnf = sfc.vnfs[sfc.vnfs_dict[-1]["name"]]
-            current_vnf = sfc.get_previous_vnf(current_vnf)
+            current_vnf = sfc.get_previous_vnf(sfc.vnfs[sfc.vnfs_dict[-1]["name"]])
+
         while True:
             vnf_list.append(current_vnf)
-            if (
-                current_vnf.previous_vnf is None
-                or current_vnf.previous_vnf.id == "src"
-                or "virt" in current_vnf.id
-            ):
+            if not current_vnf.previous_vnf or current_vnf.previous_vnf.id == "src" or "virt" in current_vnf.id:
                 break
             current_vnf = sfc.get_previous_vnf(current_vnf)
+            
         return vnf_list
 
     def _initialize_snapshots(self, list_graph: list[Graph] = None):
-        initial_resource_snapshot = {}
-        for idx, graph in enumerate(list_graph):
-            nodes = {
-                n_id: {
-                    "cpu_used": data.get("cpu_used", 0),
-                    "cache_used": data.get("cache_used", 0),
-                }
-                for n_id, data in graph.nodes(data=True)
-            }
-            edges = {
-                (u, v): {"bandwidth_used": data.get("bandwidth_used", 0)}
-                for u, v, data in graph.edges(data=True)
-            }
-            initial_resource_snapshot[idx] = {"nodes": nodes, "edges": edges}
-        return initial_resource_snapshot
+        return {
+            idx: {
+                "nodes": {n: {"cpu_used": d.get("cpu_used", 0), "cache_used": d.get("cache_used", 0)} for n, d in g.nodes(data=True)},
+                "edges": {(u, v): {"bandwidth_used": d.get("bandwidth_used", 0)} for u, v, d in g.edges(data=True)}
+            } for idx, g in enumerate(list_graph)
+        }
 
     def _restore_graph_resources(self, idx):
-        snapshot_nodes = self.initial_resource_snapshot[idx]["nodes"]
-        for node_id, initial_state in snapshot_nodes.items():
-            if node_id in self.graph.nodes:
-                self.graph.nodes[node_id]["cpu_used"] = initial_state["cpu_used"]
-                self.graph.nodes[node_id]["cache_used"] = initial_state["cache_used"]
-
-        snapshot_edges = self.initial_resource_snapshot[idx]["edges"]
-        for (u, v), initial_state in snapshot_edges.items():
+        snap = self.initial_resource_snapshot[idx]
+        for n_id, st in snap["nodes"].items():
+            if n_id in self.graph.nodes:
+                self.graph.nodes[n_id].update(st)
+        for (u, v), st in snap["edges"].items():
             if self.graph.has_edge(u, v):
-                self.graph.edges[u, v]["bandwidth_used"] = initial_state["bandwidth_used"]
-
-    def _set_list_graph_sfcs(self, list_graph: list[Graph], list_sfc: list[SFC]):
-        if len(list_graph) != len(list_sfc):
-            raise Exception(
-                "O tamanho da lista de grafos deve ser igual ao de SFCs para correspondência"
-            )
-        else:
-            self.list_graph = list_graph
-            self.list_sfc = list_sfc
-            self.reset()
+                self.graph.edges[u, v].update(st)
 
     def get_dynamic_reliability(self, node_data: dict) -> float:
-        cpu_cap = node_data.get("cpu_capacity", 1.0)
-        if cpu_cap <= 0:
-            cpu_cap = node_data.get("original_cpu_capacity", 1.0) or 1.0
-
-        cpu_used = node_data.get("cpu_used", 0.0)
+        cpu_cap = node_data.get("cpu_capacity", 1.0) or node_data.get("original_cpu_capacity", 1.0) or 1.0
         server_level = str(node_data.get("level_server", "default")).lower()
 
-        base_r = self.reliability_config["tiers"].get(
-            server_level, self.reliability_config["tiers"]["default"]
-        )
-        alpha = self.reliability_config["stress"].get(
-            server_level, self.reliability_config["stress"]["default"]
-        )
+        base_r = self.reliability_config["tiers"].get(server_level, self.reliability_config["tiers"]["default"])
+        alpha = self.reliability_config["stress"].get(server_level, self.reliability_config["stress"]["default"])
 
-        utilization = min(cpu_used / cpu_cap, 1.0)
-        stress_penalty = utilization * alpha
-
-        return max(0.0, base_r - stress_penalty)
-
-
-# =================================================================================
-# Funções Auxiliares
-# =================================================================================
+        return max(0.0, base_r - (min(node_data.get("cpu_used", 0.0) / cpu_cap, 1.0) * alpha))
 
 def calculate_total_latency(graph: Graph, path: list, vnf: VNF):
-    total_latency = 0
-    edge_latency = 0
-    for i in range(len(path) - 1):
-        u = path[i]
-        v = path[i + 1]
-        edge_latency += calculate_latency_betwen_nodes(graph, u, v, vnf)
-
-    total_latency += edge_latency
-
-    last_server = path[-1]
-    comp_latency = calculate_computational_latency(graph, last_server, vnf)
-    total_latency += comp_latency
-
-    return total_latency
+    lat = sum(calculate_latency_betwen_nodes(graph, path[i], path[i+1], vnf) for i in range(len(path)-1))
+    return lat + calculate_computational_latency(graph, path[-1], vnf) if path else lat

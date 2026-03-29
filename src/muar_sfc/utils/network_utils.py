@@ -405,3 +405,21 @@ def calculate_total_latency(graph: nx.Graph, path: list, vnf: VNF):
     total_latency += comp_latency
 
     return total_latency
+
+def check_vnf_reusability(node_services: dict, target_clean_id: str, target_session_id: str | int) -> bool:
+    """
+    Verifica de forma estrita se uma VNF pode ser reusada no nó,
+    garantindo sincronia absoluta de tipos para evitar alucinações na IA.
+    """
+    if not node_services:
+        return False
+
+    for (ex_id, ex_sess) in node_services.keys():
+        clean_ex_id = ex_id.replace("_b", "")
+        
+        # Validação estrita: sem cast de str() obscuro. 
+        # O tipo do ex_sess deve bater exatamente com o target_session_id.
+        if clean_ex_id == target_clean_id and ex_sess == target_session_id:
+            return True
+            
+    return False
