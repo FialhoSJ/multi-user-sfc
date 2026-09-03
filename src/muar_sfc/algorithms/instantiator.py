@@ -14,6 +14,7 @@ from muar_sfc.algorithms.musfico import Musfico
 from muar_sfc.algorithms.new_alg import NewAlg
 from muar_sfc.algorithms.nfvsdn import Goku
 from muar_sfc.algorithms.osfem import Osfem
+from muar_sfc.algorithms.random_algorithm import RandomAlgorithm
 from muar_sfc.algorithms.replic import REPLIC
 from muar_sfc.algorithms.rodrigo_alg import Rodrigo
 from muar_sfc.algorithms.vegeta import Vegeta
@@ -51,6 +52,8 @@ class AlgorithmInstantiator:
             alg = Goku()
         elif type == "vegeta":
             alg = Vegeta()
+        elif type == "random":
+            alg = RandomAlgorithm()  # F5: algoritmo aleatório (baseline)
         elif "kuririn" in type:
             if "MaskablePPO" in type:
                 alg = Kuririn("MASKABLEPPO")

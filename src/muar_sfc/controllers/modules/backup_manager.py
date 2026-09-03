@@ -452,6 +452,7 @@ class BackupManager:
                 "dst_node": sfc.dst.substrate_node,
                 "duration": rem,
                 "latency": lat_req,
+                "service_type": getattr(sfc, "service_type", None),  # F5: herança de serviço
             }
 
             new_sfc = SFCGenerator(player_dict).generate()
@@ -626,6 +627,7 @@ class BackupManager:
                         ),
                         "latency": lat_req_adj,
                         "closer_router": closer_router,
+                        "service_type": getattr(sfc, "service_type", None),  # F5: herança de serviço
                     }
                 ).generate()
 
@@ -745,6 +747,7 @@ class BackupManager:
                 "latency": lat_req,
                 "closer_router": closer_r,
                 "mobile_node": mobile_n,
+                "service_type": getattr(original_sfc, "service_type", None),  # F5: herança de serviço
             }
         ).generate()
 

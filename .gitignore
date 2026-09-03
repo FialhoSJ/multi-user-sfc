@@ -50,4 +50,4 @@ teste.csv
 .coverage
 coverage.xml
 htmlcov/
-.tox/
+.tox/tensorboard_logs/

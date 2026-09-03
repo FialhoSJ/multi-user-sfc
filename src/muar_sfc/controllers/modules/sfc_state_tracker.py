@@ -109,6 +109,7 @@ class SFCStateTracker:
                 "duration": remaining_duration,
                 "closer_router": location,
                 "latency": getattr(sfc, "latency_request", 10),
+                "service_type": getattr(sfc, "service_type", None),  # F5: herança de serviço
             }
             new_sfc_list_dicts.append(new_sfc_dict)
 

@@ -5,6 +5,7 @@ import random
 import numpy as np
 
 from muar_sfc.controllers.sfc_generator import SFCGenerator
+from muar_sfc.core.services.catalog import build_default_catalog
 
 min_latency_acc = 1000
 
@@ -87,14 +88,42 @@ class MuarScenario:
             "allow_delay": (args.allow_delay == "y"),
         }
 
+        # F2: catálogo de serviços + pesos configuráveis (heterogeneidade)
+        self.service_catalog = build_default_catalog()
+        self.services = [s.strip() for s in args.service_mix.split(",") if s.strip()]
+        raw_weights = [float(w.strip()) for w in args.service_weights.split(",") if w.strip()]
+        if len(raw_weights) != len(self.services):
+            raise ValueError(
+                f"service_mix ({len(self.services)}) e service_weights ({len(raw_weights)}) "
+                "precisam ter a mesma quantidade de itens"
+            )
+        self.service_weights = dict(zip(self.services, raw_weights, strict=True))
+        for name in self.services:
+            if name not in self.service_catalog.list():
+                raise ValueError(
+                    f"Serviço '{name}' não registrado. Disponíveis: {self.service_catalog.list()}"
+                )
+
     def generate_sfc_session(self, parameter):
-        """
-        Gera uma sessão de MUAR SFC.
-        """
         self.session_counter += 1
         counter = str(self.session_counter)
         n_players = self.config_dict["n_players"]
 
+        # F2: sorteia o serviço da sessão conforme os pesos configurados
+        service = self.service_catalog.weighted_choice(weights=self.service_weights)
+
+        if service.name == "muar":
+            self._generate_muar_session(counter, n_players)
+        else:
+            self._generate_heterogeneous_session(service, counter, n_players)
+
+        if self.session_counter >= self.config_dict["n_sessions"]:
+            self.sfc_poisson_emitter.stop()
+
+    def _generate_muar_session(self, counter, n_players):
+        """
+        Gera uma sessão de MUAR SFC.
+        """
         print("Total Number of MUAR SFCs in session:", self.session_counter)
         routers = self.topology.get_topology_info()["routers"]
 
@@ -215,6 +244,7 @@ class MuarScenario:
 
             player_cache_dict["duration"] = duration
             player_cache_dict["latency"] = min_latency_acc
+            player_cache_dict["service_type"] = "muar"  # F4: herança de serviço
             players_sfc_cache_dict_list.append(player_cache_dict)
 
             player_unique_dict = {}
@@ -227,6 +257,7 @@ class MuarScenario:
 
             player_unique_dict["duration"] = duration
             player_unique_dict["latency"] = min_latency_acc
+            player_unique_dict["service_type"] = "muar"  # F4: herança de serviço
             players_sfc_unique_dict_list.append(player_unique_dict)
 
         players_sfc_list = []
@@ -239,9 +270,28 @@ class MuarScenario:
             )
             self.sfc_queue.put_sfc(players_sfc_list[i - 1])
             # heapq.heappush(sfc_queue, (1, counter, i, players_sfc_list[i-1]))
-        if self.session_counter >= self.config_dict["n_sessions"]:
-            # print("SFC MUAR Session ## poisson stop  ##")
-            self.sfc_poisson_emitter.stop()
+
+    def _generate_heterogeneous_session(self, template, counter, n_players):
+        """F2: gera SFCs de serviços não-MUAR usando o template do catálogo."""
+        print(f"Total Number of {template.name} SFCs in session:", self.session_counter)
+        routers = self.topology.get_topology_info()["routers"]
+        closer_router = random.choice(routers)
+        duration = np.random.poisson(self.max_duration)
+
+        for i in range(1, n_players + 1):
+            chain = template.build_chain(player=i, counter=counter)
+            input_bw = chain[0]["in_bw"]
+            sfc_dict = template.build_sfc_dict(
+                sfc_name=f"sfc_{template.name}_p{i}_{counter}",
+                src_node=self.src_node,
+                dst_node=f"{i}{counter}",
+                closer_router=closer_router,
+                bandwidth=input_bw,
+                duration=duration,
+                player=i,
+                counter=counter,
+            )
+            self.sfc_queue.put_sfc([SFCGenerator(sfc_dict).generate()])
 
     # def generate_mono_session(self, parameter):
     #     """

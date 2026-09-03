@@ -25,7 +25,24 @@ def create_directory_if_not_exists(path: Path | str) -> None:
     Path(path).mkdir(parents=True, exist_ok=True)
 
 
-def create_output_dir(args, topology) -> tuple[dict[str, Path], Path, Path, Path]:
+# F4: tipos de serviço conhecidos do catálogo (para fallback por nome)
+SERVICE_TYPES = ("muar", "streaming", "voip", "iot")
+
+
+def extract_service_type(sfc_id: str, substrate_network) -> str:
+    """F4: recupera o service_type da SFC (objeto ativo ou fallback pelo id)."""
+    sfc_obj = substrate_network.sfc_dict.get(sfc_id)
+    if sfc_obj is not None:
+        st = getattr(sfc_obj, "service_type", None)
+        if st:
+            return st
+    parts = sfc_id.split("_")
+    if len(parts) >= 2 and parts[1] in SERVICE_TYPES:
+        return parts[1]
+    return "muar"
+
+
+def create_output_dir(args, topology) -> tuple[dict[str, Path], Path, Path, Path, Path]:
     top_info = topology.get_topology_info()
     ec_servers = top_info["ec_servers"]
     edges = top_info["edges"]
@@ -86,6 +103,15 @@ def create_output_dir(args, topology) -> tuple[dict[str, Path], Path, Path, Path
     crash_impact_path = res_directory_path / f"crash_impact_{timestamp}.csv"
     resilient_path = res_directory_path / f"resilient_results_{timestamp}.csv"
 
+    # F4: resumo agregado por tipo de serviço (para análise/plots do paper)
+    services_path = directory_path / f"service_summary_{timestamp}.csv"
+    with open(services_path, "a") as f:
+        f.write(
+            "service_type,requests,accepted,rejected,acceptance_rate,"
+            "avg_latency_ms,avg_comp_latency_ms,avg_comm_latency_ms,"
+            "cpu_saved,cache_saved\n"
+        )
+
     # ... (O restante dos headers longos permanece idêntico, apenas mantive os mesmos nomes) ...
     header_fields = [
         "No.", "timestamp", "time_seconds", "users", "cpu_utilization",
@@ -94,7 +120,7 @@ def create_output_dir(args, topology) -> tuple[dict[str, Path], Path, Path, Path
         "network_cache_utilization", "mobile_cpu_utilization",
         "mobile_gpu_utilization", "mobile_cache_utilization", "latency",
         "comp_latency", "comm_latency", "latency_diff", "queue_time",
-        "decision_time_ms", "success", "fail_reason", "sfc_id",
+        "decision_time_ms", "success", "fail_reason", "sfc_id", "service_type",
         "recovery_time", "sfc_recovered", "cpu_saved", "gpu_saved",
         "cache_saved", "shared_vnfs", "running_sfcs", "running_players",
         "running_sessions", "trascode_bw", "crashing", "acceptance_rate",
@@ -129,16 +155,17 @@ def create_output_dir(args, topology) -> tuple[dict[str, Path], Path, Path, Path
     with open(resilient_path, "a") as f:
         f.write(",".join(resilient_header_fields) + "\n")
 
-    return file_paths, flows_path, crash_impact_path, resilient_path
+    return file_paths, flows_path, crash_impact_path, resilient_path, services_path
 
 
 class OutputWritter:
-    def __init__(self, topology, file_paths: dict[str, Path], flows_file: Path, crash_impact_file: Path, resilient_file: Path):
+    def __init__(self, topology, file_paths: dict[str, Path], flows_file: Path, crash_impact_file: Path, resilient_file: Path, services_file: Path):
         self.topology = topology
         self.file_paths = file_paths
         self.flows_file = flows_file
         self.crash_impact_file = crash_impact_file
         self.resilient_file = resilient_file
+        self.services_file = services_file  # F4: CSV de resumo por serviço
 
         topo_info = topology.get_topology_info()
         self.processing_nodes = topo_info["ec_servers"]
@@ -152,6 +179,15 @@ class OutputWritter:
 
         self.counter_users = 0
         self.first_time = 0
+
+        # F4: acumuladores por tipo de serviço para o resumo agregado
+        self.service_stats = defaultdict(
+            lambda: {
+                "requests": 0, "accepted": 0,
+                "latency": 0.0, "comp_latency": 0.0, "comm_latency": 0.0,
+                "cpu_saved": 0.0, "cache_saved": 0.0,
+            }
+        )
 
     def resilient_output(self, sfc_id, info_log, crash_trials):
         file_path = self.resilient_file
@@ -392,6 +428,9 @@ class OutputWritter:
         running_players = len(unique_players)
         running_sessions = len(unique_sessions)
 
+        # F4: tipo de serviço desta SFC (objeto ativo ou fallback pelo id)
+        service_type = extract_service_type(sfc_id, substrate_network)
+
         cpu_utilization = round(substrate_network.get_total_system_utilization_cpu_rate(), 4)
         network_cpu_utilization = round(substrate_network.get_network_cpu_utilization_percentage(), 4)
         mobile_cpu_utilization = round(substrate_network.get_mobile_cpu_utilization_percentage(), 4)
@@ -417,6 +456,17 @@ class OutputWritter:
         cpu_saved = substrate_network.get_total_cpu_saved()
         gpu_saved = substrate_network.get_total_gpu_saved()
         cache_saved = substrate_network.get_total_cache_saved()
+
+        # F4: acumula métricas por serviço para o resumo agregado
+        stats = self.service_stats[service_type]
+        stats["requests"] += 1
+        if is_success:
+            stats["accepted"] += 1
+            stats["latency"] += latency or 0.0
+            stats["comp_latency"] += comp_latency or 0.0
+            stats["comm_latency"] += comm_latency or 0.0
+            stats["cpu_saved"] += cpu_saved or 0.0
+            stats["cache_saved"] += cache_saved or 0.0
 
         shared_vnfs_count = substrate_network.metrics.shared_vnfs_count
 
@@ -495,6 +545,7 @@ class OutputWritter:
             f"{is_success},"
             f"{fail_reason},"
             f"{sfc_id},"
+            f"{service_type},"
             f"{sfc_recovery_time},"
             f"{sfc_recovered},"
             f"{cpu_saved},"
@@ -525,6 +576,22 @@ class OutputWritter:
 
         with open(self.flows_file, "a") as file:
             file.write(line)
+
+    def write_service_summary(self) -> None:
+        """F4: grava o resumo agregado por tipo de serviço (chamar ao fim da simulação)."""
+        with open(self.services_file, "a") as f:
+            for service, st in sorted(self.service_stats.items()):
+                requests = st["requests"]
+                accepted = st["accepted"]
+                acc_rate = (accepted / requests * 100) if requests else 0.0
+                avg_lat = (st["latency"] / accepted) if accepted else 0.0
+                avg_comp = (st["comp_latency"] / accepted) if accepted else 0.0
+                avg_comm = (st["comm_latency"] / accepted) if accepted else 0.0
+                f.write(
+                    f"{service},{requests},{accepted},{requests - accepted},"
+                    f"{acc_rate:.2f},{avg_lat:.4f},{avg_comp:.4f},{avg_comm:.4f},"
+                    f"{st['cpu_saved']:.2f},{st['cache_saved']:.2f}\n"
+                )
 
     def update_user_count(self, sfc_id: str) -> None:
         try:

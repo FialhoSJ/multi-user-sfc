@@ -10,24 +10,26 @@ from stable_baselines3.common.logger import configure
 from stable_baselines3.common.monitor import Monitor
 
 from muar_sfc.algorithms.environments.env_da_rsppo import SFC_AllocationEnv_DARSPPO
+from muar_sfc.algorithms.environments.env_replic import (
+    SFC_AllocationEnv as SFC_AllocationEnv_Replic,
+)
+from muar_sfc.algorithms.environments.env_replic import build_valid_nodes
 from muar_sfc.algorithms.environments.environment import SFC_AllocationEnv
+from muar_sfc.algorithms.environments.hephaestus_env import SFC_AllocationEnv_hephaestus
+from muar_sfc.utils.salvar_var import carregar_lista
 
 # ==============================================================================
 #      REGISTRO DE AMBIENTES
 # ==============================================================================
-# Importe todos os seus ambientes aqui
-from muar_sfc.algorithms.environments.hephaestus_env import SFC_AllocationEnv_hephaestus
-
-# Importe outros como Kuririn ou Replic quando necessário e adicione ao dicionário abaixo
-from muar_sfc.utils.salvar_var import carregar_lista
+# Importe outros como Kuririn quando necessário e adicione ao dicionário abaixo
 
 # Dicionário que mapeia uma string de argumento para a classe do ambiente correspondente
 ENV_REGISTRY = {
     "hephaestus": SFC_AllocationEnv_hephaestus,
     "darsppo": SFC_AllocationEnv_DARSPPO,
     "default": SFC_AllocationEnv,
+    "REPLIC": SFC_AllocationEnv_Replic,
     # "kuririn": SFC_AllocationEnv_Kuririn,
-    # "replic": SFC_AllocationEnv_Replic,
 }
 
 # ==============================================================================
@@ -37,24 +39,17 @@ def carregar_dados_do_ambiente(env_class):
     """
     Carrega os dados e inicializa o ambiente dinamicamente baseado na classe fornecida.
     """
-    try:
-        list_graph = []
-        list_sfc = []
-        for i in range(1, 5):
-            list_graph = list_graph + carregar_lista(f"list_graph{i}")
-            list_sfc = list_sfc + carregar_lista(f"list_sfc{i}")
+    # Dataset heterogêneo gerado por scripts/gerar_dataset_rl.py (estrutura atual)
+    list_graph = carregar_lista("list_graph_het")
+    list_sfc = carregar_lista("list_sfc_het")
 
-    except FileNotFoundError as e:
-        print(f"Erro ao carregar dados: {e}")
-        print("Certifique-se que os arquivos de dados existem.")
+    if not list_graph or not list_sfc or len(list_graph) != len(list_sfc):
+        print("Dataset heterogêneo ausente/inconsistente. Rode primeiro:")
+        print("  uv run python scripts/gerar_dataset_rl.py")
         return None
 
-    valid_nodes = []
-    if list_graph and list_graph[0]:
-        for node in list_graph[0].nodes():
-            if list_graph[0].nodes[node]["type"] == "server":
-                valid_nodes.append(node)
-    valid_nodes.append("M")
+    # FIX: mesmo critério da inferência (servidores + sentinela da ação dst)
+    valid_nodes = build_valid_nodes(list_graph[0])
 
     # Instancia a classe que foi passada como argumento
     env = env_class(list_graph=list_graph, list_sfc=list_sfc, valid_nodes=valid_nodes)
@@ -92,6 +87,11 @@ def main():
         default=1000,
         help="Número de episódios para o teste final"
     )
+    parser.add_argument(
+        "--reset-model",
+        action="store_true",
+        help="Remove o modelo salvo antes de treinar (treino do zero)"
+    )
     args = parser.parse_args()
 
     env_name = args.env
@@ -125,6 +125,10 @@ def main():
     print(f"Configurado para usar {ModelClass.__name__}.")
 
     final_model_path = save_dir / model_name
+
+    if args.reset_model and final_model_path.exists():
+        print(f"[RESET] Removendo modelo antigo: {final_model_path}")
+        final_model_path.unlink()
 
     if final_model_path.exists():
         print(f"Modelo encontrado em '{final_model_path}'.\nCarregando para continuar o train")

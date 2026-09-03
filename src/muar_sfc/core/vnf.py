@@ -31,6 +31,8 @@ class VNF:
         self._attach_interfaces()
         self.type = None
         self.referenced_sf = None
+        self.service_type = None # herança de serviço
+        self.shareable = False  # F3: habilita compartilhamento do SF conforme o serviço
 
     def __hash__(self):
         return hash(str(self))
@@ -52,6 +54,12 @@ class VNF:
 
     def get_cache_request(self):
         return self.cache_request
+
+    def set_shareable(self, shareable):
+        self.shareable = shareable
+
+    def get_shareable(self):
+        return self.shareable
 
     def set_income_interface_bandwidth(self, request_bandwidth):
         self.interfaces["income"].set_bandwidth(request_bandwidth)

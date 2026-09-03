@@ -13,6 +13,7 @@ from muar_sfc.algorithms.networkUtils import (
     calculate_latency_betwen_nodes,
     get_available_shortest_path_fast,
 )
+from muar_sfc.core.infrastructure.enums import vnf_is_shareable
 from muar_sfc.core.sfc import SFC, VNF
 from muar_sfc.utils.network_utils import (
     calcular_percentual_banda_total,
@@ -20,7 +21,6 @@ from muar_sfc.utils.network_utils import (
     get_graph_processing_utilization_simplified,
 )
 
-SHAREABLE_PREFIXES = ("IA_DET_FT_", "RE_region_", "MA_region_")
 NON_REUSABLE_PENALTY = 4
 
 LAT_MAX = 50.0
@@ -28,6 +28,18 @@ BW_MAX = 12.5
 CPU_PENALTY_NORM = 0.3
 CACHE_PENALTY_NORM = 0.3
 EPSILON = 1e-5
+
+
+def build_valid_nodes(graph) -> list:
+    """Nós elegíveis para colocação (servidores) + sentinela para a ação 'dst'.
+
+    FIX: alinha treino e inferência. O ambiente reserva a ÚLTIMA ação para o
+    dispositivo móvel de destino (ver step/_get_nodes_features). A sentinela é a
+    string "M" (convenção original), reconhecida pelos envs de DARSPPO/Hephaestus
+    (== "M") e pelo índice final nos demais.
+    """
+    servers = [n for n, d in graph.nodes(data=True) if d.get("type") == "server"]
+    return servers + ["M"]
 
 class SFC_AllocationEnv(gymnasium.Env):
     """
@@ -338,12 +350,8 @@ class SFC_AllocationEnv(gymnasium.Env):
         return True
 
     def is_reusable_at_node(self, sfc: SFC, graph: Graph, node_id: int | str, vnf: VNF) -> bool:
-        try:
-            service_name = vnf.id
-        except AttributeError:
-            return False
-
-        if not service_name.startswith(SHAREABLE_PREFIXES):
+        # F3: reuso decidido por flag do serviço (catálogo) ou padrão MUAR legado
+        if not vnf_is_shareable(vnf):
             return False
 
         try:
@@ -352,7 +360,7 @@ class SFC_AllocationEnv(gymnasium.Env):
             session_id = str(sfc.id).split("_")[-1]
 
         # Garantimos a extração limpa do ID
-        clean_id = service_name.replace("_b", "")
+        clean_id = vnf.id.replace("_b", "")
 
         try:
             services_dict = graph.nodes[node_id].get("services", {})

@@ -1,3 +1,4 @@
+import argparse
 import signal
 import sys
 import time
@@ -28,6 +29,54 @@ class FailureEvent(TypedDict):
     type: str
     start: float
     duration: float
+
+
+def build_cli_parser() -> argparse.ArgumentParser:
+    """F5: flags de CLI que sobrescrevem o SimulationSettings (usadas pelos runners)."""
+    parser = argparse.ArgumentParser(description="MUAR-SFC Simulator")
+    parser.add_argument("--n_sessions", type=int, help="número de sessões")
+    parser.add_argument("--n_players", type=int, help="número de players por sessão")
+    parser.add_argument("--alg", type=str, help="algoritmo de orquestração")
+    parser.add_argument("--topology", type=str, help="nome da topologia")
+    parser.add_argument("--sfc", type=str, help="on/off (gera SFCs)")
+    parser.add_argument("--share", type=str, help="on/off (compartilhamento de SFs)")
+    parser.add_argument("--ava", type=float, help="confiabilidade alvo")
+    parser.add_argument("--number_of_fails", type=int, help="número de falhas")
+    parser.add_argument("--crash_at", type=float, nargs="*", default=None,
+                        help="tempos fixos de falha")
+    parser.add_argument("--sfc_lifetime", type=int, help="duração da SFC (sessão)")
+    parser.add_argument("--time", type=float, help="tempo total de simulação")
+    parser.add_argument("--eco_effi_ratio", type=float, help="razão de eficiência ecológica")
+    parser.add_argument("--verbose", type=str, help="on/off (log verboso)")
+    parser.add_argument("--fail_target", type=str, help="alvo de falha")
+    parser.add_argument("--service_mix", type=str, help="lista de serviços (ex.: muar,streaming)")
+    parser.add_argument("--service_weights", type=str, help="pesos dos serviços (ex.: 0.7,0.3)")
+    return parser
+
+
+def _parse_bool(value: str | None) -> bool | None:
+    """F5: converte strings legadas ('on'/'y'/'1') para bool."""
+    if value is None:
+        return None
+    return value.strip().lower() in ("on", "y", "yes", "true", "1")
+
+
+def build_settings_overrides(cli_args: argparse.Namespace) -> dict[str, Any]:
+    """F5: mapeia as flags da CLI para campos do SimulationSettings."""
+    overrides: dict[str, Any] = {}
+    for field in (
+        "n_sessions", "n_players", "alg", "topology", "ava", "number_of_fails",
+        "crash_at", "sfc_lifetime", "time", "eco_effi_ratio", "fail_target",
+        "service_mix", "service_weights",
+    ):
+        value = getattr(cli_args, field, None)
+        if value is not None:
+            overrides[field] = value
+    for field in ("sfc", "share", "verbose"):
+        value = _parse_bool(getattr(cli_args, field, None))
+        if value is not None:
+            overrides[field] = value
+    return overrides
 
 
 def generate_failure_schedule(settings: SimulationSettings, simulation_duration: float) -> list[FailureEvent]:
@@ -119,7 +168,8 @@ def setup_controller(
 
 def main() -> None:
     signal.signal(signal.SIGINT, signal.default_int_handler)
-    settings = SimulationSettings()
+    cli_args = build_cli_parser().parse_args()
+    settings = SimulationSettings(**build_settings_overrides(cli_args))
 
     topology = TopologyInstantiator().instantiate_topology(
         settings.topology,
@@ -151,6 +201,9 @@ def main() -> None:
         # Mantém a thread principal viva para poder receber o Ctrl+C de forma limpa
         while not sbn_controller.is_stopped:
             time.sleep(1)
+
+        # F4: grava o resumo agregado por tipo de serviço ao final da simulação
+        sbn_controller.output_writter.write_service_summary()
 
     except KeyboardInterrupt:
         logger.warning("Execução interrompida pelo usuário (Ctrl+C). Iniciando encerramento suave...")

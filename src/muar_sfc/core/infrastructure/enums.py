@@ -1,6 +1,13 @@
 from enum import Enum
 
 SHAREABLE_PREFIXES: tuple[str, ...] = ("IA_DET_FT_", "RE_region_", "MA_region_")
+
+
+def vnf_is_shareable(vnf) -> bool:
+    """F3: VNF é compartilhável se marcada pelo serviço ou se segue o padrão MUAR legado."""
+    return bool(getattr(vnf, "shareable", False)) or str(getattr(vnf, "id", "")).startswith(
+        SHAREABLE_PREFIXES
+    )
 # =========================================================================
 # ENUMS DE SEGURANÇA (Refatoração: Eliminação de Magic Strings)
 # =========================================================================

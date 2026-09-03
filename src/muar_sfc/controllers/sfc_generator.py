@@ -47,6 +47,7 @@ class SFCGenerator:
         sfc = SFC(src_vnf, dst_vnf)
         sfc.vnfs_dict = self.vnf_id_list
         sfc.id = self.sfc_name
+        sfc.set_service_type(self.sfc_dict.get("service_type"))  # herança de serviço
 
         sfc.set_src_substrate_node(self.src_substrate_node)
         sfc.set_dst_substrate_node(self.dst_substrate_node)

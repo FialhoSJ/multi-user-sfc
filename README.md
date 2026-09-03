@@ -71,6 +71,87 @@ Como o projeto agora é um pacote instalado, você não precisa mais caçar scri
     uv run muar-sim-seq
     ```
 
+### Heterogeneidade de Serviços (F1–F5)
+
+O simulador sorteia o tipo de serviço de cada sessão conforme `service_mix` e `service_weights`
+(disponíveis no `.env` ou via CLI):
+
+```bash
+# Mix heterogêneo (70% MUAR, 10% streaming, 10% VoIP, 10% IoT)
+uv run muar-sim --alg replic \
+    --service_mix "muar,streaming,voip,iot" \
+    --service_weights "0.7,0.1,0.1,0.1"
+
+# Baseline 100% MUAR
+uv run muar-sim --service_mix "muar" --service_weights "1.0"
+```
+
+Ao final de cada execução é gerado um resumo agregado por serviço
+(`results/results_flows/.../service_summary_*.csv`). Para plotar os gráficos do artigo:
+
+```bash
+# Gráfico de um run (3 painéis: aceitação, latência+SLA, nº de requisições)
+uv run python scripts/plotar_servicos.py                      # usa o CSV mais recente
+uv run python scripts/plotar_servicos.py caminho/do/arquivo.csv
+
+# Comparar 2+ algoritmos (barras por serviço)
+uv run python scripts/plotar_servicos.py --compare 'replic.csv,msf.csv'
+
+# Comparar algoritmos com GRÁFICOS DE LINHA ao longo do tempo
+uv run python scripts/plotar_servicos.py --compare-lines \
+  'REPLIC=results/results_flows/replic_s_50_p_4_a_0.99_c_3/FLOWS.csv,MSF=results/results_flows/msf_s_50_p_4_a_0.99_c_3/FLOWS.csv'
+```
+
+### Retreinamento dos modelos RL para o cenário heterogêneo
+
+Os modelos RL pré-treinados (REPLIC, Kuririn, DARSPPO, Hephaestus) conhecem **só o MUAR**.
+Para compará-los na heterogeneidade, é preciso retreinar:
+
+```bash
+# 1. Gera o dataset heterogêneo (grafos + SFCs muar/streaming/voip/iot).
+#    O gerador pré-popula instâncias de um "player anterior" para o RL aprender reuso.
+uv run python scripts/gerar_dataset_rl.py --n_samples 500 --service_weights "0.5,0.2,0.15,0.15"
+
+# 2. Treina do zero (--reset-model apaga o modelo antigo). NÃO tem flag --service_weights aqui;
+#    os pesos vêm do dataset gerado no passo 1.
+uv run python rl_saved_models/treinar_rl.py --env REPLIC --timesteps 100000 --reset-model
+```
+
+Observações:
+- O gerador salva em `variaveis_salvas/list_graph_het.pkl` e `list_sfc_het.pkl`.
+- `valid_nodes` (servidores + sentinela da ação `dst`) está alinhado entre treino
+  e inferência via `build_valid_nodes` (em `algorithms/environments/env_replic.py`).
+- O mesmo fluxo vale para `--env` `darsppo`/`hephaestus`/`default` (Kuririn) — cada
+  algoritmo precisa do próprio modelo re-treinado; sem isso, os resultados deles no mix
+  heterogêneo ficam fora de distribuição (aceitação baixa).
+
+### Resultados de referência (50 sessões, `--n_players 4 --sfc_lifetime 60`)
+
+**Cenário SEM heterogeneidade (baseline 100% MUAR, `--service_mix "muar"`):**
+
+| Algoritmo | muar | CPU economizado (muar) |
+|---|---|---|
+| **REPLIC** (re-treinado) | 100% | 29380 |
+| **MSF** | 100% | 8382 |
+| **Kuririn** (re-treinado) | 52% | 5267 |
+| **DARSPPO** (re-treinado) | 6.5% | 0 |
+| **Hephaestus** (re-treinado) | 0% | 0 |
+
+**Cenário COM heterogeneidade (mix `0.5/0.2/0.15/0.15`):**
+
+| Algoritmo | muar | streaming | iot | voip |
+|---|---|---|---|---|
+| **REPLIC** (re-treinado) | 100% | **81.8%** | 100% | 100% |
+| **MSF** | 100% | **97.6%** | 100% | 100% |
+| **Kuririn** (re-treinado) | 62% | 0% | 0% | 0% |
+| **DARSPPO** (re-treinado) | 2.3% | 0% | 0% | 0% |
+| **Hephaestus** (re-treinado) | 0% | 0% | 0% | 0% |
+
+*REPLIC e MSF dominam ambos os cenários; os demais modelos RL, mesmo re-treinados com
+100k passos, não generalizam bem para o mix heterogêneo — precisam de mais treino/tuning.
+Gráficos de linha gerados por `--compare-lines`:
+`grafico_comparativo_linhas_baseline.pdf` e `grafico_comparativo_linhas_heterogeneo.pdf`.*
+
 ---
 
 ## 🏗️ Estrutura do Repositório
@@ -108,3 +189,5 @@ David Galhego — david.galhego@icen.ufpa.br
 Matheus Morais de Brito
 
 Erick
+
+Felipe Fialho Nascimento

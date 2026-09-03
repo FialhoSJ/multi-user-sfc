@@ -27,6 +27,8 @@ def main() -> None:
     parser.add_argument("--time", type=int, default=120)
     parser.add_argument("--eco_effi_ratio", type=float, default=0.7)
     parser.add_argument("--sfc", type=str, default="on")
+    parser.add_argument("--service_mix", type=str, default=None, help="ex.: muar,streaming")
+    parser.add_argument("--service_weights", type=str, default=None, help="ex.: 0.7,0.3")
     args, unknown = parser.parse_known_args()
 
     # ========================================================================
@@ -74,6 +76,10 @@ def main() -> None:
                             "--eco_effi_ratio", str(args.eco_effi_ratio),
                             "--verbose", "n"
                         ]
+                        if args.service_mix:  # F5: repassa mix heterogêneo
+                            command += ["--service_mix", args.service_mix]
+                        if args.service_weights:  # F5: repassa pesos dos serviços
+                            command += ["--service_weights", args.service_weights]
                         cmds.append(command)
 
     # =========================================================================

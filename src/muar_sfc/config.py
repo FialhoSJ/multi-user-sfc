@@ -74,6 +74,10 @@ class SimulationSettings(BaseSettings):
     latency: float = 6.0
     fator: float = 0.25
     average_time_session_arrival: float = 10.0
+
+    # --- Parâmetros de Heterogeneidade de Serviços (F2) ---
+    service_mix: str = "muar,streaming,voip,iot"
+    service_weights: str = "0.7,0.1,0.1,0.1"
     ia_bw: float = 150.0
     cpb: float = 10e6
     ca_size: float = 240.0

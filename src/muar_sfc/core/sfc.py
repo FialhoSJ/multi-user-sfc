@@ -12,6 +12,7 @@ class SFC:
         self.dst = vnf_dst
         self.dst_node = None
         self.closer_router = None
+        self.service_type = None  # tipo de serviço (muar, streaming, voip, iot)
 
         self.link_bandwidth_dict = {}
         self.latency_request = 0
@@ -20,6 +21,12 @@ class SFC:
         self.duration = 0
         self.arrival_time = 0
         self.depart_time = 0
+
+    def set_service_type(self, service_type):
+        self.service_type = service_type
+
+    def get_service_type(self):
+        return self.service_type
 
     def __str__(self):
         attrs = vars(self)
@@ -119,24 +126,24 @@ class SFC:
         self.input_throughput = tp
         self.update()
 
-    def update(self):
+    #def update(self):
         # if not self.input_throughput:
         #    return
         # tp = self.input_throughput
-        vnf = self.src
-        self.link_bandwidth_dict[(vnf.id, vnf.next_vnf.id)] = vnf.get_outcome_interface_bandwidth()
-        vnf = vnf.next_vnf
+        #vnf = self.src
+        #self.link_bandwidth_dict[(vnf.id, vnf.next_vnf.id)] = vnf.get_outcome_interface_bandwidth()
+        #vnf = vnf.next_vnf
 
-        while vnf.next_vnf:
+       # while vnf.next_vnf:
             # vnf.vnf_function()
-            next_vnf = vnf.next_vnf
-            link_bw = vnf.get_outcome_interface_bandwidth()
+            #next_vnf = vnf.next_vnf
+            #link_bw = vnf.get_outcome_interface_bandwidth()
             # if not link_bw:
             #    print("outcome bandwith not set")
             #    return
-            next_vnf.set_income_interface_bandwidth(link_bw)
-            self.link_bandwidth_dict[(vnf.id, next_vnf.id)] = link_bw
-            vnf = next_vnf
+           # next_vnf.set_income_interface_bandwidth(link_bw)
+           # self.link_bandwidth_dict[(vnf.id, next_vnf.id)] = link_bw
+           # vnf = next_vnf
 
     # def start(self):
     #     import thread
@@ -148,6 +155,27 @@ class SFC:
     #         print "sfc: " + str(self.id) + " STOP!"
     #         self.t.exit()
 
+    def update(self):
+        """Propaga a banda pela cadeia: cada VNF aplica sua transformação (vnf_bw)."""
+        vnf = self.src
+        first = vnf.next_vnf
+        if first is None:
+            return
+
+        # F5: o primeiro salto carrega a banda de entrada da 1ª VNF (in_bw),
+        # em vez de 0 (o src virtual não tem banda de saída própria).
+        src_out = vnf.get_outcome_interface_bandwidth()
+        if not src_out:
+            src_out = first.get_income_interface_bandwidth()
+        self.link_bandwidth_dict[(vnf.id, first.id)] = src_out
+        vnf = first
+
+        while vnf.next_vnf:
+            outcome = vnf.vnf_function()
+            next_vnf = vnf.next_vnf
+            next_vnf.set_income_interface_bandwidth(outcome)
+            self.link_bandwidth_dict[(vnf.id, next_vnf.id)] = outcome
+            vnf = next_vnf
 
 if __name__ == "__main__":
     src_vnf = VNF("src")

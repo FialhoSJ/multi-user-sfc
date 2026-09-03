@@ -12,6 +12,7 @@ from muar_sfc.algorithms.networkUtils import (
 )
 
 # Módulos Locais
+from muar_sfc.core.infrastructure.enums import vnf_is_shareable
 from muar_sfc.core.sfc import SFC, VNF
 from muar_sfc.utils.network_utils import (
     calcular_percentual_banda_total,
@@ -20,7 +21,6 @@ from muar_sfc.utils.network_utils import (
 )
 
 # --- Constantes Globais ---
-SHAREABLE_PREFIXES = ("IA_DET_FT_", "RE_region_", "MA_region_")
 NON_REUSABLE_PENALTY = 4
 
 
@@ -473,7 +473,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         node = graph.nodes[node_id]
         cpu_used, cpu_cap = node["cpu_used"], node["cpu_capacity"]
 
-        if not service_name.startswith(SHAREABLE_PREFIXES):
+        if not vnf_is_shareable(vnf):
             return False
 
         session_id = sfc.id.split("_")[-1]

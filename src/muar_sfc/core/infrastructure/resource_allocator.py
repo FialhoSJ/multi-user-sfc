@@ -1,7 +1,7 @@
 import re
 from typing import Any
 
-from muar_sfc.core.infrastructure.enums import SHAREABLE_PREFIXES
+from muar_sfc.core.infrastructure.enums import vnf_is_shareable
 from muar_sfc.core.infrastructure.topology import TopologyManager
 from muar_sfc.core.network_metrics import NetworkMetrics
 from muar_sfc.core.vnf import VNF
@@ -21,10 +21,10 @@ class ResourceAllocator:
         self.metrics = metrics
         self.shareable_node: bool = True
 
-    def _is_shareable(self, service_name: str) -> bool:
+    def _is_shareable(self, vnf: VNF) -> bool:
         if not self.shareable_node:
             return False
-        return service_name.startswith(SHAREABLE_PREFIXES)
+        return vnf_is_shareable(vnf)
 
     def _is_gpu_node(self, node_id: str | int) -> bool:
         return str(node_id).endswith(".1")
@@ -67,7 +67,7 @@ class ResourceAllocator:
         clean_current_id = service_id.replace("_b", "")
         compatible_instance_found = False
 
-        if self._is_shareable(service_id) or self._is_shareable(clean_current_id):
+        if self._is_shareable(vnf):
             for existing_id, existing_session in node.get("services", {}):
                 if existing_id.replace("_b", "") == clean_current_id and existing_session == session:
                     compatible_instance_found = True
@@ -82,18 +82,15 @@ class ResourceAllocator:
         if service_key in services_dict:
             services_dict[service_key]["copys"] += 1
 
-            if not self._is_shareable(service_id):
-                if (node["cpu_used"] + cpu_required > node["cpu_capacity"] or
-                    node["cache_used"] + cache_required > node["cache_capacity"]):
-                    services_dict[service_key]["copys"] -= 1
-                    node["sfcs_list"].remove(sfc_id)
-                    raise ValueError(f"Sem capacidade no nó {node_id} para instância não-shared.")
-                put_resource(cpu_required, cache_required)
-            else:
+            if self._is_shareable(vnf):
                 if is_gpu: self.metrics.total_gpu_saved += cpu_required
                 else: self.metrics.total_cpu_saved += cpu_required
                 self.metrics.total_cache_saved += cache_required
                 self.metrics.shared_vnfs_count += 1
+            # FIX (double-charge): mesma (nome, sessão, nó) já instanciada =
+            # reuso físico sem cobrar CPU de novo. Antes, VNFs não-compartilháveis
+            # eram cobradas novamente em re-deploys (ex.: recuperação de falha),
+            # gerando vazamento que nunca era liberado na desalocação.
 
         else:
             cost_cpu = 0 if compatible_instance_found else cpu_required
@@ -114,7 +111,7 @@ class ResourceAllocator:
             services_dict[service_key] = {"cpu": cost_cpu, "cache": cost_cache, "copys": 1}
             put_resource(cost_cpu, cost_cache)
 
-            if self._is_shareable(service_id):
+            if self._is_shareable(vnf):
                 node.setdefault("reuse", []).append(vnf)
 
     def allocate_bandwidth(self, node1: str | int, node2: str | int, bw_required: float, ms_name: str, is_backup: bool = False) -> None:
@@ -178,7 +175,7 @@ class ResourceAllocator:
         service_info = node["services"][service_key]
         service_info["copys"] -= 1
         remove_physical_instance = service_info["copys"] <= 0
-        is_shareable_service = self._is_shareable(service_id)
+        is_shareable_service = self._is_shareable(vnf)
 
         if is_gpu_node:
             self.metrics.total_gpu_requested -= cpu_req

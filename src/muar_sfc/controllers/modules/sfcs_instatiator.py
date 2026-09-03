@@ -423,7 +423,10 @@ from loguru import logger
 
 from muar_sfc.algorithms.darsppo import DARSPPO
 from muar_sfc.algorithms.environments.env_da_rsppo import SFC_AllocationEnv_DARSPPO
-from muar_sfc.algorithms.environments.env_replic import SFC_AllocationEnv as SFC_AllocationEnv_SCRC
+from muar_sfc.algorithms.environments.env_replic import (
+    SFC_AllocationEnv as SFC_AllocationEnv_SCRC,
+)
+from muar_sfc.algorithms.environments.env_replic import build_valid_nodes
 
 from muar_sfc.algorithms.environments.environment import SFC_AllocationEnv
 from muar_sfc.algorithms.environments.hephaestus_env import SFC_AllocationEnv_hephaestus
@@ -435,6 +438,7 @@ from muar_sfc.algorithms.networkUtils import (
 )
 from muar_sfc.algorithms.replic import REPLIC
 
+from muar_sfc.core.infrastructure.enums import vnf_is_shareable
 from muar_sfc.core.net_v2 import Net2
 from muar_sfc.core.sfc import SFC
 from muar_sfc.utils.network_utils import check_vnf_reusability
@@ -456,11 +460,23 @@ class SFCInstatiator:
 
     def _create_shadow_graph(self, substrate_network: Net2) -> nx.Graph:
         """Cria uma cópia física segura e super rápida para testes da IA."""
+        import copy as _copy
+
         shadow_graph = nx.Graph()
         for n, d in substrate_network.graph.nodes(data=True):
-            shadow_graph.add_node(n, **d.copy())
+            node_attrs = d.copy()
+            # FIX: isolar containers mutáveis (services/sfcs_list/reuse) do grafo real.
+            # d.copy() é RASO: sem isto, o dry-run/algoritmo polui o services da rede real,
+            # corrompendo a contabilidade de alocação (custo 0 indevido / copys inconsistente).
+            for key in ("services", "sfcs_list", "reuse"):
+                if key in node_attrs:
+                    node_attrs[key] = _copy.deepcopy(node_attrs[key])
+            shadow_graph.add_node(n, **node_attrs)
         for u, v, d in substrate_network.graph.edges(data=True):
-            shadow_graph.add_edge(u, v, **d.copy())
+            edge_attrs = d.copy()
+            if "services_in_transit" in edge_attrs:
+                edge_attrs["services_in_transit"] = _copy.deepcopy(edge_attrs["services_in_transit"])
+            shadow_graph.add_edge(u, v, **edge_attrs)
         return shadow_graph
 
     def search_solution(self, sfc_list: list[SFC], substrate_network: Net2, is_backup=False) -> tuple[dict, bool]:
@@ -483,20 +499,22 @@ class SFCInstatiator:
         except AttributeError:
             pass
 
-        valid_nodes = [
-            node for node, data in infra_to_use.nodes(data=True) if data.get("type") != "router"
-        ]
-
         # Match/Case moderno do Python 3.10+
+        # FIX: todos os envs RL usam o mesmo valid_nodes do treino (servidores + sentinela dst)
         match type(self.alg).__name__:
             case "Kuririn":
-                self.env = SFC_AllocationEnv(valid_nodes=valid_nodes, list_graph=[infra_to_use], list_sfc=[sfc_list[0]], is_training=False)
+                self.env = SFC_AllocationEnv(valid_nodes=build_valid_nodes(infra_to_use), list_graph=[infra_to_use], list_sfc=[sfc_list[0]], is_training=False)
             case "DARSPPO":
-                self.env = SFC_AllocationEnv_DARSPPO(valid_nodes=valid_nodes, list_graph=[infra_to_use], list_sfc=[sfc_list[0]], is_training=False)
+                self.env = SFC_AllocationEnv_DARSPPO(valid_nodes=build_valid_nodes(infra_to_use), list_graph=[infra_to_use], list_sfc=[sfc_list[0]], is_training=False)
             case "hephaestus":
-                self.env = SFC_AllocationEnv_hephaestus(valid_nodes=valid_nodes, list_graph=[infra_to_use], list_sfc=[sfc_list[0]], is_training=False)
+                self.env = SFC_AllocationEnv_hephaestus(valid_nodes=build_valid_nodes(infra_to_use), list_graph=[infra_to_use], list_sfc=[sfc_list[0]], is_training=False)
             case "REPLIC":
-                self.env = SFC_AllocationEnv_SCRC(valid_nodes=valid_nodes, list_graph=[infra_to_use], list_sfc=[sfc_list[0]], is_training=False)
+                self.env = SFC_AllocationEnv_SCRC(
+                    valid_nodes=build_valid_nodes(infra_to_use),
+                    list_graph=[infra_to_use],
+                    list_sfc=[sfc_list[0]],
+                    is_training=False,
+                )
 
         return self.sequential_search(self.alg, sfc_list, infra_to_use, default_solution_format)
 
@@ -633,7 +651,7 @@ class SFCInstatiator:
             compatible = False
 
             # Delegação SRP: A verificação de reuso agora é unificada e livre de falsos positivos
-            if self.is_shareable(service_id) or self.is_shareable(clean_id):
+            if self.is_shareable(vnf):
                 services_dict = node.get("services", {})
                 if check_vnf_reusability(services_dict, clean_id, sess_id):
                     compatible = True
@@ -641,17 +659,9 @@ class SFCInstatiator:
             node.setdefault("services", {})
             if service_key in node["services"]:
                 node["services"][service_key]["copys"] += 1
-                if not self.is_shareable(service_id):
-                    if node.get("cpu_used", 0) + cpu_req > node.get("cpu_capacity", 0):
-                        node["services"][service_key]["copys"] -= 1
-                        raise ValueError(f"CPU insuficiente no nó {node_id}")
-                    if node.get("cache_used", 0) + cache_req > node.get("cache_capacity", 0):
-                        node["services"][service_key]["copys"] -= 1
-                        raise ValueError(f"Cache insuficiente no nó {node_id}")
-
-                node["cpu_used"] = node.get("cpu_used", 0) + cpu_req
-                node["cache_used"] = node.get("cache_used", 0) + cache_req
-                return latency, cpu_req
+                # FIX: mesma instância (nome, sessão, nó) já alocada -> reuso sem custo.
+                # Alinha com o ResourceAllocator físico e evita double-charge em re-deploys.
+                return latency, 0.0
 
             cost_c = 0.0 if compatible else cpu_req
             cost_ca = 0.0 if compatible else cache_req
@@ -665,7 +675,7 @@ class SFCInstatiator:
             node["cpu_used"] = node.get("cpu_used", 0) + cost_c
             node["cache_used"] = node.get("cache_used", 0) + cost_ca
 
-            if self.is_shareable(service_id) or self.is_shareable(clean_id):
+            if self.is_shareable(vnf):
                 node.setdefault("reuse", []).append(vnf)
 
             return latency, cost_c
@@ -709,13 +719,21 @@ class SFCInstatiator:
         tot_comp = sum(d["latencia_comp"] for d in tsaber["computacao"].values())
         tot_comm = sum(item["latencia_comm"] for items in tsaber["comunicacao"].values() for item in items)
 
+        # F3: enforce do SLA de latência do serviço (rejeita a solução se estourar o budget)
+        latency_request = sfc.get_latency_request()
+        if latency_request and total_latency > latency_request:
+            raise ValueError(
+                f"SLA de latência violada para {sfc.id}: {round(total_latency, 2)}ms > {latency_request}ms"
+            )
+
         return round(total_latency, 2), round(tot_comp, 2), round(tot_comm, 2), round(total_resources_consumed, 4)
 
-    def is_shareable(self, service_name: str) -> bool:
+    def is_shareable(self, vnf) -> bool:
+        # F3: decide por flag do serviço (catálogo) ou padrão MUAR legado
         try:
             share_val = self.args.share
             share_enabled = share_val if isinstance(share_val, bool) else str(share_val).lower() == "y"
         except AttributeError:
             share_enabled = False
 
-        return service_name.startswith(SHAREABLE_PREFIXES) if share_enabled else False
+        return vnf_is_shareable(vnf) if share_enabled else False

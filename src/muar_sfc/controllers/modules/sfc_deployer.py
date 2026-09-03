@@ -40,6 +40,15 @@ class SFCDeployer:
             except Exception as e:
                 logger.error(f"[Deployer] Deploy falhou na infraestrutura para {sfc.id}: {e}")
                 deployment_success = False
+                # FIX: desfaz também a alocação PARCIAL da SFC que falhou no meio
+                # (deploy_sfc pode ter alocado algumas VNFs antes de estourar a capacidade).
+                try:
+                    substrate_network.undeploy_sfc(sfc.id)
+                    self.tracker.sfcs_routing_info.pop(sfc.id, None)
+                except (RuntimeError, ValueError) as partial_e:
+                    logger.exception(
+                        f"[Rollback] Falha ao desfazer alocação parcial de {sfc.id}: {partial_e}"
+                    )
                 break
 
         if not deployment_success:

@@ -12,10 +12,9 @@ from muar_sfc.algorithms.networkUtils import (
     calculate_latency_betwen_nodes,
     get_available_shortest_path_fast,
 )
+from muar_sfc.core.infrastructure.enums import vnf_is_shareable
 from muar_sfc.core.sfc import SFC, VNF
 from muar_sfc.utils.network_utils import get_sfc_latency_from_route
-
-SHAREABLE_PREFIXES = ("IA_DET_FT_", "RE_region_", "MA_region_")
 
 
 class SFC_AllocationEnv_DARSPPO(gymnasium.Env):
@@ -408,7 +407,7 @@ class SFC_AllocationEnv_DARSPPO(gymnasium.Env):
         cpu_used, cpu_cap = node["cpu_used"], node["cpu_capacity"]
         cache_used, cache_cap = node["cache_used"], node["cache_capacity"]
 
-        if not service_name.startswith(SHAREABLE_PREFIXES):
+        if not vnf_is_shareable(vnf):
             return False
 
         session_id = sfc.id.split("_")[-1]

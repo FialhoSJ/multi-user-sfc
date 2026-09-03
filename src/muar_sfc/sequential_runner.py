@@ -13,10 +13,6 @@ def run_process(cmd_list: list[str]) -> None:
 
 def main() -> None:
     """Função principal (Entry point para o CLI)."""
-    horas = 1
-    simul_em_hora = 3.6
-    num_simul = int(horas * simul_em_hora)
-
     parser = argparse.ArgumentParser(description="Select MUAR arguments")
     parser.add_argument("--n_sessions", type=int, help="(int) number of sessions", default=50)
     parser.add_argument("--n_players", type=int, help="(int) number of players", default=6)
@@ -24,7 +20,9 @@ def main() -> None:
     parser.add_argument("--sfc", type=str, help="(str) on or off", default="on")
     parser.add_argument("--alg", type=str, help="(str) algorithm name", default="greedyb")
     parser.add_argument("--verbose", type=str, help="verbose log", default="n")
-    parser.add_argument("--time", type=int, help="(int) total time for the simulation", default=120)
+    parser.add_argument("--time", type=int, help="duração da sessão (sfc_lifetime)", default=120)
+    parser.add_argument("--service_mix", type=str, default=None, help="ex.: muar,streaming")
+    parser.add_argument("--service_weights", type=str, default=None, help="ex.: 0.7,0.3")
     args = parser.parse_args()
 
     begin = dt.now()
@@ -45,8 +43,12 @@ def main() -> None:
                     "--ava", str(a),
                     "--number_of_fails", str(n),
                     "--n_players", str(args.n_players),
-                    "--time", str(args.time)
+                    "--sfc_lifetime", str(args.time),  # F5: alinhado com o parallel_runner
                 ]
+                if args.service_mix:  # F5: repassa mix heterogêneo
+                    command += ["--service_mix", args.service_mix]
+                if args.service_weights:  # F5: repassa pesos dos serviços
+                    command += ["--service_weights", args.service_weights]
                 cmds.append(command)
 
     for idx, command in enumerate(cmds):

@@ -7,7 +7,7 @@ import networkx as nx
 from sb3_contrib import MaskablePPO
 from stable_baselines3 import DQN, PPO
 
-from muar_sfc.algorithms.environments.env_replic import SFC_AllocationEnv
+from muar_sfc.algorithms.environments.env_replic import SFC_AllocationEnv, build_valid_nodes
 from muar_sfc.config import ROOT_DIR
 from muar_sfc.core.sfc import SFC
 
@@ -101,9 +101,8 @@ class REPLIC:
         self.graph = graph
         
         # Acesso O(1) usando os atributos nativos do dict do NetworkX
-        self.valid_nodes = [
-            node for node, data in self.graph.nodes(data=True) if data.get("type") != "router"
-        ]
+        # FIX: alinhado com o treino (servidores + sentinela dst)
+        self.valid_nodes = build_valid_nodes(self.graph)
 
         if not self.precomputed_paths:
             self.precomputed_paths = dict(nx.all_pairs_dijkstra_path(self.graph, weight="weight"))

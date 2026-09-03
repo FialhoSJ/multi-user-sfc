@@ -9,12 +9,12 @@ from muar_sfc.algorithms.networkUtils import (
     calculate_latency_betwen_nodes,
     get_available_shortest_path_fast,
 )
+from muar_sfc.core.infrastructure.enums import vnf_is_shareable
 from muar_sfc.core.sfc import SFC, VNF
 
 # ADICIONADO:
 
 
-SHAREABLE_PREFIXES = ("IA_DET_FT_", "RE_region_", "MA_region_")
 LATENCY_REQ = 13
 MOBILE_DEVICE_USAGE_REWARD = 0
 
@@ -594,7 +594,7 @@ class SFC_AllocationEnv_hephaestus(gymnasium.Env):
         cpu_used, cpu_cap = node["cpu_used"], node["cpu_capacity"]
         _cache_used, _cache_cap = node["cache_used"], node["cache_capacity"]
 
-        if not service_name.startswith(SHAREABLE_PREFIXES):
+        if not vnf_is_shareable(vnf):
             return False
 
         session_id = sfc.id.split("_")[-1]

@@ -72,6 +72,8 @@ class SubstrateNetworkController:
         self.max_queue_size = 0
         self.success: list[Any] = []
         self.counter = 0
+        # FIX: nº total de lotes (players × sessões) para detectar o fim sem depender do nome da SFC
+        self.processed_batches = 0
 
         self.failure_orchestrator = FailureOrchestrator(
             substrate_network=self.substrate_network,
@@ -172,9 +174,15 @@ class SubstrateNetworkController:
                 except AttributeError:
                     route_info = {}
 
-                # A máscara de Exception genérica foi removida para garantir Fail-Fast. 
-                # Falhas de implantação física deverão abortar o run para evitar falso-positivos na simulação.
-                self.substrate_network.deploy_sfc(backup_sfc, route_info)
+                try:
+                    self.substrate_network.deploy_sfc(backup_sfc, route_info)
+                except ValueError as e:
+                    # FIX: o backup pode ter sido calculado antes de um nó cair —
+                    # nó inativo/sem recurso é condição tolerável, não derruba a simulação.
+                    logger.warning(f"[BACKUP] Falha tolerável ao implantar backup {backup_sfc.id}: {e}")
+                except RuntimeError:
+                    # Corrupção estrutural real continua sendo Fail-Fast.
+                    raise
 
     def handle_fails(self) -> None:
         if not self.fail_manager.activated:
@@ -228,6 +236,7 @@ class SubstrateNetworkController:
                 break
 
             sfc_list = self.sfc_queue.peek_sfc()
+            self.processed_batches += 1  # FIX: cada item da fila = um lote (1 player)
             dequeue_time = time.time()
 
             # EAFP estrito e em cascata para extração do tempo
@@ -345,14 +354,15 @@ class SubstrateNetworkController:
         self.substrate_network.remove_node(sfc_list_id)
 
     def check_simulation_end(self, sfc_list: list[str]) -> bool:
-        last_sf_mono = f"sfc_unique_p{self.players}_{self.flows}"
-        last_sf_dec = f"sfc_mono_p{self.players}_{self.flows}"
-        for sfc_id in sfc_list:
-            if sfc_id in (last_sf_mono, last_sf_dec):
-                logger.info(f"[INFO] Last SFC released detected: {sfc_id}")
-                logger.info(f"Max queue size: {self.max_queue_size}")
-                time.sleep(1)
-                return True
+        # FIX: fim da simulação = fila vazia e todos os lotes (players × sessões) processados.
+        # Antes dependia do nome exato 'sfc_unique_p{players}_{flows}', que quebrava
+        # com nomes heterogêneos (ex.: sfc_streaming_p1_50).
+        expected_batches = self.players * self.flows
+        if self.sfc_queue.qsize() == 0 and self.processed_batches >= expected_batches:
+            logger.info(f"[INFO] Todas as sessões processadas ({self.processed_batches} lotes).")
+            logger.info(f"Max queue size: {self.max_queue_size}")
+            time.sleep(1)
+            return True
         return False
 
     def handle_resources_cleanup(self) -> None:

@@ -3,7 +3,8 @@ from muar_sfc.core.vnf import VNF, VNFType
 
 class VNFType1(VNF):
     """
-    This vnf is output the same volumn of input
+    VNF transparente: a banda de egressa é definida pelo perfil do serviço
+    (out_bw do dicionário), preservando o modelo de estágios do MUAR.
     """
 
     def __init__(self, id):
@@ -11,4 +12,4 @@ class VNFType1(VNF):
         self.type = VNFType.TYPE1
 
     def vnf_bw(self, i):
-        return i
+        return self.get_outcome_interface_bandwidth()

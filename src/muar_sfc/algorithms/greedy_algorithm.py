@@ -21,6 +21,7 @@ from pathlib import Path
 
 import networkx as nx
 
+from muar_sfc.algorithms.networkUtils import get_available_shortest_path
 from muar_sfc.config import ROOT_DIR
 
 # Configuração de Observabilidade Estruturada
@@ -146,9 +147,12 @@ class GreedyAlgorithm:
             cpu_request = sfc.get_vnf_cpu_request(next_vnf)
             cache_request = sfc.get_vnf_cache_request(next_vnf)
 
-            sfc.get_link_bandwidth_request(current_vnf.id, next_vnf.id)
+            # F5: banda do enlace (upstream) agora é usada como restrição de rota
+            bandwidth_request = sfc.get_link_bandwidth_request(current_vnf.id, next_vnf.id)
 
             min_latency = None
+            chosen_path = None
+            node = None
 
             for e in servers:
                 # THIS SHOULD STAY DEACTIVATED TO ALLOW MULTIPLE VNFS
@@ -169,16 +173,30 @@ class GreedyAlgorithm:
                     logger.debug("node %s has not %s cache", e, cache_request)
                     continue
 
-                edge_latency = substrate_network.get_shortest_path_length(
-                    current_substrate_node, e
+                # F5: descarta nós sem caminho com banda suficiente a partir do nó atual.
+                # Net2 tem API nativa com banda; nx.Graph usa o helper genérico.
+                if hasattr(substrate_network, "get_shortest_path_with_bw"):
+                    candidate_path = substrate_network.get_shortest_path_with_bw(
+                        current_substrate_node, e, bandwidth_request
+                    )
+                else:
+                    candidate_path = get_available_shortest_path(
+                        substrate_network, current_substrate_node, e, bandwidth_request
+                    )
+                if not candidate_path:
+                    continue
+
+                edge_latency = sum(
+                    substrate_network.get_link_latency(candidate_path[i], candidate_path[i + 1])
+                    for i in range(len(candidate_path) - 1)
                 )
                 if min_latency is None or edge_latency < min_latency:
                     min_latency = edge_latency
                     node = e
+                    chosen_path = candidate_path
 
-            if node is not None and min_latency is not None:
-                # be careful that node can be 0
-                path = substrate_network.get_shortest_path(current_substrate_node, node)
+            if node is not None and min_latency is not None and chosen_path is not None:
+                path = chosen_path
                 route_info[current_vnf.id] = path
                 used_node.append(node)
                 latency = latency + min_latency
@@ -219,7 +237,8 @@ class GreedyAlgorithm:
             edge_latency = self.substrate_network.get_link_latency(path[i], path[i + 1])
             self.latency = self.latency - edge_latency
 
-        if len(self.route_info.keys()) != 6:
+        # F5: verificação genérica (antes era hardcoded == 6, o que quebrava cadeias heterogêneas)
+        if len(self.route_info.keys()) != sfc.get_number_of_vnfs() + 2:
             self.latency = None
             self.route_info = {}
             return False
