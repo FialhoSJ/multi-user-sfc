@@ -31,7 +31,7 @@ def test_heterogeneous_session_generates_streaming_sfc():
     sfc = queue.get()[0]
     assert sfc.service_type == "streaming"
     assert sfc.id == "sfc_streaming_p1_7"
-    assert abs(sfc.link_bandwidth_dict[("encoder_1_7", "transcoder_1_7")] - 58.8) < 1e-9
+    assert abs(sfc.link_bandwidth_dict[("encoder_1_7", "transcoder_1_7")] - 21.0) < 1e-9
 
 
 def test_chain_propagates_bandwidth_transforms():
@@ -45,9 +45,9 @@ def test_chain_propagates_bandwidth_transforms():
     sfc = SFCGenerator(sfc_dict).generate()
     assert sfc.service_type == "streaming"
     links = sfc.link_bandwidth_dict
-    assert abs(links[("packetizer_1_1", "encoder_1_1")] - 42.0) < 1e-9
-    assert abs(links[("encoder_1_1", "transcoder_1_1")] - 58.8) < 1e-9
-    assert abs(links[("transcoder_1_1", "dst")] - 41.16) < 1e-9
+    assert abs(links[("packetizer_1_1", "encoder_1_1")] - 15.0) < 1e-9
+    assert abs(links[("encoder_1_1", "transcoder_1_1")] - 21.0) < 1e-9
+    assert abs(links[("transcoder_1_1", "dst")] - 14.7) < 1e-9
 
 
 def test_type1_chain_preserves_configured_egress():

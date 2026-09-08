@@ -31,6 +31,8 @@ PythonSettings.json
 # --- Saídas do Simulador e Dados Locais ---
 logs/
 plots/
+plots/2025/fialhosj/
+slides/
 results/
 rl_saved_models/
 variaveis_salvas/

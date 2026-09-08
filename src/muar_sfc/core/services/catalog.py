@@ -12,6 +12,29 @@ class ServiceTemplate:
     Cada serviço define sua cadeia de VNFs (mesmo formato de dict usado pelo
     VNFGenerator/SFCGenerator), o SLA de latência total e regras de
     compartilhamento.
+
+    REFERÊNCIAS DOS PARÂMETROS DE QoS (valores embasados em normas ITU-T/3GPP
+    e recomendações de mercado; a banda da SFC = ``in_bw`` da 1ª VNF):
+      - VOZ/VoIP:
+          * ITU-T G.114 (2003), "One-way transmission time" — orçamento de
+            latência de voz: <= 150 ms preferido, 400 ms limite absoluto.
+            Usamos 60 ms como orçamento de rede em borda (edge).
+          * ITU-T G.711 (2000), "Pulse code modulation (PCM)" — codec de voz
+            a 64 kbit/s; com overhead RTP/UDP/IP ≈ 80-90 kbit/s => banda
+            de ~0.1 Mbps por chamada.
+      - VÍDEO/STREAMING:
+          * ITU-T G.1010 (2001), "End-user multimedia QoS categories" —
+            streaming tolera atraso (bufferização); live exigente (~150 ms).
+          * Netflix Help (2024) — velocidades recomendadas: 720p = 3 Mbps,
+            1080p = 5 Mbps, 4K UHD = 15 Mbps. Usamos 15 Mbps (4K UHD).
+          * Encoder/transcoder: codificadores expandem o tráfego (H.264 8-bit
+            -> H.265 reduz ~50%); modelamos a transformação via ``factor``.
+      - IoT/TELEMETRIA:
+          * 3GPP NB-IoT / LoRaWAN — enlaces de 20-60 kbit/s / 0.3-50 kbit/s
+            por sensor. Usamos 0.5 Mbps como agregado de sensores.
+          * ITU-T Y.1541 (2011), Classe 3 — IPTD <= 400 ms. SLA de 200 ms.
+      - MUAR: cenário legado do simulador (mobilidade veicular); mantido
+        como original. Y.1541 Classe 4 (IPTD <= 1 s) => SLA de 1000 ms.
     """
 
     def __init__(
@@ -107,7 +130,8 @@ def build_default_catalog() -> ServiceCatalog:
     """Popula o catálogo com os serviços de exemplo (inclui o MUAR)."""
     catalog = ServiceCatalog()
 
-    # --- MUAR (cenário original; mantém compatibilidade) ---
+    # --- MUAR (cenário original/legado veicular; valores NÃO alterados) ---
+    # SLA 1000 ms ~ ITU-T Y.1541 Classe 4 (IPTD <= 1 s).
     muar_chain = [
         {"type": VNFType.TYPE1, "name": "IA_DET_FT_{counter}", "CPU": 22.0, "cache": 0,
          "in_bw": 150.0, "out_bw": 151.0, "latency": 0.3},
@@ -126,14 +150,16 @@ def build_default_catalog() -> ServiceCatalog:
         shareable_prefixes=SHAREABLE_PREFIXES,
     ))
 
-    # --- Streaming de vídeo (CPU/banda altos, VNFs que transformam tráfego) ---
+    # --- Streaming de vídeo 4K UHD (banda alta, VNFs que transformam tráfego) ---
+    # Banda base: 15 Mbps (Netflix 4K UHD). encoder expande (×1.4),
+    # transcoder reduz (×0.7) — semântica F1 de transformação de tráfego.
     streaming_chain = [
         {"type": VNFType.TYPE1, "name": "packetizer_{player}_{counter}", "CPU": 15.0, "cache": 0,
-         "in_bw": 40.0, "out_bw": 42.0, "latency": 0.2},
+         "in_bw": 15.0, "out_bw": 15.0, "latency": 0.2},
         {"type": VNFType.TYPE2, "name": "encoder_{player}_{counter}", "CPU": 45.0, "cache": 0,
-         "in_bw": 42.0, "out_bw": 42.0, "latency": 1.2, "params": {"factor": 1.4}},
+         "in_bw": 15.0, "out_bw": 15.0, "latency": 1.2, "params": {"factor": 1.4}},
         {"type": VNFType.TYPE3, "name": "transcoder_{player}_{counter}", "CPU": 35.0, "cache": 0,
-         "in_bw": 42.0, "out_bw": 42.0, "latency": 1.0, "params": {"factor": 0.7}},
+         "in_bw": 15.0, "out_bw": 15.0, "latency": 1.0, "params": {"factor": 0.7}},
     ]
     catalog.register(ServiceTemplate(
         name="streaming",
@@ -143,6 +169,7 @@ def build_default_catalog() -> ServiceCatalog:
     ))
 
     # --- VoIP (latência estrita, baixa CPU/banda) ---
+    # Banda 0.1 Mbps ≈ codec G.711 (64 kbps) + overhead RTP/UDP/IP.
     voip_chain = [
         {"type": VNFType.TYPE1, "name": "jitter_buf_{player}_{counter}", "CPU": 5.0, "cache": 0,
          "in_bw": 0.1, "out_bw": 0.1, "latency": 0.1},
@@ -157,11 +184,13 @@ def build_default_catalog() -> ServiceCatalog:
     ))
 
     # --- IoT / telemetria (agregação) ---
+    # Banda 0.5 Mbps = agregado de sensores (NB-IoT 20-60 kbps / LoRaWAN
+    # 0.3-50 kbps por sensor). SLA 200 ms (ITU-T Y.1541 Classe 3).
     iot_chain = [
         {"type": VNFType.TYPE1, "name": "ingest_{player}_{counter}", "CPU": 2.0, "cache": 0,
-         "in_bw": 1.0, "out_bw": 1.0, "latency": 0.2},
+         "in_bw": 0.5, "out_bw": 0.5, "latency": 0.2},
         {"type": VNFType.TYPE4, "name": "aggregator_{player}_{counter}", "CPU": 6.0, "cache": 0,
-         "in_bw": 1.0, "out_bw": 1.0, "latency": 0.4},
+         "in_bw": 0.5, "out_bw": 0.5, "latency": 0.4},
     ]
     catalog.register(ServiceTemplate(
         name="iot",

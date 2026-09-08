@@ -20,6 +20,11 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
+try:
+    from scripts.cores_algoritmos import cor_para, rotulo_curto
+except ModuleNotFoundError:
+    from cores_algoritmos import cor_para, rotulo_curto
+
 # ==============================================================================
 # ESTILO CIENTÍFICO (consistente com plotar_recompensas.py)
 # ==============================================================================
@@ -31,10 +36,10 @@ plt.rcParams.update(
 )
 
 CORES_SERVICOS = {
-    "muar": "#4D774E",       # verde escuro
-    "streaming": "#90BE6D",  # verde claro
-    "voip": "#577590",       # azul
-    "iot": "#F9844A",        # laranja
+    "muar": "#017507",
+    "streaming": "#E24A0E",
+    "voip": "#2C16AC",
+    "iot": "#EA4AF9",
 }
 
 # SLA de latência (ms) por serviço, para referência no gráfico
@@ -65,7 +70,7 @@ def carregar_resumo(caminho: Path) -> dict:
     return dados
 
 
-def plotar(caminho: Path) -> None:
+def plotar(caminho: Path, out_dir: Path | None = None) -> None:
     dados = carregar_resumo(caminho)
     if not dados:
         sys.exit("Resumo vazio: nada a plotar.")
@@ -83,12 +88,12 @@ def plotar(caminho: Path) -> None:
     ax1.bar(servicos, aceitacao, color=cores, edgecolor="black", linewidth=1.2)
     ax1.set_ylabel("Taxa de aceitação (%)", fontsize=13, fontweight="bold")
     ax1.set_ylim(0, 105)
-    ax1.grid(axis="y", linestyle="--", alpha=0.5)
+    ax1.grid(axis="y", linestyle="--", alpha=0.3)
 
     # --- 2. Latência média por serviço + SLA ---
     ax2.bar(servicos, latencia, color=cores, edgecolor="black", linewidth=1.2)
     ax2.set_ylabel("Latência média (ms)", fontsize=13, fontweight="bold")
-    ax2.grid(axis="y", linestyle="--", alpha=0.5)
+    ax2.grid(axis="y", linestyle="--", alpha=0.3)
     for s, sla in zip(servicos, slas, strict=True):
         if sla is not None:
             cor = cores[servicos.index(s)]
@@ -97,7 +102,7 @@ def plotar(caminho: Path) -> None:
     # --- 3. Nº de requisições por serviço (reflete o mix/weights) ---
     ax3.bar(servicos, requests, color=cores, edgecolor="black", linewidth=1.2)
     ax3.set_ylabel("Requisições", fontsize=13, fontweight="bold")
-    ax3.grid(axis="y", linestyle="--", alpha=0.5)
+    ax3.grid(axis="y", linestyle="--", alpha=0.3)
     for i, v in enumerate(requests):
         ax3.text(i, v, int(v), ha="center", va="bottom", fontsize=10, fontweight="bold")
 
@@ -112,20 +117,25 @@ def plotar(caminho: Path) -> None:
     pdf = caminho.with_name("grafico_servicos.pdf")
     fig.savefig(pdf, format="pdf", bbox_inches="tight", pad_inches=0.05)
     print(f"Gráfico salvo: {pdf}")
+    if out_dir is not None:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        png = out_dir / "grafico_servicos.png"
+        fig.savefig(png, format="png", bbox_inches="tight", pad_inches=0.05, dpi=150)
+        print(f"Gráfico salvo: {png}")
 
 
-def plotar_comparativo(caminhos: list[Path]) -> None:
+def plotar_comparativo(caminhos: list[Path], out_dir: Path | None = None) -> None:
     """Compara múltiplos algoritmos: aceitação (%) e CPU economizado por serviço."""
     dados_algos = []
     for caminho in caminhos:
         dados = carregar_resumo(caminho)
         if not dados:
             sys.exit(f"Resumo vazio: {caminho}")
-        rotulo = caminho.parent.name.split("_")[0]
+        rotulo = rotulo_curto(caminho.parent.name.split("_")[0])
         dados_algos.append((rotulo, dados))
 
     servicos = sorted({s for _, d in dados_algos for s in d})
-    cores_algos = ["#4D774E", "#577590", "#F9844A", "#90BE6D", "#6A4C93", "#E63946"]
+
     largura = 0.8 / len(dados_algos)
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
@@ -134,26 +144,35 @@ def plotar_comparativo(caminhos: list[Path]) -> None:
     for k, (rotulo, dados) in enumerate(dados_algos):
         valores = np.array([dados.get(s, {}).get("acceptance_rate", 0.0) for s in servicos])
         pos = np.arange(len(servicos)) + (k - (len(dados_algos) - 1) / 2) * largura
-        ax1.bar(pos, valores, width=largura, label=rotulo, color=cores_algos[k],
+
+        ax1.bar(pos, valores, width=largura, label=rotulo, color=cor_para(rotulo, k),
                 edgecolor="black", linewidth=1.2)
+
     ax1.set_xticks(np.arange(len(servicos)))
     ax1.set_xticklabels(servicos)
     ax1.set_ylabel("Taxa de aceitação (%)", fontsize=13, fontweight="bold")
     ax1.set_ylim(0, 105)
-    ax1.grid(axis="y", linestyle="--", alpha=0.5)
-    ax1.legend()
+    ax1.grid(axis="y", linestyle="--", alpha=0.3)
+    ax1.legend(loc="best", fontsize=9, framealpha=0.9)
 
     # --- 2. CPU economizado por serviço, por algoritmo ---
     for k, (rotulo, dados) in enumerate(dados_algos):
         valores = np.array([dados.get(s, {}).get("cpu_saved", 0.0) for s in servicos])
         pos = np.arange(len(servicos)) + (k - (len(dados_algos) - 1) / 2) * largura
-        ax2.bar(pos, valores, width=largura, label=rotulo, color=cores_algos[k],
+
+        ax2.bar(pos, valores, width=largura, label=rotulo, color=cor_para(rotulo, k),
                 edgecolor="black", linewidth=1.2)
+
     ax2.set_xticks(np.arange(len(servicos)))
     ax2.set_xticklabels(servicos)
     ax2.set_ylabel("CPU economizado (sharing)", fontsize=13, fontweight="bold")
-    ax2.grid(axis="y", linestyle="--", alpha=0.5)
-    ax2.legend()
+    ax2.grid(axis="y", linestyle="--", alpha=0.3)
+    ax2.legend(loc="best", fontsize=9, framealpha=0.9)
+
+    # --- AJUSTE VISUAL PARA BARRAS: Impede barras gigantes se houver só 1 serviço ---
+    if len(servicos) == 1:
+        ax1.set_xlim(-0.8, 0.8)
+        ax2.set_xlim(-0.8, 0.8)
 
     for ax in (ax1, ax2):
         ax.tick_params(axis="x", labelsize=11)
@@ -166,19 +185,26 @@ def plotar_comparativo(caminhos: list[Path]) -> None:
     pdf = caminhos[0].with_name("grafico_comparativo.pdf")
     fig.savefig(pdf, format="pdf", bbox_inches="tight", pad_inches=0.05)
     print(f"Gráfico comparativo salvo: {pdf}")
+    if out_dir is not None:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        png = out_dir / "comparativo_servicos.png"
+        fig.savefig(png, format="png", bbox_inches="tight", pad_inches=0.05, dpi=150)
+        print(f"Gráfico comparativo salvo: {png}")
 
 
-def plotar_comparativo_linhas(fluxos: list[Path], rotulos: list[str]) -> None:
+def plotar_comparativo_linhas(
+    fluxos: list[Path], rotulos: list[str], out_dir: Path | None = None
+) -> None:
     """Compara algoritmos com GRÁFICOS DE LINHA ao longo do tempo (fluxos CSV).
 
     Painéis: (1) taxa de aceitação (%) e (2) CPU economizado (cumulativo),
     ambos vs tempo de simulação — uma linha por algoritmo.
     """
-    cores = ["#4D774E", "#577590", "#F9844A", "#90BE6D", "#6A4C93", "#E63946"]
-
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
 
-    for caminho, rotulo, cor in zip(fluxos, rotulos, cores, strict=False):
+    for k, (caminho, rotulo_orig) in enumerate(zip(fluxos, rotulos, strict=False)):
+        rotulo = rotulo_curto(rotulo_orig)
+        cor = cor_para(rotulo_orig, k)
         tempos, aceit, saved = [], [], []
         with open(caminho, newline="", encoding="utf-8") as f:
             for row in csv.DictReader(f):
@@ -186,19 +212,22 @@ def plotar_comparativo_linhas(fluxos: list[Path], rotulos: list[str]) -> None:
                 aceit.append(float(row["acceptance_rate"]))
                 saved.append(float(row["cpu_saved"]))
 
-        ax1.plot(tempos, aceit, label=rotulo, color=cor, linewidth=2.5)
-        ax2.plot(tempos, saved, label=rotulo, color=cor, linewidth=2.5)
+        # Gráficos mais limpos: linhas totalmente sólidas (linestyle="-") e sem marcadores
+        ax1.plot(tempos, aceit, label=rotulo, color=cor, linewidth=2.0, linestyle="-")
+        ax2.plot(tempos, saved, label=rotulo, color=cor, linewidth=2.0, linestyle="-")
 
     ax1.set_xlabel("Tempo de simulação (s)", fontsize=13, fontweight="bold")
     ax1.set_ylabel("Taxa de aceitação (%)", fontsize=13, fontweight="bold")
     ax1.set_ylim(0, 105)
-    ax1.grid(linestyle="--", alpha=0.5)
-    ax1.legend()
+    ax1.grid(linestyle="--", alpha=0.3)
+    # Legenda inteligente (procura o espaço mais vazio) e sutil
+    ax1.legend(loc="best", fontsize=9, framealpha=0.9)
 
     ax2.set_xlabel("Tempo de simulação (s)", fontsize=13, fontweight="bold")
     ax2.set_ylabel("CPU economizado (sharing)", fontsize=13, fontweight="bold")
-    ax2.grid(linestyle="--", alpha=0.5)
-    ax2.legend()
+    ax2.grid(linestyle="--", alpha=0.3)
+    # Legenda inteligente (procura o espaço mais vazio) e sutil
+    ax2.legend(loc="best", fontsize=9, framealpha=0.9)
 
     for ax in (ax1, ax2):
         ax.tick_params(labelsize=11)
@@ -212,6 +241,11 @@ def plotar_comparativo_linhas(fluxos: list[Path], rotulos: list[str]) -> None:
     pdf = fluxos[0].with_name("grafico_comparativo_linhas.pdf")
     fig.savefig(pdf, format="pdf", bbox_inches="tight", pad_inches=0.05)
     print(f"Gráfico de linhas salvo: {pdf}")
+    if out_dir is not None:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        png = out_dir / "comparativo_linhas.png"
+        fig.savefig(png, format="png", bbox_inches="tight", pad_inches=0.05, dpi=150)
+        print(f"Gráfico de linhas salvo: {png}")
 
 
 def _parse_compare_lines(spec: str) -> tuple[list[Path], list[str]]:
@@ -240,13 +274,15 @@ if __name__ == "__main__":
     parser.add_argument("--compare-lines", type=str, default=None,
                         help="Flows CSV dos algoritmos com rótulo, separados por vírgula "
                              "(ex.: --compare-lines 'REPLIC=replic.csv,MSF=msf.csv')")
+    parser.add_argument("--out", type=Path, default=None,
+                        help="Diretório de saída (salva PNG além do PDF).")
     args = parser.parse_args()
 
     if args.compare_lines:
         fluxos, rotulos = _parse_compare_lines(args.compare_lines)
-        plotar_comparativo_linhas(fluxos, rotulos)
+        plotar_comparativo_linhas(fluxos, rotulos, out_dir=args.out)
     elif args.compare:
         caminhos = [Path(p.strip()) for p in args.compare.split(",") if p.strip()]
-        plotar_comparativo(caminhos)
+        plotar_comparativo(caminhos, out_dir=args.out)
     else:
-        plotar(args.caminho or _latest_summary())
+        plotar(args.caminho or _latest_summary(), out_dir=args.out)
