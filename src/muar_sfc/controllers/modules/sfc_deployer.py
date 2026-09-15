@@ -29,6 +29,9 @@ class SFCDeployer:
 
         for sfc in sfc_list:
             rf = solution[sfc.id]["route_info"]
+            alphas = solution[sfc.id].get("alphas")
+            if alphas:
+                sfc.vnf_alphas = alphas
 
             try:
                 substrate_network.deploy_sfc(sfc, rf)
@@ -101,7 +104,7 @@ class SFCDeployer:
             for z_id in zombie_ids:
                 try:
                     substrate_network.undeploy_sfc(z_id)
-                except RuntimeError as e:
+                except RuntimeError:
                     # Fail-Fast: Se o zumbi corromper o grafo, a simulação cai.
                     logger.exception(f"[GC] Erro crítico ao limpar zumbi {z_id} da infraestrutura.")
                     raise
@@ -111,6 +114,6 @@ class SFCDeployer:
             substrate_network.undeploy_sfc(sfc_id)
             if self.verbose:
                 logger.debug(f"[RECURSOS LIBERADOS] Instância {sfc_id} purgada da rede física.")
-        except RuntimeError as e:
+        except RuntimeError:
             logger.exception(f"[FALHA DE DESALOCAÇÃO] Erro CRÍTICO ao tentar remover {sfc_id} da infraestrutura.")
             raise

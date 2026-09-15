@@ -142,7 +142,7 @@ def setup_controller(
     sfc_instantiator = SFCInstatiator(alg, args=settings)
     fail_manager = Crasher(topology=topology, args=settings)
     mobility_manager = MobilityManager(settings)
-    
+
     # Pathlib já deve estar sendo embutido implicitamente no create_output_dir
     output_writter = OutputWritter(topology, *create_output_dir(settings, topology))
 

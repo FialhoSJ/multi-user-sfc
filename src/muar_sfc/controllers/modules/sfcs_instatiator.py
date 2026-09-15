@@ -418,26 +418,22 @@
 
 
 import time
+
 import networkx as nx
 from loguru import logger
 
-from muar_sfc.algorithms.darsppo import DARSPPO
 from muar_sfc.algorithms.environments.env_da_rsppo import SFC_AllocationEnv_DARSPPO
 from muar_sfc.algorithms.environments.env_replic import (
     SFC_AllocationEnv as SFC_AllocationEnv_SCRC,
 )
 from muar_sfc.algorithms.environments.env_replic import build_valid_nodes
-
 from muar_sfc.algorithms.environments.environment import SFC_AllocationEnv
 from muar_sfc.algorithms.environments.hephaestus_env import SFC_AllocationEnv_hephaestus
-from muar_sfc.algorithms.hephaestus import hephaestus
-from muar_sfc.algorithms.kuririn import Kuririn
+from muar_sfc.algorithms.hybrid.hybrid_env import SFC_AllocationEnv_Hybrid
 from muar_sfc.algorithms.networkUtils import (
     calculate_computational_latency,
     calculate_latency_betwen_nodes,
 )
-from muar_sfc.algorithms.replic import REPLIC
-
 from muar_sfc.core.infrastructure.enums import vnf_is_shareable
 from muar_sfc.core.net_v2 import Net2
 from muar_sfc.core.sfc import SFC
@@ -485,11 +481,11 @@ class SFCInstatiator:
         }
 
         self.alg.clear_all()
-        
+
         # OTIMIZAÇÃO: Adeus deepcopy.
         infra_to_use = self._create_shadow_graph(substrate_network)
-        
-        
+
+
 
         # EAFP: Segurança contra atributos inexistentes
         try:
@@ -515,10 +511,22 @@ class SFCInstatiator:
                     list_sfc=[sfc_list[0]],
                     is_training=False,
                 )
+            case "HybridSFC":
+                self.env = SFC_AllocationEnv_Hybrid(
+                    valid_nodes=build_valid_nodes(infra_to_use),
+                    list_graph=[infra_to_use],
+                    list_sfc=[sfc_list[0]],
+                    is_training=False,
+                )
 
-        return self.sequential_search(self.alg, sfc_list, infra_to_use, default_solution_format)
+        return self.sequential_search(
+            self.alg, sfc_list, infra_to_use, default_solution_format, substrate_network
+        )
 
-    def sequential_search(self, algorithm, sfc_list: list[SFC], graph: nx.Graph, solution_format: dict) -> tuple[dict, bool]:
+    def sequential_search(
+        self, algorithm, sfc_list: list[SFC], graph: nx.Graph,
+        solution_format: dict, substrate_network=None,
+    ) -> tuple[dict, bool]:
         search_success = True
         total_elapsed_ms = 0.0
         approved_sfcs = []
@@ -526,7 +534,7 @@ class SFCInstatiator:
 
         for sfc in sfc_list:
             # OTIMIZAÇÃO VITAL: Passamos a referência direta do shadow graph.
-            # Como a simulação (dry-run) deduz recursos diretamente dele no laço, 
+            # Como a simulação (dry-run) deduz recursos diretamente dele no laço,
             # a IA recebe a topologia devidamente atualizada a cada passo do lote.
             algorithm.install_substrate_network(graph)
             algorithm.install_SFC(sfc)
@@ -539,7 +547,7 @@ class SFCInstatiator:
             s_time = time.time()
             alg_success = False
 
-            if type(algorithm).__name__ in ("Kuririn", "DARSPPO", "hephaestus", "REPLIC"):
+            if type(algorithm).__name__ in ("Kuririn", "DARSPPO", "hephaestus", "REPLIC", "HybridSFC"):
                 if self.env:
                     if type(algorithm).__name__ == "REPLIC":
                         alg_success = algorithm.start_algorithm(self.env, args=self.args)
@@ -558,10 +566,15 @@ class SFCInstatiator:
             if alg_success:
                 try:
                     route_info = algorithm.get_route_info()
-                    # DRY-RUN: Se passar na validação estrita, o grafo virtual é deduzido 
-                    total_latency, comp_latency, comm_latency, res_info = self._simulate_dry_run(
-                        graph, sfc, route_info
-                    )
+                    if type(algorithm).__name__ == "HybridSFC":
+                        total_latency, comp_latency, comm_latency = (
+                            self._compute_latency_only(graph, sfc, route_info)
+                        )
+                        res_info = 0
+                    else:
+                        total_latency, comp_latency, comm_latency, res_info = (
+                            self._simulate_dry_run(graph, sfc, route_info)
+                        )
                     approved_sfcs.append(sfc.id)
 
                 except ValueError as ve:
@@ -579,6 +592,11 @@ class SFCInstatiator:
                 "comm_latency": comm_latency,
                 "run_duration": e_time - s_time,
                 "resource_info": res_info if alg_success else 0,
+                "alphas": (
+                    algorithm.get_alphas()
+                    if alg_success and type(algorithm).__name__ == "HybridSFC"
+                    else None
+                ),
             }
 
             if not alg_success:
@@ -628,7 +646,7 @@ class SFCInstatiator:
             session_id = sfc.session_id
         except AttributeError:
             session_id = sfc.id.split("_")[-1]
-            
+
         total_latency = 0.0
         total_resources_consumed = 0.0
         tsaber = {"computacao": {}, "comunicacao": {}}
@@ -641,7 +659,7 @@ class SFCInstatiator:
             node = graph.nodes[node_id]
 
             latency = calculate_computational_latency(graph, node_id, vnf)
-            if node_id == 0: 
+            if node_id == 0:
                 return 0, 0.0
 
             if node.get("type") not in ["server", "mobile_device"]:
@@ -693,7 +711,7 @@ class SFCInstatiator:
                 edge["services_in_transit"][ms_name]["copys"] += 1
             else:
                 edge["services_in_transit"][ms_name] = {"copys": 1, "bw_used": 0.0}
-            
+
             edge["services_in_transit"][ms_name]["bw_used"] += bw_req
             edge["bandwidth_used"] = edge.get("bandwidth_used", 0) + bw_req
             return latency
@@ -737,3 +755,31 @@ class SFCInstatiator:
             share_enabled = False
 
         return vnf_is_shareable(vnf) if share_enabled else False
+
+    def _compute_latency_only(self, graph, sfc, route_info) -> tuple[float, float, float]:
+        """Latência unificada (comp + comm) a partir do route_info, SEM alocar recursos.
+
+        Usada para o HybridSFC para que a coluna de latência seja comparável com
+        a dos baselines (que passam pelo dry-run). Reflete a latência física do
+        caminho escolhido, sem a inflação do fator α do agente.
+        """
+        total_latency = 0.0
+        tot_comp = 0.0
+        tot_comm = 0.0
+        for ms_name, path in route_info.items():
+            if ms_name in ["src", "dst"] or "virt" in ms_name or not path:
+                continue
+            try:
+                vnf = sfc.get_vnf_by_id(ms_name)
+            except KeyError:
+                continue
+            node_id = path[0]
+            comp_latency = calculate_computational_latency(graph, node_id, vnf)
+            total_latency += comp_latency
+            tot_comp += comp_latency
+            if len(path) > 1:
+                for u, v in zip(path[:-1], path[1:], strict=False):
+                    comm_latency = calculate_latency_betwen_nodes(graph, u, v, vnf)
+                    total_latency += comm_latency
+                    tot_comm += comm_latency
+        return round(total_latency, 2), round(tot_comp, 2), round(tot_comm, 2)

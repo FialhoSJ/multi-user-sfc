@@ -1,12 +1,10 @@
-import math
 from typing import Any
 
 import gymnasium
+import networkx as nx
 import numpy as np
 from gymnasium import spaces
-import networkx as nx
 from networkx import Graph
-from muar_sfc.utils.network_utils import check_vnf_reusability
 
 from muar_sfc.algorithms.networkUtils import (
     calculate_computational_latency,
@@ -18,6 +16,7 @@ from muar_sfc.core.sfc import SFC, VNF
 from muar_sfc.utils.network_utils import (
     calcular_percentual_banda_total,
     calcular_percentual_cache_total,
+    check_vnf_reusability,
     get_graph_processing_utilization_simplified,
 )
 
@@ -121,10 +120,10 @@ class SFC_AllocationEnv(gymnasium.Env):
             for n, d in g.nodes(data=True): sg.add_node(n, **d.copy())
             for u, v, d in g.edges(data=True): sg.add_edge(u, v, **d.copy())
             safe_graphs.append(sg)
-            
+
         self.list_graph = safe_graphs
         self.list_sfc = list_sfc
-        
+
         # Refatoração EAFP Estrito
         try:
             _ = self.action_space
@@ -186,7 +185,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         current_location = self.current_location
 
         path = get_available_shortest_path_fast(self.graph, current_location, chosen_server, band_req)
-        
+
         self.ratio_cpu_used = get_graph_processing_utilization_simplified(self.graph)
         self.ratio_cache_used = calcular_percentual_cache_total(self.graph)
         self.ratio_banda_used = calcular_percentual_banda_total(self.graph)
@@ -225,7 +224,7 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         bw_required = self.service_requirements[self.current_vnf.id]["out_bw"] if self.current_vnf else 0
         self.features = self._get_nodes_features(self.current_vnf, bw_required, self.current_location)
-        
+
         return self._get_obs(), reward, done, False, {}
 
     def action_masks(self) -> np.ndarray:
@@ -325,7 +324,7 @@ class SFC_AllocationEnv(gymnasium.Env):
     def allocate_resources_on_node(self, node_id: int | str, vnf: VNF) -> bool:
         node = self.graph.nodes[node_id]
         can_reuse = self.is_reusable_at_node(self.current_sfc, self.graph, node_id, vnf)
-        
+
         effective_cpu_req = 0 if can_reuse else vnf.get_cpu_request()
         effective_cache_req = 0 if can_reuse else vnf.get_cache_request()
 
@@ -337,7 +336,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         node["cpu_used"] = node.get("cpu_used", 0) + effective_cpu_req
         node["cache_used"] = node.get("cache_used", 0) + effective_cache_req
         return True
-    
+
     def allocate_bandwidth_along_path(self, path: list, bandwidth_required: float) -> bool:
         for u, v in zip(path[:-1], path[1:], strict=False):
             edge = self.graph.edges[u, v]
@@ -439,7 +438,7 @@ class SFC_AllocationEnv(gymnasium.Env):
 
         bw_req = self.service_requirements[self.current_vnf.id]["out_bw"]
         self.features = self._get_nodes_features(self.current_vnf, bw_req, self.current_location)
-        
+
         return self._get_obs(), reward, True, False, {}
 
     def set_forbidden_nodes(self, nodes: list[str | int]):
@@ -450,7 +449,7 @@ class SFC_AllocationEnv(gymnasium.Env):
         self.current_sfc = sfc
         self.reverse_vnf_list = self.define_reverse_vnf_list(sfc)
         self.current_vnf = self.reverse_vnf_list[0]
-        
+
         try: self.current_location = self.current_sfc.dst_node
         except AttributeError: self.current_location = None
 
@@ -486,7 +485,7 @@ class SFC_AllocationEnv(gymnasium.Env):
             if not current_vnf.previous_vnf or current_vnf.previous_vnf.id == "src" or "virt" in current_vnf.id:
                 break
             current_vnf = sfc.get_previous_vnf(current_vnf)
-            
+
         return vnf_list
 
     def _initialize_snapshots(self, list_graph: list[Graph] = None):

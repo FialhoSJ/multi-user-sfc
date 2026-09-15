@@ -33,13 +33,19 @@ class ResourceAllocator:
         sfc_id = sfc.id
         session = getattr(sfc, "session_id", extrair_sessao(sfc_id) or sfc_id.split("_")[-1])
 
+        # FUSÃO HÍBRIDA: fração α de agendamento contínuo (Zhao) informada pelo
+        # algoritmo HybridSFC. Se ausente (baselines), escala = 1.0 (comportamento
+        # original inalterado).
+        cpu_scale = float(getattr(sfc, "vnf_alphas", {}).get(vnf.id, 1.0))
+        cpu_scale = min(max(cpu_scale, 0.01), 1.0)
+
         node = self.topology.get_node(node_id)
 
         if not node.get("is_active", True):
             raise ValueError(f"Falha crítica: nó {node_id} inativo para alocação.")
 
         service_id = vnf.id
-        cpu_required = vnf.get_cpu_request()
+        cpu_required = vnf.get_cpu_request() * cpu_scale
         cache_required = vnf.get_cache_request()
         is_gpu = self._is_gpu_node(node_id)
         is_mobile = node.get("type") == "mobile_device"
@@ -177,14 +183,17 @@ class ResourceAllocator:
         remove_physical_instance = service_info["copys"] <= 0
         is_shareable_service = self._is_shareable(vnf)
 
+        # Custos efetivamente cobrados na alocação (α-aware para o HybridSFC)
+        stored_cpu_cost = service_info.get("cpu", 0.0)
+        stored_cache_cost = service_info.get("cache", 0.0)
+        charged_cpu = stored_cpu_cost
+        charged_cache = stored_cache_cost
+
         if is_gpu_node:
             self.metrics.total_gpu_requested -= cpu_req
         else:
             self.metrics.total_cpu_requested -= cpu_req
         self.metrics.total_cache_requested -= cache_req
-
-        stored_cache_cost = service_info.get("cache", 0.0)
-        stored_cpu_cost = service_info.get("cpu", 0.0)
 
         was_subsidized_cache = stored_cache_cost < cache_req
         was_subsidized_cpu = stored_cpu_cost < cpu_req
@@ -206,18 +215,18 @@ class ResourceAllocator:
 
         if remove_physical_instance:
             del node["services"][service_key]
-            node["cpu_used"] = round(node["cpu_used"] - cpu_req, 2)
-            node["cache_used"] = round(node["cache_used"] - cache_req, 2)
+            node["cpu_used"] = round(node["cpu_used"] - charged_cpu, 2)
+            node["cache_used"] = round(node["cache_used"] - charged_cache, 2)
 
             if is_gpu_node:
-                if is_mobile: self.metrics.mobile_gpu_used -= cpu_req
-                else: self.metrics.total_gpu_used -= cpu_req
+                if is_mobile: self.metrics.mobile_gpu_used -= charged_cpu
+                else: self.metrics.total_gpu_used -= charged_cpu
             else:
-                if is_mobile: self.metrics.mobile_cpu_used -= cpu_req
-                else: self.metrics.total_cpu_used -= cpu_req
+                if is_mobile: self.metrics.mobile_cpu_used -= charged_cpu
+                else: self.metrics.total_cpu_used -= charged_cpu
 
-            if is_mobile: self.metrics.mobile_cache_used -= cache_req
-            else: self.metrics.total_cache_used -= cache_req
+            if is_mobile: self.metrics.mobile_cache_used -= charged_cache
+            else: self.metrics.total_cache_used -= charged_cache
 
             if is_shareable_service and vnf in node.get("reuse", []):
                 node["reuse"].remove(vnf)

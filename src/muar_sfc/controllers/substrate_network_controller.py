@@ -62,7 +62,7 @@ class SubstrateNetworkController:
         self.failure_schedule = deque(failure_schedule)
         self.active_failures: list[Any] = []
         self.timer: threading.Timer | None = None
-        
+
         self.mobility_interval = 5
         self.backup_interval_creation = 5
         self.last_mobility_time = 0.0
@@ -93,7 +93,7 @@ class SubstrateNetworkController:
             time.sleep(2 * self.update_interval)
 
         self.is_stopped = False
-        
+
         # EAFP: O contrato determina que se MobilityManager foi instanciado, 'activated' deve estar acessível
         if self.mobility_manager:
             try:
@@ -134,7 +134,7 @@ class SubstrateNetworkController:
             processed_sfcs = self.submit_sfcs()
             if self.check_simulation_end(processed_sfcs):
                 self.stop()
-            
+
             self.iteration_counter += 1
             if not processed_sfcs:
                 time.sleep(0.01)
@@ -201,7 +201,7 @@ class SubstrateNetworkController:
                         self.failure_orchestrator.link_recovery_operation(failure["target"])
             else:
                 pending_failures.append(failure)
-        
+
         self.active_failures = pending_failures
 
         if self.failure_schedule and elapsed_time >= self.failure_schedule[0]["start"]:
@@ -227,7 +227,7 @@ class SubstrateNetworkController:
 
         if self.max_queue_size < self.sfc_queue.qsize():
             self.max_queue_size = self.sfc_queue.qsize()
-        
+
         processed_sfcs = []
         start_time = time.time()
 
@@ -311,10 +311,10 @@ class SubstrateNetworkController:
     def check_timer_queue(self) -> None:
         if not self.timer_qeue_sfcs:
             return
-            
+
         final_time = time.time()
         time_elapsed = final_time - self.timer_qeue_sfcs[0]["timer"]
-        
+
         # Limpeza O(1) estrutural. Em cenários reais, um Deque pode operar na ponta sem reconstruir a lista.
         if time_elapsed >= random.uniform(5, 6):
             current_enqueue_time = time.time()
@@ -327,7 +327,7 @@ class SubstrateNetworkController:
     def check_mobility(self) -> None:
         if not self.sfc_manager.tracker.sfcs_tracker:
             return
-            
+
         sfcs_moved, new_locations = self.mobility_manager.check_all_vehicles_position_changes()
         for sfc_list, new_location in zip(sfcs_moved, new_locations, strict=False):
             obj_sfc_list = []

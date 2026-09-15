@@ -35,10 +35,10 @@ def main() -> None:
     # CONFIGURAÇÃO DE EXECUÇÃO
     # =========================================================================
     RUN_MODE = "batch"
-    BATCH_ALGS = ["msf", "musfico", "vegeta", "greedyb"]
+    BATCH_ALGS = ["hybrid", "msf", "musfico", "vegeta", "greedyb"]
     BATCH_FAIL_TARGETS = ["low_risk", "med_risk", "high_risk", "all"]
     BATCH_TOTAL_RUNS = 20 // len(BATCH_FAIL_TARGETS)
-    BATCH_PARALLEL_RUNS = 20
+    BATCH_PARALLEL_RUNS = 4  # Reduzido para não estourar a memória (OOM) com PyTorch
 
     number_of_fails = ["3"]
     CRASH_AT_TIME = ["400", "520", "640"]

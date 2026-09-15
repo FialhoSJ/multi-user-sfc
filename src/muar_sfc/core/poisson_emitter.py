@@ -1,6 +1,8 @@
 import threading
+
 import numpy as np
 from loguru import logger
+
 
 class PoissonEmitter:
     def __init__(self, lam: float, initial_delay: float = 0.0):
@@ -18,7 +20,7 @@ class PoissonEmitter:
         logger.info("Gerador de emissão iniciado.")
         self.is_stop = False
         self.callback = func
-        
+
         # EAFP: Tentamos acessar o primeiro argumento. Se não existir, alocamos None.
         try:
             self.args = args[0]
@@ -35,11 +37,11 @@ class PoissonEmitter:
     def reset_timer(self):
         if self.is_stop:
             return
-            
+
         self.is_output = False
         interval = np.random.poisson(self.lam)
         logger.debug(f"Intervalo calculado: {interval}s")
-        
+
         self.timer = threading.Timer(interval, self.run)
         self.timer.daemon = True  # Blindagem contra vazamento de threads
         self.timer.start()
@@ -47,20 +49,20 @@ class PoissonEmitter:
     def run(self):
         if self.is_stop:
             return
-            
+
         self.is_output = True
         if self.callback:
             self.callback(self.args)
-            
+
         self.reset_timer()
 
     def stop(self):
         self.is_stop = True
-        
+
         # EAFP: Tenta cancelar, caso o timer ainda seja None, captura a exceção de forma explícita.
         try:
             self.timer.cancel()
         except AttributeError:
             logger.warning("Tentativa de parada sem um timer instanciado.")
-            
+
         logger.info("Gerador de emissão finalizado de forma limpa.")

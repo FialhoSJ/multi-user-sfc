@@ -1,5 +1,7 @@
 import random
+
 from loguru import logger
+
 from muar_sfc.core.net_v2 import Net2
 
 
@@ -85,7 +87,7 @@ class Crasher:
 
             if is_valid and is_active:
                 reliability = info["reliability"]
-                
+
                 # Structural Pattern Matching (Otimização do Python 3.10+)
                 match user_target:
                     case "all":

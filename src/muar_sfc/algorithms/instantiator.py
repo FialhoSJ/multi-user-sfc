@@ -7,6 +7,7 @@ from muar_sfc.algorithms.genetic_alg import Genetic
 from muar_sfc.algorithms.greedy_algorithm import GreedyAlgorithm
 from muar_sfc.algorithms.greedy_boosted import GreedyOptAlgorithm
 from muar_sfc.algorithms.hephaestus import hephaestus
+from muar_sfc.algorithms.hybrid_sfc import HybridSFC
 from muar_sfc.algorithms.k_shortest_paths_algorithm import KShortestPathsAlgorithm
 from muar_sfc.algorithms.kuririn import Kuririn
 from muar_sfc.algorithms.msf import MSF
@@ -54,6 +55,8 @@ class AlgorithmInstantiator:
             alg = Vegeta()
         elif type == "random":
             alg = RandomAlgorithm()  # F5: algoritmo aleatório (baseline)
+        elif type == "hybrid":
+            alg = HybridSFC()
         elif "kuririn" in type:
             if "MaskablePPO" in type:
                 alg = Kuririn("MASKABLEPPO")
@@ -85,9 +88,9 @@ class AlgorithmInstantiator:
                 alg = REPLIC("PPO")
             else:
                 alg = REPLIC("MASKABLEPPO")
-            
 
-            
+
+
 
         else:
             raise ValueError("algorithm not found")
