@@ -1,6 +1,5 @@
 import re
 from collections import defaultdict
-from contextlib import suppress
 from typing import Any
 
 import networkx as nx
@@ -164,7 +163,7 @@ class Net2:
                         self._safe_release_bandwidth(path, ms_name)
 
             except (KeyError, ValueError) as critical_error:
-                if self.verbose: 
+                if self.verbose:
                     logger.error(f"Erro crítico (corrupção de grafo) durante undeploy de {sfc_id}: {critical_error}")
                 raise RuntimeError(f"O grafo físico dessincronizou ao tentar remover {sfc_id}.") from critical_error
             finally:
@@ -207,7 +206,7 @@ class Net2:
                 if path:
                     # FAIL-FAST: Sem a supressão cega. Se der erro no recurso físico, alertamos.
                     self.deallocate_microservice(path[0], sfc_id, vnf_target)
-                    
+
                     if len(path) > 1:
                         self._safe_release_bandwidth(path, vnf_id_to_remove)
 
@@ -268,7 +267,9 @@ class Net2:
             ips = self.md_graph.nodes[allocated_node]["ips"] if self.is_mobile_node(allocated_node) else self.graph.nodes[allocated_node]["ips"]
 
             packet = (next_vnf.get_income_interface_bandwidth() / 60) * 1e6
-            total_latency += (packet * 10 * 1000) / ips if ips > 0 else float('inf')
+            base_latency = (packet * 10 * 1000) / ips if ips > 0 else float('inf')
+            alpha = float(getattr(sfc, "vnf_alphas", {}).get(next_vnf.id, 1.0))
+            total_latency += base_latency / max(alpha, 1e-3)
 
             if len(allocation_path) > 1:
                 for u, v in zip(allocation_path[:-1], allocation_path[1:]):
@@ -712,7 +713,7 @@ class Net2:
         if self.total_cache_capacity == 0:
             return 0.0
         return self.metrics.total_cache_used / self.total_cache_capacity
-    
+
     def get_network_only_processing_utilization(self) -> float:
         """
         Calcula a taxa de utilização (0.0 a 1.0) do processamento (CPU + GPU)
@@ -721,11 +722,11 @@ class Net2:
         """
         # Extração em tempo linear e segura (usando o EAFP nativo com .get)
         cap_cpu = sum(
-            d.get("original_cpu_capacity", d.get("cpu_capacity", 0.0)) 
+            d.get("original_cpu_capacity", d.get("cpu_capacity", 0.0))
             for n, d in self.graph.nodes(data=True) if not self._is_gpu_node(n)
         )
         cap_gpu = sum(
-            d.get("original_cpu_capacity", d.get("cpu_capacity", 0.0)) 
+            d.get("original_cpu_capacity", d.get("cpu_capacity", 0.0))
             for n, d in self.graph.nodes(data=True) if self._is_gpu_node(n)
         )
 
@@ -736,5 +737,5 @@ class Net2:
             return 0.0
 
         total_network_used = self.metrics.total_cpu_used + self.metrics.total_gpu_used
-        
+
         return total_network_used / total_network_capacity

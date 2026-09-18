@@ -1,4 +1,5 @@
 import random
+import json
 import re
 import time
 from collections import defaultdict
@@ -105,6 +106,20 @@ def create_output_dir(args, topology) -> tuple[dict[str, Path], Path, Path, Path
 
     # F4: resumo agregado por tipo de serviço (para análise/plots do paper)
     services_path = directory_path / f"service_summary_{timestamp}.csv"
+    metadata_path = directory_path / f"experiment_metadata_{timestamp}.json"
+    metadata_path.write_text(json.dumps({
+        "algorithm": args.alg,
+        "topology": args.topology,
+        "seed": getattr(args, "seed", None),
+        "repetition": getattr(args, "repetition", 0),
+        "alpha": getattr(args, "alpha", 1.0),
+        "n_sessions": args.n_sessions,
+        "n_players": args.n_players,
+        "service_mix": args.service_mix,
+        "service_weights": args.service_weights,
+        "availability": args.ava,
+        "number_of_fails": args.number_of_fails,
+    }, indent=2), encoding="utf-8")
     with open(services_path, "a") as f:
         f.write(
             "service_type,requests,accepted,rejected,acceptance_rate,"
@@ -128,6 +143,7 @@ def create_output_dir(args, topology) -> tuple[dict[str, Path], Path, Path, Path
         "jain_gpu", "jain_cache", "jain_bw", "server_energy_consumption",
         "mobile_energy_consumption", "total_energy_consumption",
         "avg_sfc_reliability", "high_risk_sfcs", "medium_risk_sfcs", "low_risk_sfcs",
+        "path_bandwidth_cost", "path_hops", "path_alphas",
     ]
 
     crash_header_fields = [
@@ -378,6 +394,7 @@ class OutputWritter:
             crashing=len(crashed_nodes) > 0,
             alg_name=alg,
             backups_dict=backups_dict_ref,
+            route_metrics=results_dict.get("route_metrics", {}),
         )
 
     def output_flows(
@@ -404,10 +421,12 @@ class OutputWritter:
         crashing=False,
         alg_name="ga",
         backups_dict: dict = None,
+        route_metrics: dict | None = None,
     ):
         """Escreve as métricas detalhadas de fluxo em CSV."""
         if backups_dict is None:
             backups_dict = {}
+        route_metrics = route_metrics or {}
 
         running_sfcs = substrate_network.get_number_active_primary_sfcs()
         unique_players = set()
@@ -565,13 +584,16 @@ class OutputWritter:
             f"{jain_gpu},"
             f"{jain_cache},"
             f"{jain_bw},"
-            f"{total_energy_consumption},"
             f"{server_energy_consumption},"
             f"{mobile_energy_consumption},"
+            f"{total_energy_consumption},"
             f"{avg_sfc_reliability},"
             f"{count_high_risk},"
             f"{count_medium_risk},"
-            f"{count_low_risk}\n"
+            f"{count_low_risk},"
+            f"{route_metrics.get('bandwidth_cost', 0.0)},"
+            f"{route_metrics.get('hops', 0)},"
+            f"\"{json.dumps({'alphas': route_metrics.get('alphas', {}), 'paths': route_metrics.get('paths', {})}, separators=(',', ':')).replace(chr(34), chr(34) * 2)}\"\n"
         )
 
         with open(self.flows_file, "a") as file:

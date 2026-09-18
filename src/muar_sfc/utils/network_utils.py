@@ -125,60 +125,31 @@ class EnergyCalculator:
     def calculate_total_server_power(self, network: Net2) -> float:
         """
         Calcula a potência total instantânea gasta apenas pelos servidores.
-
-        Itera sobre todos os nós, mas soma apenas aqueles que NÃO são
-        do tipo 'mobile_device', aplicando a mesma lógica de cálculo
-        do método principal.
-
-        Args:
-            network: Um objeto de rede que contém o atributo 'nodes'.
-
-        Returns:
-            A potência total consumida pelos servidores em Watts.
         """
         graph = network.graph
         total_server_power = 0.0
         for node in graph.nodes:
             node_data = graph.nodes[node]
-
-            # Filtra apenas por servidores (excluindo dispositivos móveis)
             if node_data.get("type") != "mobile_device":
                 power_for_node = self._get_power_for_node(graph, node)
-
-                # Mantém a lógica customizada do método original
                 if node % 1 == 0.1:
                     power_for_node *= 1.2
                 total_server_power += power_for_node
-
         return total_server_power
 
     def calculate_total_mobile_device_power(self, network: Net2) -> float:
         """
         Calcula a potência total instantânea gasta apenas pelos dispositivos móveis.
-
-        Itera sobre todos os nós, mas soma apenas aqueles que são
-        do tipo 'mobile_device'.
-
-        Args:
-            network: Um objeto de rede que contém o atributo 'nodes'.
-
-        Returns:
-            A potência total consumida pelos dispositivos móveis em Watts.
         """
         graph = network.md_graph
         total_mobile_power = 0.0
         for node in graph.nodes:
             node_data = graph.nodes[node]
-
-            # Filtra apenas por dispositivos móveis
             if node_data.get("type") == "mobile_device":
                 power_for_node = self._get_power_for_node(graph, node)
-
-                # Mantém a lógica customizada do método original
                 if float(node) % 1 == 0.1:
                     power_for_node *= 1.2
                 total_mobile_power += power_for_node
-
         return total_mobile_power
 
 
@@ -414,12 +385,12 @@ def check_vnf_reusability(node_services: dict, target_clean_id: str, target_sess
     if not node_services:
         return False
 
-    for (ex_id, ex_sess) in node_services.keys():
+    for (ex_id, ex_sess) in node_services:
         clean_ex_id = ex_id.replace("_b", "")
-        
-        # Validação estrita: sem cast de str() obscuro. 
+
+        # Validação estrita: sem cast de str() obscuro.
         # O tipo do ex_sess deve bater exatamente com o target_session_id.
         if clean_ex_id == target_clean_id and ex_sess == target_session_id:
             return True
-            
+
     return False

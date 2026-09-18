@@ -78,7 +78,7 @@ class SFCStateTracker:
         for sfc in sfc_list:
             sfc_id = sfc.id
             location = new_location if changed_location else getattr(sfc, "closer_router", None)
-            
+
             # OTIMIZAÇÃO: Cópia rasa super rápida nativa em C, evitando o deepcopy custoso
             new_vnfs_list_dict = [vnf.copy() for vnf in sfc.vnfs_dict]
 

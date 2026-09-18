@@ -17,9 +17,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 try:
-    from scripts.cores_algoritmos import cor_para, rotulo_curto
+    from scripts.cores_algoritmos import cor_para, hachura_para, rotulo_curto
 except ModuleNotFoundError:
-    from cores_algoritmos import cor_para, rotulo_curto
+    from cores_algoritmos import cor_para, hachura_para, rotulo_curto
 
 SERVICOS = ["muar", "streaming", "voip", "iot"]
 ALGOS = ["replic", "msf", "kuririn", "darsppo", "hephaestus"]
@@ -68,7 +68,8 @@ def main() -> None:
                 linhas.append([mix, rotulo_curto(algo), svc, f"{taxa:.2f}"])
             pos = np.arange(n_mixes) + (k - (len(ALGOS) - 1) / 2) * largura
             ax.bar(pos, valores, width=largura, label=rotulo_curto(algo),
-                   color=cor_para(algo, k), edgecolor="black", linewidth=0.8)
+                   color=cor_para(algo, k), edgecolor="black", linewidth=0.8,
+                   hatch=hachura_para(k))
         ax.set_title(svc, fontsize=15, fontweight="bold")
         ax.set_xticks(range(n_mixes))
         ax.set_xticklabels([r for _, r in MIXES], fontsize=11, fontweight="bold")
@@ -79,11 +80,12 @@ def main() -> None:
 
     handles = [
         plt.Rectangle((0, 0), 1, 1, facecolor=cor_para(a, k), edgecolor="black",
+                      hatch=hachura_para(k),
                       label=rotulo_curto(a))
         for k, a in enumerate(ALGOS)
     ]
-    fig.legend(handles=handles, loc="upper center", ncol=5, fontsize=13, frameon=False,
-               bbox_to_anchor=(0.5, 0.99))
+    fig.legend(handles=handles, loc="upper center", ncol=5, fontsize=10, frameon=True,
+               framealpha=1.0, edgecolor="black", bbox_to_anchor=(0.5, 0.99))
     fig.suptitle("Taxa de aceitação por serviço em cada mix", fontsize=18, fontweight="bold")
     fig.tight_layout(rect=[0, 0, 1, 0.94])
     fig.savefig(root / "comparativo_mixes.png", format="png", dpi=150, bbox_inches="tight")

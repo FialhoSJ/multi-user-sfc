@@ -106,7 +106,7 @@ class SFCManager:
                     backups_list = list(self.backup_manager.sfcs_backups_instatiated[sfc_id])
                     for backup_entry in backups_list:
                         bkp_id = backup_entry["sfc_backup_id"]
-                        
+
                         # Removemos o backup fisicamente da rede
                         self.deployer.safe_network_removal(bkp_id, substrate_network)
                         # Limpamos a existência dele do registro lógico

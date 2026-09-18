@@ -2,6 +2,7 @@ import argparse
 import signal
 import sys
 import time
+from pathlib import Path
 from typing import Any, TypedDict
 
 from loguru import logger
@@ -23,6 +24,12 @@ from muar_sfc.core.scenarios.muar import MuarScenario
 from muar_sfc.topology.instantiator import TopologyInstantiator
 from muar_sfc.utils.failure_generator import calcular_janelas_falha
 from muar_sfc.utils.manager_results import OutputWritter, create_output_dir
+from muar_sfc.utils.fair_experiment import (
+    build_request_trace,
+    load_trace,
+    save_trace,
+    seed_everything,
+)
 
 
 class FailureEvent(TypedDict):
@@ -51,6 +58,10 @@ def build_cli_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fail_target", type=str, help="alvo de falha")
     parser.add_argument("--service_mix", type=str, help="lista de serviços (ex.: muar,streaming)")
     parser.add_argument("--service_weights", type=str, help="pesos dos serviços (ex.: 0.7,0.3)")
+    parser.add_argument("--seed", type=int, help="semente comum do experimento")
+    parser.add_argument("--trace_file", type=str, help="trace JSON compartilhado entre algoritmos")
+    parser.add_argument("--repetition", type=int, help="índice da repetição pareada")
+    parser.add_argument("--alpha", type=float, help="alpha de referência registrado no protocolo")
     return parser
 
 
@@ -68,6 +79,7 @@ def build_settings_overrides(cli_args: argparse.Namespace) -> dict[str, Any]:
         "n_sessions", "n_players", "alg", "topology", "ava", "number_of_fails",
         "crash_at", "sfc_lifetime", "time", "eco_effi_ratio", "fail_target",
         "service_mix", "service_weights",
+        "seed", "trace_file", "repetition", "alpha",
     ):
         value = getattr(cli_args, field, None)
         if value is not None:
@@ -142,7 +154,7 @@ def setup_controller(
     sfc_instantiator = SFCInstatiator(alg, args=settings)
     fail_manager = Crasher(topology=topology, args=settings)
     mobility_manager = MobilityManager(settings)
-    
+
     # Pathlib já deve estar sendo embutido implicitamente no create_output_dir
     output_writter = OutputWritter(topology, *create_output_dir(settings, topology))
 
@@ -170,25 +182,40 @@ def main() -> None:
     signal.signal(signal.SIGINT, signal.default_int_handler)
     cli_args = build_cli_parser().parse_args()
     settings = SimulationSettings(**build_settings_overrides(cli_args))
+    seed_everything(settings.seed)
 
     topology = TopologyInstantiator().instantiate_topology(
         settings.topology,
         settings.eco_effi_ratio,
     )
 
-    alg = AlgorithmInstantiator().instantiate_algorithm(settings.alg)
+    # A workload is generated once and can be reused verbatim by every algorithm.
+    trace = load_trace(settings.trace_file) if settings.trace_file else build_request_trace(settings, topology, settings.seed)
+    if trace.get("topology") != settings.topology:
+        raise ValueError(f"Trace usa topologia {trace.get('topology')!r}, mas a execução usa {settings.topology!r}")
+    if trace.get("n_sessions") != settings.n_sessions or trace.get("n_players") != settings.n_players:
+        raise ValueError("Trace e execução precisam ter o mesmo n_sessions e n_players")
+    if settings.trace_file is None:
+        trace_path = Path("results") / "traces" / f"trace_seed_{settings.seed}_n_{settings.n_sessions}.json"
+        save_trace(trace, trace_path)
+
     sfc_queue = SFCQueue()
     official_rate = 20
     sfc_poisson_emitter = PoissonEmitter(official_rate)
     muar_scenario = MuarScenario(settings, sfc_queue, topology, sfc_poisson_emitter)
+    muar_scenario.set_request_trace(trace["requests"])
 
-    sfc_poisson_emitter.start(
-        muar_scenario.generate_sfc_session,
-        (None,)
-    )
+    if settings.trace_file or trace:
+        # In protocol mode all requests are materialized before the controller
+        # starts; this removes timer/thread scheduling from the comparison.
+        for _request in trace["requests"]:
+            muar_scenario.generate_sfc_session(_request)
+    else:
+        sfc_poisson_emitter.start(muar_scenario.generate_sfc_session, (None,))
 
     simulation_duration = settings.n_sessions * official_rate
     full_failure_schedule = generate_failure_schedule(settings, simulation_duration)
+    alg = AlgorithmInstantiator().instantiate_algorithm(settings.alg)
 
     sbn_controller = setup_controller(
         settings, topology, sfc_queue, alg, full_failure_schedule

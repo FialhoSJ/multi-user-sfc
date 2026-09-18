@@ -20,8 +20,8 @@ class BackupManager:
         self.backups_activated: list[str] = []
 
         valid_backup_algs = ["replic", "ga", "vegeta"]
-        
-        
+
+
         try:
             is_target_alg = args.alg in valid_backup_algs
             user_wants_backup = args.backup and (args.ava != "1.0")
@@ -152,7 +152,7 @@ class BackupManager:
                     target_vnf = backup_sfc.target_vnf_id
                 except AttributeError:
                     continue
-                
+
                 try:
                     route_info = backup_sfc.pre_calculated_route
                 except AttributeError:
@@ -250,13 +250,13 @@ class BackupManager:
         backups_mount = []
         target_reliability = 0.96
         MAX_BACKUPS_PER_SFC = 4
-        
+
         # OTIMIZAÇÃO O(1): Cópia isolada rasa de TODOS os atributos (incluindo cache e ips).
         # Resolve o KeyError do RL sem acionar o gargalo do deepcopy.
         simulation_graph = nx.Graph()
         for node, data in network.graph.nodes(data=True):
             simulation_graph.add_node(node, **data.copy())
-            
+
         for u, v, data in network.graph.edges(data=True):
             simulation_graph.add_edge(u, v, **data.copy())
 
@@ -689,17 +689,17 @@ class BackupManager:
             arr_time = original_sfc.arrival_time
         except AttributeError:
             arr_time = time.time()
-            
+
         try:
             lat_req = original_sfc.latency_request
         except AttributeError:
             lat_req = 10
-            
+
         try:
             closer_r = original_sfc.closer_router
         except AttributeError:
             closer_r = None
-            
+
         try:
             mobile_n = original_sfc.dst_node
         except AttributeError:
@@ -759,7 +759,7 @@ class BackupManager:
             mini_sfc.session_id = original_sfc.session_id
         except AttributeError:
             mini_sfc.session_id = original_sfc.id.split("_")[-1]
-            
+
         mini_sfc.src_virt = p_n
         mini_sfc.dst_virt = n_n
 

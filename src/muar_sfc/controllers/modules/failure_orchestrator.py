@@ -196,7 +196,7 @@ class FailureOrchestrator:
 
         route_info = self.network.sfc_route_info[sfc_id]
         backup_reliability_map = {}
-        
+
         if sfc_id in backups_dict:
             for b in backups_dict[sfc_id]:
                 vnf_id = b.get("vnf_id")
@@ -243,7 +243,7 @@ class FailureOrchestrator:
         ) -> tuple[list, dict]:
             fallen_sfcs_list = []
             post_crash_latencies = {}
-            
+
             if affected_sfc_ids:
                 logger.warning(f">>> [IMPACTO] {len(affected_sfc_ids)} serviços (SFCs) foram atingidos pela queda!")
 
@@ -272,7 +272,7 @@ class FailureOrchestrator:
                     aux = self.sfc_manager.backup_manager.sfcs_backups_instatiated
                 except AttributeError:
                     aux = {}
-                    
+
                 if affected_vnf_id and sfc_id in aux:
                     for backup_entry in aux[sfc_id]:
                         if backup_entry["vnf_id"].replace("_b", "") == affected_vnf_id:
@@ -282,7 +282,7 @@ class FailureOrchestrator:
                 if not has_viable_backup:
                     if self.verbose and "backup" not in sfc_id:
                         logger.warning(f" ⚠️ [FALHA/FILA] SFC {sfc_id} perdeu a VNF '{affected_vnf_id}' e NÃO possuía backup. Enviando para re-deploy...")
-                    
+
                     self.sfcs_crash_affected[sfc_id] = {
                         "fall_time": time.time(), "old_latency": pre_crash_latencies.get(sfc_id, 0),
                         "resource_info": 0, "backup_success": False, "crash_trial": self.crashs_trials,
@@ -307,7 +307,7 @@ class FailureOrchestrator:
                     raise RuntimeError(f"Corrupção de grafo ao remover VNF {affected_vnf_id} da SFC {sfc_id}") from e
 
                 recovery_start_time = time.time()
-                
+
                 try:
                     recovered = self.sfc_manager.reconstruct_and_redeploy(
                         sfc_obj, relevant_server_down, old_route_info, self.network

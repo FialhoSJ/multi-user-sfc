@@ -99,7 +99,7 @@ class REPLIC:
 
     def install_substrate_network(self, graph, shareable_sfs=None):
         self.graph = graph
-        
+
         # Acesso O(1) usando os atributos nativos do dict do NetworkX
         # FIX: alinhado com o treino (servidores + sentinela dst)
         self.valid_nodes = build_valid_nodes(self.graph)
@@ -159,7 +159,7 @@ class REPLIC:
 
         next_hop_start = None
         next_sf = None
-        
+
         for sf, path in self.route_info.items():
             if sf == "dst":
                 continue
@@ -171,12 +171,12 @@ class REPLIC:
                         f"não se conecta ao início de '{next_sf}' (Nó {next_hop_start})."
                     )
                     return False
-                
+
             if path:
                 next_hop_start = path[0]
-                
+
             next_sf = sf
-            
+
         return True
 
     def set_costs(self, costs_parameters):
@@ -236,7 +236,7 @@ class REPLIC:
 
         env.allocation_results["dst"] = {"allocated_server": dst, "path": [], "cost": 0}
         done = False
-        
+
         while not done:
             # CORREÇÃO VITAL: Imposição do deterministic=True para exterminar escolhas estocásticas
             if self.model_name == "MASKABLEPPO":
@@ -262,7 +262,7 @@ class REPLIC:
             if route_info:
                 # O(1): Resgate do último elemento sem converter dicionário em lista
                 first_vnf_key = next(reversed(route_info))
-                
+
                 if route_info[first_vnf_key]:
                     src_node_network = route_info[first_vnf_key][0]
                 else:
@@ -284,7 +284,7 @@ class REPLIC:
         if self.fail_reason in ["resource", "latency", "bandwidth"]:
             self.handle_failure()
             return False
-            
+
         self.latency = latency
         self.route_info = route_info
         return True
