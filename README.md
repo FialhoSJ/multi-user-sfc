@@ -102,6 +102,21 @@ uv run python scripts/plotar_servicos.py --compare-lines \
   'REPLIC=results/results_flows/replic_s_50_p_4_a_0.99_c_3/FLOWS.csv,MSF=results/results_flows/msf_s_50_p_4_a_0.99_c_3/FLOWS.csv'
 ```
 
+## Protocolo de comparação justa
+
+Para comparar algoritmos, use o runner pareado. Ele gera um único trace JSON de
+requisições e repete cada algoritmo com a mesma topologia, workload e sementes
+por repetição. Os CSVs também registram custo de banda por caminho, saltos e
+alphas; o agregador calcula média, desvio padrão amostral e IC95%.
+
+```bash
+uv run python scripts/run_fair_experiment.py --repetitions 10 --seed 42
+uv run python scripts/summarize_fair_results.py
+```
+
+Uma execução individual pode reutilizar o mesmo trace com `--trace_file`, além
+de aceitar `--seed`, `--repetition` e `--alpha` para identificação do protocolo.
+
 ## 🏗️ Estrutura do Repositório
 
 ```text

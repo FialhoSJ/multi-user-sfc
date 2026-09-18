@@ -10,7 +10,7 @@ matplotlib.use("Agg")
 
 try:
     from scripts import gerar_slides, plotar_servicos
-except ModuleNotFoundError:
+except (ModuleNotFoundError, ImportError):
     import gerar_slides
     import plotar_servicos
 

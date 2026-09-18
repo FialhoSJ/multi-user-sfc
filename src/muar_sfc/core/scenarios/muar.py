@@ -82,10 +82,10 @@ class MuarScenario:
         self.config_dict = {
             "n_sessions": args.n_sessions,
             "n_players": args.n_players,
-            "mobility_activated": (args.mobility == "y"),
-            "shareable": (args.share == "y"),
-            "shareable_band": (args.shareband == "y"),
-            "allow_delay": (args.allow_delay == "y"),
+            "mobility_activated": self._as_bool(args.mobility),
+            "shareable": self._as_bool(args.share),
+            "shareable_band": self._as_bool(args.shareband),
+            "allow_delay": self._as_bool(args.allow_delay),
         }
 
         # F2: catálogo de serviços + pesos configuráveis (heterogeneidade)
@@ -103,31 +103,41 @@ class MuarScenario:
                 raise ValueError(
                     f"Serviço '{name}' não registrado. Disponíveis: {self.service_catalog.list()}"
                 )
+        self.request_trace = None
+
+    @staticmethod
+    def _as_bool(value):
+        return value if isinstance(value, bool) else str(value).lower() in ("y", "yes", "true", "1", "on")
+
+    def set_request_trace(self, requests):
+        self.request_trace = list(requests)
 
     def generate_sfc_session(self, parameter):
         self.session_counter += 1
         counter = str(self.session_counter)
         n_players = self.config_dict["n_players"]
 
-        # F2: sorteia o serviço da sessão conforme os pesos configurados
-        service = self.service_catalog.weighted_choice(weights=self.service_weights)
+        request = parameter if isinstance(parameter, dict) else None
+        # In paired experiments this value comes from the immutable trace.
+        service_name = request.get("service_type") if request else None
+        service = self.service_catalog.get(service_name) if service_name else self.service_catalog.weighted_choice(weights=self.service_weights)
 
         if service.name == "muar":
-            self._generate_muar_session(counter, n_players)
+            self._generate_muar_session(counter, n_players, request)
         else:
-            self._generate_heterogeneous_session(service, counter, n_players)
+            self._generate_heterogeneous_session(service, counter, n_players, request)
 
         if self.session_counter >= self.config_dict["n_sessions"]:
             self.sfc_poisson_emitter.stop()
 
-    def _generate_muar_session(self, counter, n_players):
+    def _generate_muar_session(self, counter, n_players, request=None):
         """
         Gera uma sessão de MUAR SFC.
         """
         print("Total Number of MUAR SFCs in session:", self.session_counter)
         routers = self.topology.get_topology_info()["routers"]
 
-        closer_router = random.choice(routers)
+        closer_router = request.get("closer_router") if request else random.choice(routers)
 
         players_cache_sf_list = []
         players_unique_sf_list = []
@@ -228,7 +238,7 @@ class MuarScenario:
             )
             players_unique_sf_list.append(unique_sf_list)
 
-        lifetime = np.random.poisson(self.max_duration)
+        lifetime = request.get("duration", self.max_duration) if request else np.random.poisson(self.max_duration)
         # lifetime = int(round(np.random.exponential(max_duration)))
         duration = lifetime
         players_sfc_cache_dict_list = []
@@ -271,12 +281,12 @@ class MuarScenario:
             self.sfc_queue.put_sfc(players_sfc_list[i - 1])
             # heapq.heappush(sfc_queue, (1, counter, i, players_sfc_list[i-1]))
 
-    def _generate_heterogeneous_session(self, template, counter, n_players):
+    def _generate_heterogeneous_session(self, template, counter, n_players, request=None):
         """F2: gera SFCs de serviços não-MUAR usando o template do catálogo."""
         print(f"Total Number of {template.name} SFCs in session:", self.session_counter)
         routers = self.topology.get_topology_info()["routers"]
-        closer_router = random.choice(routers)
-        duration = np.random.poisson(self.max_duration)
+        closer_router = request.get("closer_router") if request else random.choice(routers)
+        duration = request.get("duration", self.max_duration) if request else np.random.poisson(self.max_duration)
 
         for i in range(1, n_players + 1):
             chain = template.build_chain(player=i, counter=counter)

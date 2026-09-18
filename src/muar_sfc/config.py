@@ -75,6 +75,12 @@ class SimulationSettings(BaseSettings):
     fator: float = 0.25
     average_time_session_arrival: float = 10.0
 
+    # --- Protocolo de experimento reprodutível ---
+    seed: int = 42
+    trace_file: str | None = None
+    repetition: int = 0
+    alpha: float = 1.0
+
     # --- Parâmetros de Heterogeneidade de Serviços (F2) ---
     service_mix: str = "muar,streaming,voip,iot"
     service_weights: str = "0.7,0.1,0.1,0.1"

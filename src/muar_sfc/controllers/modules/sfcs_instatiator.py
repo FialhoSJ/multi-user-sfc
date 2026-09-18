@@ -562,10 +562,12 @@ class SFCInstatiator:
             total_elapsed_ms += (e_time - s_time) * 1000
 
             total_latency = comp_latency = comm_latency = None
+            route_metrics = {}
 
             if alg_success:
                 try:
                     route_info = algorithm.get_route_info()
+                    route_metrics = self._route_metrics(graph, sfc, route_info, algorithm)
                     if type(algorithm).__name__ == "HybridSFC":
                         total_latency, comp_latency, comm_latency = self._compute_latency_only(
                             graph, sfc, route_info, algorithm.get_alphas()
@@ -607,6 +609,7 @@ class SFCInstatiator:
                     if alg_success and type(algorithm).__name__ == "HybridSFC"
                     else None
                 ),
+                "route_metrics": route_metrics,
             }
 
             if not alg_success:
@@ -618,6 +621,39 @@ class SFCInstatiator:
             if rejected_sfcs: logger.debug(f"Rejeitadas: {', '.join(rejected_sfcs)}")
 
         return solution_format, search_success
+
+    @staticmethod
+    def _route_metrics(graph, sfc, route_info, algorithm):
+        """Return auditable bandwidth/hop/alpha values for every admitted SFC."""
+        bandwidth_cost = 0.0
+        hops = 0
+        alphas = {}
+        paths = {}
+        try:
+            alphas = dict(algorithm.get_alphas() or {})
+        except AttributeError:
+            pass
+        for vnf_id, path in (route_info or {}).items():
+            if vnf_id in ("src", "dst") or not path:
+                continue
+            try:
+                vnf = sfc.get_vnf_by_id(vnf_id)
+                bw = float(vnf.get_outcome_interface_bandwidth())
+            except (AttributeError, KeyError, TypeError):
+                bw = 0.0
+            path_hops = max(len(path) - 1, 0)
+            hops += path_hops
+            # Cost is bandwidth x traversed links, preserving direction/path.
+            bandwidth_cost += bw * path_hops
+            alphas.setdefault(vnf_id, 1.0)
+            paths[vnf_id] = {
+                "bandwidth": round(bw, 6),
+                "bandwidth_cost": round(bw * path_hops, 6),
+                "hops": path_hops,
+                "alpha": alphas[vnf_id],
+                "path": list(path),
+            }
+        return {"bandwidth_cost": round(bandwidth_cost, 6), "hops": hops, "alphas": alphas, "paths": paths}
 
     def add_mobile_user_to_graph(self, graph: nx.Graph, substrate_network: Net2, sfc_list: list[SFC]) -> None:
         mobile_device_id = sfc_list[0].dst_node
