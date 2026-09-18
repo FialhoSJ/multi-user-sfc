@@ -24,9 +24,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 try:
-    from scripts.cores_algoritmos import cor_para, rotulo_curto
+    from scripts.cores_algoritmos import cor_para, hachura_para, rotulo_curto
 except ModuleNotFoundError:
-    from cores_algoritmos import cor_para, rotulo_curto
+    from cores_algoritmos import cor_para, hachura_para, rotulo_curto
 
 SLA_SERVICOS = {"muar": 1000.0, "streaming": 150.0, "voip": 60.0, "iot": 200.0}
 SERVICOS_ORDEM = ["muar", "streaming", "voip", "iot"]
@@ -102,15 +102,16 @@ def fig_visao_geral(pars, titulo, out, nome):
         cor = cor_para(rotulo, k)
         d = ler_flows(caminho)
         ax1.plot(d["time_seconds"], d["acceptance_rate"], label=rotulo_curto(rotulo),
-                 color=cor, linewidth=2.2)
+                 color=cor, linewidth=1.8)
         ax2.plot(d["time_seconds"], d["cpu_saved"], label=rotulo_curto(rotulo),
-                 color=cor, linewidth=2.2)
+                 color=cor, linewidth=1.8)
     for ax, ylab in ((ax1, "Taxa de aceitação (%)"), (ax2, "CPU economizado (sharing)")):
         ax.grid(linestyle="--", alpha=0.3)
         ax.tick_params(labelsize=11)
         ax.set_xlabel("Tempo de simulação (s)", fontsize=13, fontweight="bold")
         ax.set_ylabel(ylab, fontsize=13, fontweight="bold")
-        ax.legend(loc="best", fontsize=9, framealpha=0.9)
+        ax.legend(loc="upper center", bbox_to_anchor=(0.5, 1.16), ncol=4,
+                  fontsize=9, frameon=True, framealpha=1.0, edgecolor="black")
         for label in ax.get_xticklabels() + ax.get_yticklabels():
             label.set_fontweight("bold")
     ax1.set_ylim(0, 105)
@@ -128,13 +129,15 @@ def fig_aceitacao_por_servico(sums, out, nome):
         cores = [dados.get(s, {}).get("acceptance_rate", 0.0) for s in servicos]
         pos = np.arange(len(servicos)) + (k - (n - 1) / 2) * largura
         ax.bar(pos, cores, width=largura, label=rotulo_curto(rotulo),
-               color=cor_para(rotulo, k), edgecolor="black", linewidth=1.0)
+               color=cor_para(rotulo, k), hatch=hachura_para(k),
+               edgecolor="black", linewidth=0.9)
     ax.set_xticks(np.arange(len(servicos)))
     ax.set_xticklabels(servicos, fontsize=12, fontweight="bold")
     ax.set_ylabel("Taxa de aceitação (%)", fontsize=13, fontweight="bold")
     ax.set_ylim(0, 105)
     ax.grid(axis="y", linestyle="--", alpha=0.3)
-    ax.legend(loc="best", fontsize=9, framealpha=0.9)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, 1.16), ncol=min(n, 5),
+              fontsize=9, frameon=True, framealpha=1.0, edgecolor="black")
     fig.suptitle("Taxa de aceitação por serviço (cenário heterogêneo)",
                  fontsize=16, fontweight="bold")
     salvar(fig, out, nome)
@@ -150,7 +153,8 @@ def fig_latencia_por_servico_vs_sla(sums, out, nome):
         valores = [dados.get(s, {}).get("avg_latency_ms", 0.0) for s in servicos]
         pos = np.arange(len(servicos)) + (k - (n - 1) / 2) * largura
         ax.bar(pos, valores, width=largura, label=rotulo_curto(rotulo),
-               color=cor_para(rotulo, k), edgecolor="black", linewidth=1.0)
+               color=cor_para(rotulo, k), hatch=hachura_para(k),
+               edgecolor="black", linewidth=0.9)
     for i, s in enumerate(servicos):
         sla = SLA_SERVICOS.get(s)
         if sla is not None:
@@ -160,7 +164,8 @@ def fig_latencia_por_servico_vs_sla(sums, out, nome):
     ax.set_xticklabels(servicos, fontsize=12, fontweight="bold")
     ax.set_ylabel("Latência média (ms)", fontsize=13, fontweight="bold")
     ax.grid(axis="y", linestyle="--", alpha=0.3)
-    ax.legend(loc="best", fontsize=9, framealpha=0.9)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, 1.16), ncol=min(n, 5),
+              fontsize=9, frameon=True, framealpha=1.0, edgecolor="black")
     fig.suptitle("Latência média por serviço × SLA (cenário heterogêneo)",
                  fontsize=16, fontweight="bold")
     salvar(fig, out, nome)
@@ -200,16 +205,17 @@ def fig_uso_recursos(pars, out, nome):
         cor = cor_para(rotulo, k)
         d = ler_flows(caminho)
         ax1.plot(d["time_seconds"], d["bandwidth_utilization"], label=rotulo_curto(rotulo),
-                 color=cor, linewidth=2.2)
+                 color=cor, linewidth=1.8)
         ax2.plot(d["time_seconds"], d["cpu_utilization"], label=rotulo_curto(rotulo),
-                 color=cor, linewidth=2.2)
+                 color=cor, linewidth=1.8)
     ax1.set_ylabel("Uso de banda (%)", fontsize=13, fontweight="bold")
     ax2.set_ylabel("Uso de CPU (%)", fontsize=13, fontweight="bold")
     for ax in (ax1, ax2):
         ax.grid(linestyle="--", alpha=0.3)
         ax.tick_params(labelsize=11)
         ax.set_xlabel("Tempo de simulação (s)", fontsize=13, fontweight="bold")
-        ax.legend(loc="best", fontsize=9, framealpha=0.9)
+        ax.legend(loc="upper center", bbox_to_anchor=(0.5, 1.16), ncol=4,
+                  fontsize=9, frameon=True, framealpha=1.0, edgecolor="black")
         for label in ax.get_xticklabels() + ax.get_yticklabels():
             label.set_fontweight("bold")
     fig.suptitle("Utilização de recursos (cenário heterogêneo)", fontsize=16,

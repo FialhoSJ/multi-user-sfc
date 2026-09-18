@@ -21,9 +21,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 try:
-    from scripts.cores_algoritmos import cor_para, rotulo_curto
+    from scripts.cores_algoritmos import cor_para, hachura_para, rotulo_curto
 except ModuleNotFoundError:
-    from cores_algoritmos import cor_para, rotulo_curto
+    from cores_algoritmos import cor_para, hachura_para, rotulo_curto
 
 # ==============================================================================
 # ESTILO CIENTÍFICO (consistente com plotar_recompensas.py)
@@ -85,13 +85,15 @@ def plotar(caminho: Path, out_dir: Path | None = None) -> None:
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(17, 5))
 
     # --- 1. Taxa de aceitação por serviço ---
-    ax1.bar(servicos, aceitacao, color=cores, edgecolor="black", linewidth=1.2)
+    ax1.bar(servicos, aceitacao, color=cores, edgecolor="black", linewidth=0.9,
+            hatch=[hachura_para(i) for i in range(len(servicos))])
     ax1.set_ylabel("Taxa de aceitação (%)", fontsize=13, fontweight="bold")
     ax1.set_ylim(0, 105)
     ax1.grid(axis="y", linestyle="--", alpha=0.3)
 
     # --- 2. Latência média por serviço + SLA ---
-    ax2.bar(servicos, latencia, color=cores, edgecolor="black", linewidth=1.2)
+    ax2.bar(servicos, latencia, color=cores, edgecolor="black", linewidth=0.9,
+            hatch=[hachura_para(i) for i in range(len(servicos))])
     ax2.set_ylabel("Latência média (ms)", fontsize=13, fontweight="bold")
     ax2.grid(axis="y", linestyle="--", alpha=0.3)
     for s, sla in zip(servicos, slas, strict=True):
@@ -100,7 +102,8 @@ def plotar(caminho: Path, out_dir: Path | None = None) -> None:
             ax2.axhline(y=sla, color=cor, linestyle="--", alpha=0.6, linewidth=1.0)
 
     # --- 3. Nº de requisições por serviço (reflete o mix/weights) ---
-    ax3.bar(servicos, requests, color=cores, edgecolor="black", linewidth=1.2)
+    ax3.bar(servicos, requests, color=cores, edgecolor="black", linewidth=0.9,
+            hatch=[hachura_para(i) for i in range(len(servicos))])
     ax3.set_ylabel("Requisições", fontsize=13, fontweight="bold")
     ax3.grid(axis="y", linestyle="--", alpha=0.3)
     for i, v in enumerate(requests):
@@ -114,14 +117,12 @@ def plotar(caminho: Path, out_dir: Path | None = None) -> None:
     fig.suptitle("Heterogeneidade de serviços", fontsize=16, fontweight="bold")
     fig.tight_layout()
 
-    pdf = caminho.with_name("grafico_servicos.pdf")
-    fig.savefig(pdf, format="pdf", bbox_inches="tight", pad_inches=0.05)
-    print(f"Gráfico salvo: {pdf}")
-    if out_dir is not None:
-        out_dir.mkdir(parents=True, exist_ok=True)
-        png = out_dir / "grafico_servicos.png"
-        fig.savefig(png, format="png", bbox_inches="tight", pad_inches=0.05, dpi=150)
-        print(f"Gráfico salvo: {png}")
+    out_dir = out_dir or Path("slides")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    png = out_dir / "grafico_servicos.png"
+    fig.savefig(png, format="png", bbox_inches="tight", pad_inches=0.05, dpi=180)
+    print(f"Gráfico salvo: {png}")
+    plt.close(fig)
 
 
 def plotar_comparativo(caminhos: list[Path], out_dir: Path | None = None) -> None:
@@ -146,14 +147,15 @@ def plotar_comparativo(caminhos: list[Path], out_dir: Path | None = None) -> Non
         pos = np.arange(len(servicos)) + (k - (len(dados_algos) - 1) / 2) * largura
 
         ax1.bar(pos, valores, width=largura, label=rotulo, color=cor_para(rotulo, k),
-                edgecolor="black", linewidth=1.2)
+                edgecolor="black", linewidth=0.9, hatch=hachura_para(k))
 
     ax1.set_xticks(np.arange(len(servicos)))
     ax1.set_xticklabels(servicos)
     ax1.set_ylabel("Taxa de aceitação (%)", fontsize=13, fontweight="bold")
     ax1.set_ylim(0, 105)
     ax1.grid(axis="y", linestyle="--", alpha=0.3)
-    ax1.legend(loc="best", fontsize=9, framealpha=0.9)
+    ax1.legend(loc="upper center", bbox_to_anchor=(0.5, 1.16), ncol=4,
+               fontsize=9, frameon=True, framealpha=1.0, edgecolor="black")
 
     # --- 2. CPU economizado por serviço, por algoritmo ---
     for k, (rotulo, dados) in enumerate(dados_algos):
@@ -161,13 +163,14 @@ def plotar_comparativo(caminhos: list[Path], out_dir: Path | None = None) -> Non
         pos = np.arange(len(servicos)) + (k - (len(dados_algos) - 1) / 2) * largura
 
         ax2.bar(pos, valores, width=largura, label=rotulo, color=cor_para(rotulo, k),
-                edgecolor="black", linewidth=1.2)
+                edgecolor="black", linewidth=0.9, hatch=hachura_para(k))
 
     ax2.set_xticks(np.arange(len(servicos)))
     ax2.set_xticklabels(servicos)
     ax2.set_ylabel("CPU economizado (sharing)", fontsize=13, fontweight="bold")
     ax2.grid(axis="y", linestyle="--", alpha=0.3)
-    ax2.legend(loc="best", fontsize=9, framealpha=0.9)
+    ax2.legend(loc="upper center", bbox_to_anchor=(0.5, 1.16), ncol=4,
+               fontsize=9, frameon=True, framealpha=1.0, edgecolor="black")
 
     # --- AJUSTE VISUAL PARA BARRAS: Impede barras gigantes se houver só 1 serviço ---
     if len(servicos) == 1:
@@ -182,14 +185,12 @@ def plotar_comparativo(caminhos: list[Path], out_dir: Path | None = None) -> Non
     fig.suptitle("Comparação de algoritmos por serviço", fontsize=16, fontweight="bold")
     fig.tight_layout()
 
-    pdf = caminhos[0].with_name("grafico_comparativo.pdf")
-    fig.savefig(pdf, format="pdf", bbox_inches="tight", pad_inches=0.05)
-    print(f"Gráfico comparativo salvo: {pdf}")
-    if out_dir is not None:
-        out_dir.mkdir(parents=True, exist_ok=True)
-        png = out_dir / "comparativo_servicos.png"
-        fig.savefig(png, format="png", bbox_inches="tight", pad_inches=0.05, dpi=150)
-        print(f"Gráfico comparativo salvo: {png}")
+    out_dir = out_dir or Path("slides")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    png = out_dir / "comparativo_servicos.png"
+    fig.savefig(png, format="png", bbox_inches="tight", pad_inches=0.05, dpi=180)
+    print(f"Gráfico comparativo salvo: {png}")
+    plt.close(fig)
 
 
 def plotar_comparativo_linhas(
@@ -213,21 +214,23 @@ def plotar_comparativo_linhas(
                 saved.append(float(row["cpu_saved"]))
 
         # Gráficos mais limpos: linhas totalmente sólidas (linestyle="-") e sem marcadores
-        ax1.plot(tempos, aceit, label=rotulo, color=cor, linewidth=2.0, linestyle="-")
-        ax2.plot(tempos, saved, label=rotulo, color=cor, linewidth=2.0, linestyle="-")
+        ax1.plot(tempos, aceit, label=rotulo, color=cor, linewidth=1.7, linestyle="-")
+        ax2.plot(tempos, saved, label=rotulo, color=cor, linewidth=1.7, linestyle="-")
 
     ax1.set_xlabel("Tempo de simulação (s)", fontsize=13, fontweight="bold")
     ax1.set_ylabel("Taxa de aceitação (%)", fontsize=13, fontweight="bold")
     ax1.set_ylim(0, 105)
     ax1.grid(linestyle="--", alpha=0.3)
     # Legenda inteligente (procura o espaço mais vazio) e sutil
-    ax1.legend(loc="best", fontsize=9, framealpha=0.9)
+    ax1.legend(loc="upper center", bbox_to_anchor=(0.5, 1.16), ncol=4,
+               fontsize=9, frameon=True, framealpha=1.0, edgecolor="black")
 
     ax2.set_xlabel("Tempo de simulação (s)", fontsize=13, fontweight="bold")
     ax2.set_ylabel("CPU economizado (sharing)", fontsize=13, fontweight="bold")
     ax2.grid(linestyle="--", alpha=0.3)
     # Legenda inteligente (procura o espaço mais vazio) e sutil
-    ax2.legend(loc="best", fontsize=9, framealpha=0.9)
+    ax2.legend(loc="upper center", bbox_to_anchor=(0.5, 1.16), ncol=4,
+               fontsize=9, frameon=True, framealpha=1.0, edgecolor="black")
 
     for ax in (ax1, ax2):
         ax.tick_params(labelsize=11)
@@ -238,14 +241,12 @@ def plotar_comparativo_linhas(
                  fontsize=16, fontweight="bold")
     fig.tight_layout()
 
-    pdf = fluxos[0].with_name("grafico_comparativo_linhas.pdf")
-    fig.savefig(pdf, format="pdf", bbox_inches="tight", pad_inches=0.05)
-    print(f"Gráfico de linhas salvo: {pdf}")
-    if out_dir is not None:
-        out_dir.mkdir(parents=True, exist_ok=True)
-        png = out_dir / "comparativo_linhas.png"
-        fig.savefig(png, format="png", bbox_inches="tight", pad_inches=0.05, dpi=150)
-        print(f"Gráfico de linhas salvo: {png}")
+    out_dir = out_dir or Path("slides")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    png = out_dir / "comparativo_linhas.png"
+    fig.savefig(png, format="png", bbox_inches="tight", pad_inches=0.05, dpi=180)
+    print(f"Gráfico de linhas salvo: {png}")
+    plt.close(fig)
 
 
 def _parse_compare_lines(spec: str) -> tuple[list[Path], list[str]]:
@@ -274,8 +275,8 @@ if __name__ == "__main__":
     parser.add_argument("--compare-lines", type=str, default=None,
                         help="Flows CSV dos algoritmos com rótulo, separados por vírgula "
                              "(ex.: --compare-lines 'REPLIC=replic.csv,MSF=msf.csv')")
-    parser.add_argument("--out", type=Path, default=None,
-                        help="Diretório de saída (salva PNG além do PDF).")
+    parser.add_argument("--out", type=Path, default=Path("slides"),
+                        help="Diretório de saída dos gráficos.")
     args = parser.parse_args()
 
     if args.compare_lines:

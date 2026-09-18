@@ -267,7 +267,9 @@ class Net2:
             ips = self.md_graph.nodes[allocated_node]["ips"] if self.is_mobile_node(allocated_node) else self.graph.nodes[allocated_node]["ips"]
 
             packet = (next_vnf.get_income_interface_bandwidth() / 60) * 1e6
-            total_latency += (packet * 10 * 1000) / ips if ips > 0 else float('inf')
+            base_latency = (packet * 10 * 1000) / ips if ips > 0 else float('inf')
+            alpha = float(getattr(sfc, "vnf_alphas", {}).get(next_vnf.id, 1.0))
+            total_latency += base_latency / max(alpha, 1e-3)
 
             if len(allocation_path) > 1:
                 for u, v in zip(allocation_path[:-1], allocation_path[1:]):

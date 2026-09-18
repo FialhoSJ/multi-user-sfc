@@ -1,4 +1,6 @@
+import argparse
 import os
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -46,7 +48,7 @@ def formatar_eixo_x_em_k(x, pos):
 # ==============================================================================
 # FUNÇÃO PRINCIPAL DE PLOTAGEM
 # ==============================================================================
-def plotar_grafico_final(projetos, base_log_dir="logs/"):
+def plotar_grafico_final(projetos, base_log_dir="logs/", out_dir=Path("slides")):
     dados_carregados = {}
     min_global = float("inf")
     max_global = float("-inf")
@@ -94,34 +96,35 @@ def plotar_grafico_final(projetos, base_log_dir="logs/"):
             label=nome_final,
             color=cor_final,
             linestyle="-",
-            linewidth=4.5,
+            linewidth=1.8,
         )
         legend_handles.append(linha)
 
     # 4. Estilo Visual dos Eixos
     ax.set_ylim(0.0, 1.0)
 
-    ax.set_ylabel("MRW", fontsize=26, fontweight="bold")
-    ax.set_xlabel("Training steps", fontsize=26, fontweight="bold")
+    ax.set_ylabel("MRW", fontsize=14, fontweight="bold")
+    ax.set_xlabel("Training steps", fontsize=14, fontweight="bold")
 
     # Formatação dos Ticks
     ax.xaxis.set_major_formatter(FuncFormatter(formatar_eixo_x_em_k))
-    ax.tick_params(axis="both", which="major", labelsize=20)
+    ax.tick_params(axis="both", which="major", labelsize=10)
     for label in ax.get_xticklabels() + ax.get_yticklabels():
         label.set_fontweight("bold")
 
     # Grid tracejado
-    ax.grid(axis="both", linestyle="--", alpha=0.5, linewidth=1.0)
+    ax.grid(axis="both", linestyle="--", alpha=0.3, linewidth=0.8)
 
     # ==========================================================================
     # 5. LEGENDA IDÊNTICA À REFERÊNCIA (Borda Forte e Serif)
     # ==========================================================================
     leg = ax.legend(
         handles=legend_handles,
-        loc="lower right",
+        loc="upper center",
+        bbox_to_anchor=(0.5, 1.16),
         frameon=True,
         handlelength=2.0,
-        fontsize=24,
+        fontsize=10,
         facecolor="white",
         framealpha=1.0,  # Opaco 1.0 para o grid não vazar por trás da legenda
     )
@@ -131,18 +134,22 @@ def plotar_grafico_final(projetos, base_log_dir="logs/"):
         text.set_fontweight("bold")
 
     # Borda preta grossa
-    leg.get_frame().set_linewidth(2.5)
+    leg.get_frame().set_linewidth(1.0)
     leg.get_frame().set_edgecolor("black")
 
-    # 6. Salvar Imagem em PDF
-    nome_arquivo = "grafico_recompensas_artigo_final.pdf"
-    plt.savefig(nome_arquivo, format="pdf", bbox_inches="tight", pad_inches=0.05)
-    print(f"\n✅ Gráfico salvo com sucesso como '{nome_arquivo}'")
-
-    plt.show()
+    # 6. Salvar apenas na pasta de gráficos do projeto.
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    nome_arquivo = out_dir / "grafico_recompensas.png"
+    fig.savefig(nome_arquivo, format="png", dpi=180, bbox_inches="tight", pad_inches=0.05)
+    print(f"Gráfico salvo com sucesso como '{nome_arquivo}'")
+    plt.close(fig)
 
 
 if __name__ == "__main__":
-    # Mantemos os nomes reais das pastas dos logs aqui
-    modelos_para_comparar = ["REPLIC", "DRL"]
-    plotar_grafico_final(modelos_para_comparar)
+    parser = argparse.ArgumentParser(description="Plota recompensas de avaliações salvas.")
+    parser.add_argument("--logs", default="logs/", help="Diretório raiz dos logs.")
+    parser.add_argument("--models", default="REPLIC,DRL", help="Modelos separados por vírgula.")
+    parser.add_argument("--out", type=Path, default=Path("slides"), help="Diretório dos gráficos.")
+    args = parser.parse_args()
+    plotar_grafico_final([x.strip() for x in args.models.split(",") if x.strip()], args.logs, args.out)

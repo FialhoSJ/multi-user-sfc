@@ -135,15 +135,13 @@ class HybridPPO:
             masks = env.action_masks()
 
             if masks.sum() == 0:
-                ep_rewards.append(0.0)
-                ep_latency.append(0.0)
                 fail_counts["no_mask"] += 1
-                obs, _ = env.reset()
-                running_rewards = []
-                episode_continues = False
-                continue
+                effective_masks = np.zeros_like(masks, dtype=np.int8)
+                effective_masks[-1] = 1
+            else:
+                effective_masks = masks
 
-            node_idx, alpha, logp, value = self._sample_action(obs, masks)
+            node_idx, alpha, logp, value = self._sample_action(obs, effective_masks)
             next_obs, reward, terminated, truncated, _ = env.step((node_idx, alpha))
             done = terminated or truncated
 
@@ -154,7 +152,7 @@ class HybridPPO:
             buffer["values"].append(value)
             buffer["rewards"].append(float(reward))
             buffer["dones"].append(done)
-            buffer["masks"].append(np.asarray(masks, dtype=np.float32))
+            buffer["masks"].append(np.asarray(effective_masks, dtype=np.float32))
 
             steps += 1
             running_rewards.append(float(reward))
@@ -415,6 +413,9 @@ class HybridPPO:
                 "value_coef": self.value_coef,
                 "entropy_coef": self.entropy_coef,
                 "beta_entropy_coef": self.beta_entropy_coef,
+                "epochs": self.epochs,
+                "minibatch_size": self.minibatch_size,
+                "rollout_len": self.rollout_len,
             },
         }
         torch.save(checkpoint, str(path))

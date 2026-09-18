@@ -56,6 +56,8 @@ class HybridSFC:
         self.valid_nodes = None
         self.precomputed_paths = {}
         self.prev_active_nodes: set = set()
+        self._active_env = None
+        self.execution_mode = "fallback" if self.model is None else "ppo"
 
         self.cpu_factor = 5
         self.cache_factor = 5
@@ -81,15 +83,16 @@ class HybridSFC:
         self.route_info = {}
         self.alphas = {}
         self.latency = None
+        self.prev_active_nodes = set()
+        self.precomputed_paths = {}
+        self._active_env = None
 
     def install_substrate_network(self, graph, shareable_sfs=None):
         self.graph = graph
         self.valid_nodes = build_valid_nodes(self.graph)
-        for node_id in self.prev_active_nodes:
-            if node_id in graph:
-                graph.nodes[node_id]["is_active"] = True
-        if not self.precomputed_paths:
-            self.precomputed_paths = dict(nx.all_pairs_dijkstra_path(self.graph, weight="weight"))
+        # Physical availability is owned by the failure controller. Previous
+        # power activity must never resurrect a failed node.
+        self.precomputed_paths = {}
 
     def install_SFC(self, sfc: SFC):
         self.sfc = sfc
@@ -130,6 +133,8 @@ class HybridSFC:
         return self.fail_reason
 
     def handle_failure(self):
+        if self._active_env is not None:
+            self._active_env._restore_episode_state()
         self.route_info = {}
         self.alphas = {}
         self.latency = None
@@ -161,6 +166,7 @@ class HybridSFC:
             return False
 
         env.is_training = False
+        self._active_env = env
         self.fail_reason = None
         env.valid_nodes = self.valid_nodes
         env.set_prev_active_nodes(self.prev_active_nodes)
@@ -179,6 +185,9 @@ class HybridSFC:
         if not self.is_backup:
             logger.info(f"End algorithm, failed: {self.fail_reason}")
         return False
+
+    def get_execution_mode(self) -> str:
+        return self.execution_mode
 
     def algorithm(self, env: SFC_AllocationEnv_Hybrid):
         dst = self.sfc.get_substrate_node(self.sfc.get_dst_vnf())
@@ -237,7 +246,10 @@ class HybridSFC:
 
         best_idx = num_nodes - 1
         best_cost = float("inf")
+        masks = env.action_masks()
         for i, node_id in enumerate(env.valid_nodes):
+            if masks[i] == 0:
+                continue
             target = env.current_sfc.dst_node if i == num_nodes - 1 else node_id
             path = get_available_shortest_path_fast(env.graph, current_location, target, band_req)
             if not path:

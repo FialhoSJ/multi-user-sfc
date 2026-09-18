@@ -12,6 +12,7 @@ corrente com ``prev_active_nodes`` (estado persistido entre episódios/SFCs).
 
 from __future__ import annotations
 
+import copy as _copy
 from typing import Any
 
 import gymnasium
@@ -119,6 +120,8 @@ class SFC_AllocationEnv_Hybrid(gymnasium.Env):
         self._pair_lengths_cache: dict[int, dict] = {}
         self._powers_cache_key = None
         self._powers_cache: dict = {}
+        self._episode_snapshot: dict | None = None
+        self._eval_index = 0
 
         num_nodes = len(valid_nodes)
         self.action_space = spaces.Tuple(
@@ -154,7 +157,10 @@ class SFC_AllocationEnv_Hybrid(gymnasium.Env):
         idx = 0
 
         if self.is_training:
-            idx = np.random.randint(len(self.list_graph))
+            idx = int(self.np_random.integers(len(self.list_graph)))
+        else:
+            idx = self._eval_index % len(self.list_graph)
+            self._eval_index += 1
 
         self.graph = self.list_graph[idx]
         self._restore_graph_resources(idx)
@@ -167,6 +173,7 @@ class SFC_AllocationEnv_Hybrid(gymnasium.Env):
         self.active_nodes = set()
         self.servers_used = []
         self._mark_active_nodes()
+        self._episode_snapshot = self._snapshot_graph_state(self.graph)
 
         vnf = self.current_vnf
         bw_req = self.service_requirements[vnf.id]["out_bw"]
@@ -183,10 +190,21 @@ class SFC_AllocationEnv_Hybrid(gymnasium.Env):
         node_idx, alpha = action
         alpha = float(np.clip(alpha, 0.01, 1.0))
 
+        if not isinstance(node_idx, (int, np.integer)) or not (
+            0 <= int(node_idx) < len(self.valid_nodes)
+        ):
+            return self._fail_step("invalid_action")
+        node_idx = int(node_idx)
+
         if node_idx == len(self.valid_nodes) - 1:
             chosen_server = self.current_sfc.dst_node
         else:
             chosen_server = self.valid_nodes[node_idx]
+
+        if chosen_server not in self.graph.nodes:
+            return self._fail_step("invalid_node")
+        if not self.graph.nodes[chosen_server].get("is_active", True):
+            return self._fail_step("inactive_node")
 
         vnf = self.current_vnf
         band_req = self.service_requirements[vnf.id]["out_bw"]
@@ -238,7 +256,7 @@ class SFC_AllocationEnv_Hybrid(gymnasium.Env):
             self.active_nodes, self.prev_active_nodes, self._get_node_powers()
         )
         lat = self.cost_evaluator.compute_latency(self.graph, path, vnf, alpha, chosen_server)
-        sla_latency = self.latency_target_ms
+        sla_latency = self.current_sfc.get_latency_request() or self.cost_evaluator.sla_latency_ms
         reward, metrics = self.cost_evaluator.calculate_reward(c_b, c_op, lat, sla_latency)
         reward -= congestion_penalty
         reward += rel_reward
@@ -292,9 +310,12 @@ class SFC_AllocationEnv_Hybrid(gymnasium.Env):
 
         mask = []
         for i, node_id in enumerate(self.valid_nodes):
+            actual_node = self.current_sfc.dst_node if i == len(self.valid_nodes) - 1 else node_id
             is_valid_resource = 1 if self.features[i, 6] == 0 else 0
             is_allowed_node = 1 if node_id not in self.forbidden_nodes else 0
-            mask.append(is_valid_resource * is_allowed_node)
+            node_data = self.graph.nodes[actual_node] if actual_node in self.graph.nodes else {}
+            is_active = 1 if node_data.get("is_active", True) else 0
+            mask.append(is_valid_resource * is_allowed_node * is_active)
         return np.array(mask, dtype=np.int8)
 
     def set_prev_active_nodes(self, nodes) -> None:
@@ -380,6 +401,9 @@ class SFC_AllocationEnv_Hybrid(gymnasium.Env):
                 features[i, 7] = 1
 
             node_data = self.graph.nodes[node_id]
+            if not node_data.get("is_active", True):
+                features[i, 6] = 1
+                continue
             is_reusable = self.is_reusable_at_node(self.current_sfc, self.graph, node_id, vnf)
             features[i, 2] = float(is_reusable)
 
@@ -434,7 +458,10 @@ class SFC_AllocationEnv_Hybrid(gymnasium.Env):
 
     def _mark_active_nodes(self) -> None:
         for node_id, data in self.graph.nodes(data=True):
-            data["is_active"] = node_id in self.prev_active_nodes
+            # is_active is physical availability and must not be reused as a
+            # power-state flag. A cold but healthy server is still allocatable.
+            data.setdefault("is_active", True)
+            data["power_active"] = node_id in self.prev_active_nodes
             data["power_consumption"] = self._get_node_powers().get(node_id, 0.0)
 
     # =====================================================================
@@ -516,6 +543,7 @@ class SFC_AllocationEnv_Hybrid(gymnasium.Env):
     def _fail_step(self, reason: str):
         self.fail_reason = reason
         self.success = False
+        self._restore_episode_state()
         reward = self.reward_config.get("failure_penalty", -40.0)
 
         bw_req = self.service_requirements[self.current_vnf.id]["out_bw"]
@@ -592,9 +620,9 @@ class SFC_AllocationEnv_Hybrid(gymnasium.Env):
         for g in list_graph:
             sg = nx.Graph()
             for n, d in g.nodes(data=True):
-                sg.add_node(n, **d.copy())
+                sg.add_node(n, **_copy.deepcopy(dict(d)))
             for u, v, d in g.edges(data=True):
-                sg.add_edge(u, v, **d.copy())
+                sg.add_edge(u, v, **_copy.deepcopy(dict(d)))
             safe_graphs.append(sg)
 
         self.list_graph = safe_graphs
@@ -607,19 +635,7 @@ class SFC_AllocationEnv_Hybrid(gymnasium.Env):
             pass
 
     def _initialize_snapshots(self, list_graph: list[Graph] = None) -> dict:
-        return {
-            idx: {
-                "nodes": {
-                    n: {"cpu_used": d.get("cpu_used", 0), "cache_used": d.get("cache_used", 0)}
-                    for n, d in g.nodes(data=True)
-                },
-                "edges": {
-                    (u, v): {"bandwidth_used": d.get("bandwidth_used", 0)}
-                    for u, v, d in g.edges(data=True)
-                },
-            }
-            for idx, g in enumerate(list_graph)
-        }
+        return {idx: self._snapshot_graph_state(g) for idx, g in enumerate(list_graph)}
 
     def _restore_graph_resources(self, idx) -> None:
         snap = self.initial_resource_snapshot.get(idx)
@@ -627,10 +643,35 @@ class SFC_AllocationEnv_Hybrid(gymnasium.Env):
             return
         for n_id, st in snap["nodes"].items():
             if n_id in self.graph.nodes:
-                self.graph.nodes[n_id].update(st)
+                self.graph.nodes[n_id].clear()
+                self.graph.nodes[n_id].update(_copy.deepcopy(st))
         for (u, v), st in snap["edges"].items():
             if self.graph.has_edge(u, v):
-                self.graph.edges[u, v].update(st)
+                self.graph.edges[u, v].clear()
+                self.graph.edges[u, v].update(_copy.deepcopy(st))
+
+    @staticmethod
+    def _snapshot_graph_state(graph: Graph) -> dict:
+        return {
+            "nodes": {n: _copy.deepcopy(dict(d)) for n, d in graph.nodes(data=True)},
+            "edges": {(u, v): _copy.deepcopy(dict(d)) for u, v, d in graph.edges(data=True)},
+        }
+
+    def _restore_episode_state(self) -> None:
+        if self._episode_snapshot is None or self.graph is None:
+            return
+        for node_id, data in self._episode_snapshot["nodes"].items():
+            if node_id in self.graph.nodes:
+                self.graph.nodes[node_id].clear()
+                self.graph.nodes[node_id].update(_copy.deepcopy(data))
+        for (u, v), data in self._episode_snapshot["edges"].items():
+            if self.graph.has_edge(u, v):
+                self.graph.edges[u, v].clear()
+                self.graph.edges[u, v].update(_copy.deepcopy(data))
+        self.active_nodes.clear()
+        self.servers_used.clear()
+        self.allocation_results.clear()
+        self.latency_used = 0
 
     def get_dynamic_reliability(self, node_data: dict) -> float:
         cpu_cap = node_data.get("cpu_capacity", 1.0) or node_data.get(

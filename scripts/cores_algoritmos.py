@@ -11,6 +11,10 @@ CORES_ALGORITMOS = {
     "kuririn": "#F9844A",  # laranja
     "darsppo": "#6A4C93",  # roxo
     "hephaestus": "#E63946",  # vermelho
+    "hybrid": "#4C78A8",  # azul
+    "vegeta": "#59A14F",  # verde
+    "greedyb": "#E15759",  # vermelho
+    "musfico": "#B279A2",  # roxo claro
 }
 
 ROTULOS_CANONICOS = {
@@ -19,9 +23,20 @@ ROTULOS_CANONICOS = {
     "kuririn": "Kuririn",
     "darsppo": "DARSPPO",
     "hephaestus": "Hephaestus",
+    "hybrid": "Hybrid",
+    "vegeta": "VEGETA",
+    "greedyb": "GreedyB",
+    "musfico": "MUSFiCO",
 }
 
 DEFAULT_CORES = ["#4D774E", "#577590", "#F9844A", "#90BE6D", "#6A4C93", "#E63946"]
+
+# Hachuras permanecem distinguíveis mesmo em impressão monocromática.
+HACHURAS = ["///", "\\\\\\", "xx", "--", "++", ".."]
+
+
+def hachura_para(indice: int) -> str:
+    return HACHURAS[indice % len(HACHURAS)]
 
 
 def normalizar(label: str) -> str:

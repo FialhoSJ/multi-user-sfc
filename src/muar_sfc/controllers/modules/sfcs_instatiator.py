@@ -567,9 +567,14 @@ class SFCInstatiator:
                 try:
                     route_info = algorithm.get_route_info()
                     if type(algorithm).__name__ == "HybridSFC":
-                        total_latency, comp_latency, comm_latency = (
-                            self._compute_latency_only(graph, sfc, route_info)
+                        total_latency, comp_latency, comm_latency = self._compute_latency_only(
+                            graph, sfc, route_info, algorithm.get_alphas()
                         )
+                        if sfc.get_latency_request() and total_latency > sfc.get_latency_request():
+                            raise ValueError(
+                                f"SLA de latência violada para {sfc.id}: "
+                                f"{total_latency:.2f}ms > {sfc.get_latency_request()}ms"
+                            )
                         res_info = 0
                     else:
                         total_latency, comp_latency, comm_latency, res_info = (
@@ -594,6 +599,11 @@ class SFCInstatiator:
                 "resource_info": res_info if alg_success else 0,
                 "alphas": (
                     algorithm.get_alphas()
+                    if alg_success and type(algorithm).__name__ == "HybridSFC"
+                    else None
+                ),
+                "execution_mode": (
+                    algorithm.get_execution_mode()
                     if alg_success and type(algorithm).__name__ == "HybridSFC"
                     else None
                 ),
@@ -756,7 +766,7 @@ class SFCInstatiator:
 
         return vnf_is_shareable(vnf) if share_enabled else False
 
-    def _compute_latency_only(self, graph, sfc, route_info) -> tuple[float, float, float]:
+    def _compute_latency_only(self, graph, sfc, route_info, alphas=None) -> tuple[float, float, float]:
         """Latência unificada (comp + comm) a partir do route_info, SEM alocar recursos.
 
         Usada para o HybridSFC para que a coluna de latência seja comparável com
@@ -775,6 +785,8 @@ class SFCInstatiator:
                 continue
             node_id = path[0]
             comp_latency = calculate_computational_latency(graph, node_id, vnf)
+            alpha = float((alphas or {}).get(ms_name, 1.0))
+            comp_latency /= max(alpha, 1e-3)
             total_latency += comp_latency
             tot_comp += comp_latency
             if len(path) > 1:

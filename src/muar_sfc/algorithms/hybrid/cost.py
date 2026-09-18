@@ -92,7 +92,7 @@ class HybridSFCCostEvaluator:
         ``E(M) = α · Σ_{m∈M} Q_m + β · |M − M'|``
         """
         power_cost = sum(node_powers.get(m, DEFAULT_NODE_POWER) for m in active_nodes)
-        wear_cost = abs(len(active_nodes) - len(prev_active_nodes))
+        wear_cost = len(set(active_nodes).symmetric_difference(prev_active_nodes))
         return self.alpha_power * power_cost + self.beta_wear * wear_cost
 
     def compute_latency(self, graph, path: list, vnf, alpha: float, node) -> float:
@@ -133,7 +133,7 @@ class HybridSFCCostEvaluator:
         - Sucesso: +3, Falha: -3 (reduzido para não dominar)
         """
         target = self.latency_target_ms
-        hard_sla = self.sla_latency_ms
+        hard_sla = float(sla_latency) if sla_latency is not None else self.sla_latency_ms
 
         # Bandas e operacional: mesmos dos artigos originais
         r_bw = 2.0 / (c_banda + 1.0)
@@ -154,7 +154,13 @@ class HybridSFCCostEvaluator:
         # Penalidade por consumo excessivo de recursos
         resource_penalty = 0.05 * c_operacional
 
-        reward = r_bw + r_op + r_lat - sla_penalty - resource_penalty
+        reward = (
+            self.wb * r_bw
+            + self.wc * r_op
+            + self.wl * r_lat
+            - sla_penalty
+            - resource_penalty
+        )
 
         metrics = {
             "bandwidth_cost": c_banda,
